@@ -23,6 +23,16 @@ public class Crypto {
         return Base64.getEncoder().encodeToString(hmacBytes);
     }
 
+    public static boolean verifyHmac(String message, String receivedHmac, SecretKey hmacKey) {
+        try {
+            String calculatedHmac = createHmac(message, hmacKey);
+            return calculatedHmac.equals(receivedHmac);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
     public static String signMessage(String message, PrivateKey privateKey) throws Exception {
         Signature signature = Signature.getInstance("SHA256withRSA");
         signature.initSign(privateKey);
