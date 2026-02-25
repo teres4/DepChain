@@ -16,25 +16,25 @@ public class Crypto {
         return keyGenerator.generateKey();
     }
 
-    public static String createHmac(byte[] message, SecretKey hmacKey) throws Exception {
+    public static String createHmac(String message, SecretKey hmacKey) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(hmacKey);
-        byte[] hmacBytes = mac.doFinal(message);
+        byte[] hmacBytes = mac.doFinal(message.getBytes());
         return Base64.getEncoder().encodeToString(hmacBytes);
     }
 
-    public static String signMessage(byte[] message, PrivateKey privateKey) throws Exception {
+    public static String signMessage(String message, PrivateKey privateKey) throws Exception {
         Signature signature = Signature.getInstance("SHA256withRSA");
         signature.initSign(privateKey);
-        signature.update(message);
+        signature.update(message.getBytes());
         byte[] signatureBytes = signature.sign();
         return Base64.getEncoder().encodeToString(signatureBytes);
     }
     
-    public static boolean verifySignature(byte[] message, String base64Signature, PublicKey publicKey) throws Exception {
+    public static boolean verifySignature(String message, String base64Signature, PublicKey publicKey) throws Exception {
         Signature signature = Signature.getInstance("SHA256withRSA");
         signature.initVerify(publicKey);
-        signature.update(message);
+        signature.update(message.getBytes());
         byte[] signatureBytes = Base64.getDecoder().decode(base64Signature);
         return signature.verify(signatureBytes);
     }
