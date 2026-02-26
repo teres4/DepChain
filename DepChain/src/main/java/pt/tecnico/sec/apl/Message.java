@@ -1,6 +1,7 @@
 package pt.tecnico.sec.apl;
 
 import java.net.DatagramPacket;
+import java.net.InetSocketAddress;
 
 import javax.xml.crypto.Data;
 
@@ -84,10 +85,10 @@ public class Message {
         return type;
     }
 
-    public toString toDatagramPacket() {
-        // convert the message to a datagram packet
-        return String.format("%s:%d:%s:%s", type.name(), sequenceNumber, new String(payload), new String(hmac))
-                .getBytes();
-        // TODO:
+    public DatagramPacket toDatagramPacket(InetSocketAddress addr) {
+        // TODO: eventually change this to JSON instead of being colon separated
+        String jsonMessage = String.format("%s:%d:%s:%s", type.name(), sequenceNumber, new String(payload), new String(hmac));
+        byte[] data = jsonMessage.getBytes();
+        return new DatagramPacket(data, data.length, addr);
     }
 }
