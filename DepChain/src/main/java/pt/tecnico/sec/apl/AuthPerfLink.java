@@ -147,25 +147,35 @@ public class AuthPerfLink {
         }
     }
 
+    // connection reply has message type, seq number 1, and HMAC and payload (ACK + senderID) 
     public void handleConnectionReply(Message msg, InetSocketAddress addr) {
         try {
-            long senderID = Long.parseLong(new String(msg.getPayload()));
-            Session session = sessionManager.getSession(senderID);
-
-            if (session == null) {
-                System.err.println("No session found for sender ID: " + senderID);
+            if (msg.getType() != MessageType.CONNECTION_REPLY) {
+                System.err.println("Invalid message type for connection reply from: " + addr);
+                return;
+            }
+            MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
+            if (senderMember == null) {
+                System.err.println("Unknown sender address: " + addr);
                 return;
             }
 
-            // TODO: checking HMAC wrong, should compare with contents of the entire reply
-            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), msg.getPayload());
+            Session session = sessionManager.getSession(senderMember.getId());
+            if (session == null) {
+                System.err.println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
+                return;
+            }
+
+            if (msg.getSequenceNumber() != session.getSequenceNumber() + 1) {
+                System.err.println("Invalid sequence number in connection reply from: " + addr);
+                return;
+            }
+
+            // Verify HMAC
+            byte[] data = concatenateMessageParts(msg.getType(), msg.getPayload(), msg.getSequenceNumber());
+            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), data);
             if (!Arrays.equals(expectedHmac, msg.getHmac())) {
                 System.err.println("HMAC verification failed for connection reply from: " + addr);
-                return;
-            }
-
-            if (msg.getSequenceNumber() != 1) {
-                System.err.println("Invalid sequence number in connection reply from: " + addr);
                 return;
             }
 
