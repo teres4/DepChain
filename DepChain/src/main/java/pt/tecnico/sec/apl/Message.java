@@ -5,6 +5,8 @@ import java.net.InetSocketAddress;
 
 import javax.xml.crypto.Data;
 
+import com.google.gson.Gson;
+
 import pt.tecnico.sec.utils.*;
 
 public class Message {
@@ -42,6 +44,17 @@ public class Message {
         this.hmac = hmac;
     }
 
+    public Message(DatagramPacket packet) {
+        Gson gson = new Gson();
+        String jsonMessage = new String(packet.getData(), 0, packet.getLength());
+        Message parsedMessage = gson.fromJson(jsonMessage, Message.class);
+
+        this.type = parsedMessage.type;
+        this.payload = parsedMessage.payload;
+        this.sequenceNumber = parsedMessage.sequenceNumber;
+        this.hmac = parsedMessage.hmac;
+    }
+
     public MessageType getType() {
         return type;
     }
@@ -58,36 +71,9 @@ public class Message {
         return hmac;
     }
 
-    public Message(DatagramPacket packet) {
-        // parse the message and initialize the fields
-        // the message format is: MessageType:SequenceNumber:Data:HMAC
-        String message = new String(packet.getData(), 0, packet.getLength());
-        String[] parts = message.split(":");
-        if (parts.length < 2) {
-            // We need at least the message type and the sequence number
-            throw new IllegalArgumentException("Malformed message");
-        }
-        this.type = MessageType.valueOf(parts[0]);
-        this.sequenceNumber = Long.parseLong(parts[1]);
-        if (parts.length > 2) {
-            this.payload = parts[2].getBytes();
-        } else {
-            this.payload = new byte[0];
-        }
-        if (parts.length > 3) {
-            this.hmac = parts[3].getBytes();
-        } else {
-            this.hmac = new byte[0];
-        }
-    }
-
-    public MessageType getMessageType() {
-        return type;
-    }
-
     public DatagramPacket toDatagramPacket(InetSocketAddress addr) {
-        // TODO: eventually change this to JSON instead of being colon separated
-        String jsonMessage = String.format("%s:%d:%s:%s", type.name(), sequenceNumber, new String(payload), new String(hmac));
+        Gson gson = new Gson();
+        String jsonMessage = gson.toJson(this);
         byte[] data = jsonMessage.getBytes();
         return new DatagramPacket(data, data.length, addr);
     }

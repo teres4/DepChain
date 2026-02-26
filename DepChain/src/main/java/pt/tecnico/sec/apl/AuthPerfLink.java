@@ -33,10 +33,7 @@ public class AuthPerfLink {
     // session request --> message + sequence number + sender ID + secret key
     // message --> message + sequence number + hmac +
     public void send(Message message, Session session) {
-
-        // check if theres a session with senderId
-        DatagramPacket packet = new DatagramPacket(message.toString().getBytes(), message.toString().getBytes().length,
-                session.getAddr());
+        DatagramPacket packet = message.toDatagramPacket(session.getAddr());
 
         boolean ackReceived = false;
         while (!ackReceived) {
@@ -56,7 +53,7 @@ public class AuthPerfLink {
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
             try {
                 datagramSocket.receive(packet);
-                String message = new String(packet.getData(), 0, packet.getLength());
+                Message message = new Message(packet);
                 System.out.println("Received: " + message);
                 executorService.submit(() -> handlePacket(packet));
             } catch (IOException e) {
