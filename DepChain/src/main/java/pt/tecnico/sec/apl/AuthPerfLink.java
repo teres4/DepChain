@@ -10,6 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.Arrays;
 import pt.tecnico.sec.utils.MessageType;
 import pt.tecnico.sec.utils.Crypto;
+import pt.tecnico.sec.utils.MemberInfo;
 import pt.tecnico.sec.utils.MemberManagement;
 
 public class AuthPerfLink {
@@ -23,10 +24,6 @@ public class AuthPerfLink {
     private MemberManagement memberManagement = new MemberManagement();
 
     public AuthPerfLink() throws IOException {
-    }
-
-    public void createSession(long senderID) {
-        sessionManager.createSession(senderID);
     }
 
     // send authenticated message - gotta include sequence number and hmac
@@ -163,6 +160,32 @@ public class AuthPerfLink {
         // verify the HMAC and the sequence number, and if they are correct, process the
         // message
         // session.replyReceived();
+    }
+
+    public void startConnection(long receiverID) {
+        try {
+
+            // generate session key and encrypt it with receiver public key
+            MemberInfo receiverInfo = memberManagement.getMember(receiverID);
+            if (receiverInfo == null) {
+                System.err.println("No member found with ID: " + receiverID);
+                return;
+            }
+            SecretKey sessionKey = Crypto.generateSecretKey();
+            byte[] encryptedSessionKey = Crypto.encryptWithPublicKey(sessionKey.getEncoded(),
+                    receiverInfo.getPublicKey());
+
+            // send connection request with encrypted session key
+            long sequenceNumber = 0;
+            Message connectionRequest = new Message(MessageType.CONNECTION_REQUEST, encryptedSessionKey, sequenceNumber,
+                    new byte[0]); // TODO: verificar
+            Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), sessionKey);
+
+            send(connectionRequest, session); // send connection request and wait for reply
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.err.println("Failed to start connection: " + e.getMessage());
+        }
     }
 
 }

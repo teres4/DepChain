@@ -15,7 +15,9 @@ public class Message {
     private final long sequenceNumber;
 
     // optional
-    private final byte[] hmac;
+    private byte[] hmac;
+    private String signature;
+    private String encryptedSessionKey;
 
     /*
      * CONNECTION_REQUEST:

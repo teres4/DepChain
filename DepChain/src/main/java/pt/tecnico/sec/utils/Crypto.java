@@ -52,4 +52,9 @@ public interface Crypto {
         return signature.verify(signatureBytes);
     }
 
+    public static byte[] encryptWithPublicKey(byte[] data, PublicKey publicKey) throws Exception {
+        javax.crypto.Cipher cipher = javax.crypto.Cipher.getInstance("RSA");
+        cipher.init(javax.crypto.Cipher.ENCRYPT_MODE, publicKey);
+        return cipher.doFinal(data);
+    }
 }

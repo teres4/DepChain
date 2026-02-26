@@ -24,11 +24,10 @@ public class SessionManager {
         return sessions.containsKey(senderID);
     }
 
-    public Session createSession(long senderID, InetSocketAddress addr) throws Exception {
+    public Session createSession(long senderID, InetSocketAddress addr, SecretKey sessionKey) throws Exception {
         // create a new session and add it to the session manager
         // get socket adress from config
         long sequenceNumber = 0;
-        SecretKey sessionKey = Crypto.generateSecretKey();
         Session session = new Session(senderID, sequenceNumber, sessionKey, addr);
         addSession(senderID, session);
         return session;

@@ -6,7 +6,7 @@ import javax.crypto.SecretKey;
 
 public class Session {
 
-    private long senderID;
+    private long senderID; // replica ID of the other party in the session
     private long sequenceNumber;
     private SecretKey sessionKey;
     private boolean replyReceived = false;
@@ -49,6 +49,10 @@ public class Session {
 
     public InetSocketAddress getAddr() {
         return addr;
+    }
+
+    public long getSenderID() {
+        return senderID;
     }
 
 }
