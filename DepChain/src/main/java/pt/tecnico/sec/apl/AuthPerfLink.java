@@ -10,6 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.Arrays;
 import pt.tecnico.sec.utils.MessageType;
 import pt.tecnico.sec.utils.Crypto;
+import pt.tecnico.sec.utils.MemberManagement;
 
 public class AuthPerfLink {
 
@@ -19,6 +20,7 @@ public class AuthPerfLink {
     ExecutorService executorService = Executors.newFixedThreadPool(POOL_SIZE);
 
     private SessionManager sessionManager = new SessionManager();
+    private MemberManagement memberManagement = new MemberManagement();
 
     public AuthPerfLink() throws IOException {
     }
@@ -108,7 +110,9 @@ public class AuthPerfLink {
 
             long sequenceNumber = 1;
             // TODO: decrypt HMAC and save it on a variable
-            Message reply = new Message(MessageType.CONNECTION_REPLY, new byte[0], sequenceNumber, new byte[0]); // FIXME: send HMAC
+            Message reply = new Message(MessageType.CONNECTION_REPLY, new byte[0], sequenceNumber, new byte[0]); // FIXME:
+                                                                                                                 // send
+                                                                                                                 // HMAC
 
             DatagramPacket replyPacket = reply.toDatagramPacket(addr);
             datagramSocket.send(replyPacket);

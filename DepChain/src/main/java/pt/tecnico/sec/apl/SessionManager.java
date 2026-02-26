@@ -1,5 +1,6 @@
 package pt.tecnico.sec.apl;
 
+import java.net.InetSocketAddress;
 import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -23,12 +24,11 @@ public class SessionManager {
         return sessions.containsKey(senderID);
     }
 
-    public Session createSession(long senderID) {
+    public Session createSession(long senderID, InetSocketAddress addr) throws Exception {
         // create a new session and add it to the session manager
         // get socket adress from config
         long sequenceNumber = 0;
         SecretKey sessionKey = Crypto.generateSecretKey();
-        InetSocketAddress addr;/
         Session session = new Session(senderID, sequenceNumber, sessionKey, addr);
         addSession(senderID, session);
         return session;

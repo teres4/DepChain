@@ -9,7 +9,8 @@ import java.security.PublicKey;
 import java.security.SignatureException;
 import java.util.Base64;
 
-public class Crypto {
+public interface Crypto {
+
     // TODO fetch asymmetric keys functions
 
     public static SecretKey generateSecretKey() throws Exception {
