@@ -49,6 +49,14 @@ public class Message {
         return payload;
     }
 
+    public long getSequenceNumber() {
+        return sequenceNumber;
+    }
+
+    public byte[] getHmac() {
+        return hmac;
+    }
+
     public Message(DatagramPacket packet) {
         // parse the message and initialize the fields
         // the message format is: MessageType:SequenceNumber:Data:HMAC

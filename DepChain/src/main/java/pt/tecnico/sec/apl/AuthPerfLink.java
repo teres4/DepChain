@@ -7,6 +7,7 @@ import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.Arrays;
 import pt.tecnico.sec.utils.MessageType;
 import pt.tecnico.sec.utils.Crypto;
 
@@ -86,6 +87,7 @@ public class AuthPerfLink {
             case CONNECTION_REPLY:
                 // verify the HMAC and the sequence number, and if they are correct, mark the
                 // session as established
+                handleConnectionReply(msg, addr);
                 break;
             case ACK:
                 // mark the message as acknowledged
@@ -102,13 +104,53 @@ public class AuthPerfLink {
     }
 
     public void handleConnectionRequest(Message msg, InetSocketAddress addr) {
-        // create new session and send connection reply
+        try {
+            long senderID = Long.parseLong(new String(msg.getPayload()));
+            // TODO: maybe create session only after verifying contents of the message
+            Session session = sessionManager.createSession(senderID);
+
+            long sequenceNumber = 1;
+            // TODO: decrypt HMAC and save it on a variable
+            Message reply = new Message(MessageType.CONNECTION_REPLY, new byte[0], sequenceNumber, new byte[0]); // FIXME: send HMAC
+
+            DatagramPacket replyPacket = reply.toDatagramPacket(addr);
+            datagramSocket.send(replyPacket);
+
+            System.out.println("Connection reply sent to: " + addr);
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.err.println("Failed to handle connection request: " + e.getMessage());
+        }
     }
 
     public void handleConnectionReply(Message msg, InetSocketAddress addr) {
-        // verify the HMAC and the sequence number, and if they are correct, mark the
-        // session as established
-        // session.replyReceived();
+        try {
+            long senderID = Long.parseLong(new String(msg.getPayload()));
+            Session session = sessionManager.getSession(senderID);
+
+            if (session == null) {
+                System.err.println("No session found for sender ID: " + senderID);
+                return;
+            }
+
+            // TODO: checking HMAC wrong, should compare with contents of the entire reply
+            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), msg.getSequenceNumber().getBytes());
+            if (!Arrays.equals(expectedHmac, msg.getHmac())) {
+                System.err.println("HMAC verification failed for connection reply from: " + addr);
+                return;
+            }
+
+            if (msg.getSequenceNumber() != 1) {
+                System.err.println("Invalid sequence number in connection reply from: " + addr);
+                return;
+            }
+
+            session.replyReceived();
+            System.out.println("Connection reply verified and session established with: " + addr);
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.err.println("Failed to handle connection reply: " + e.getMessage());
+        }
     }
 
     public void handleAck(Message msg, InetSocketAddress addr) {
