@@ -1,12 +1,7 @@
 package pt.tecnico.sec.utils;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonArray;
-
-import java.io.FileReader;
 import java.io.File;
-import java.io.IOException;
+import java.io.FileReader;
 import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -14,6 +9,10 @@ import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Base64;
+
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 
 public class MemberManagement {
 
@@ -81,6 +80,15 @@ public class MemberManagement {
     public MemberInfo getMember(long id) {
         for (MemberInfo member : members) {
             if (member.getId() == id) {
+                return member;
+            }
+        }
+        return null;
+    }
+
+    public MemberInfo getMemberByAddress(InetSocketAddress addr) {
+        for (MemberInfo member : members) {
+            if (member.getAddr().equals(addr)) {
                 return member;
             }
         }

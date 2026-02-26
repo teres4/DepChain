@@ -103,7 +103,7 @@ public class AuthPerfLink {
         }
     }
 
-    // connection request has message type, sender id, seq number 0, session key encrypted 
+    // connection request has message type, seq number 0, session key encrypted 
     // with receiver public key, and digital signature using sender private key
     public void handleConnectionRequest(Message msg, InetSocketAddress addr) {
         try {
@@ -118,13 +118,13 @@ public class AuthPerfLink {
             }
 
             // Verify digital signature
+            MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
+            if (senderMember == null) {
+                System.err.println("Unknown sender address: " + addr);
+                return;
+            }
 
-            // TODO PLS VERIFY THIS
-            // does this work? maybe the sender id should be in a separate field in the message instead of inside payload
-            // or maybe the payload should be a json object with different fields for sender id, session key, etc
-            long senderID = Long.parseLong(new String(msg.getPayload())); // MIGHT HAVE TO REPLACE THIS WITH ACTUAL PAYLOAD PARSING TO EXTRACT SENDER ID
-
-            PublicKey senderPublicKey = memberManagement.getMember(senderID).getPublicKey();
+            PublicKey senderPublicKey = senderMember.getPublicKey();
             if (!Crypto.verifySignature(msg.getPayload(), msg.getSignature(), senderPublicKey)) {
                 System.err.println("Failed to verify signature for connection request from: " + addr);
                 return;
@@ -133,23 +133,16 @@ public class AuthPerfLink {
             // Extract session key
             byte[] sessionKeyBytes = Crypto.decryptWithPrivateKey(msg.getEncryptedSessionKey(), this.privateKey);
             SecretKey sessionKey = Crypto.bytesToSecretKey(sessionKeyBytes);
-            sessionManager.createSession(senderID, addr, sessionKey);
+            sessionManager.createSession(senderMember.getId(), addr, sessionKey);
 
             // Prepare reply and send it back to the sender
-            
-
-            long sequenceNumber = 1;
-            // TODO: decrypt HMAC and save it on a variable
-            Message reply = new Message(MessageType.CONNECTION_REPLY, new byte[0], sequenceNumber, new byte[0]); // FIXME:
-                                                                                                                 // send
-                                                                                                                 // HMAC
-
-            DatagramPacket replyPacket = reply.toDatagramPacket(addr);
+            // defini o payload do reply como "ACK" + senderID pq nsei o que por 
+            DatagramPacket replyPacket = prepareResponse(MessageType.CONNECTION_REPLY, "ACK" + senderMember.getId(), 
+                                                msg.getSequenceNumber() + 1, sessionKey, addr);
             datagramSocket.send(replyPacket);
 
             System.out.println("Connection reply sent to: " + addr);
         } catch (Exception e) {
-            e.printStackTrace();
             System.err.println("Failed to handle connection request: " + e.getMessage());
         }
     }
@@ -195,13 +188,37 @@ public class AuthPerfLink {
         // session.replyReceived();
     }
 
-    public DatagramPacket prepareResponse() {
-        return msg.toDatagramPacket(session.getAddr());
+    public DatagramPacket prepareResponse(MessageType type, String payload, long sequenceNumber, 
+                                        SecretKey sessionKey, InetSocketAddress addr) {
+        try {
+            byte[] hmacData = concatenateMessageParts(type, payload.getBytes(), sequenceNumber);
+            byte[] hmac = Crypto.generateHMAC(sessionKey, hmacData);
+            
+            Message response = new Message(type, payload.getBytes(), sequenceNumber, hmac);
+
+            return response.toDatagramPacket(addr);
+        } catch (Exception e) {
+            System.err.println("Failed to prepare response: " + e.getMessage());
+            return null;
+        }
     }
 
+    // Concatenate message parts for HMAC
+    private byte[] concatenateMessageParts(MessageType type, byte[] payload, long sequenceNumber) {
+        byte[] typeBytes = type.name().getBytes();
+        byte[] seqBytes = String.valueOf(sequenceNumber).getBytes();
+        
+        byte[] result = new byte[typeBytes.length + payload.length + seqBytes.length];
+        System.arraycopy(typeBytes, 0, result, 0, typeBytes.length);
+        System.arraycopy(payload, 0, result, typeBytes.length, payload.length);
+        System.arraycopy(seqBytes, 0, result, typeBytes.length + payload.length, seqBytes.length);
+        
+        return result;
+    }
+    
+    // connection request has message type, seq number 0, encrypted session key and digital signature of requester
     public void startConnection(long receiverID) {
         try {
-
             // generate session key and encrypt it with receiver public key
             MemberInfo receiverInfo = memberManagement.getMember(receiverID);
             if (receiverInfo == null) {
@@ -212,9 +229,18 @@ public class AuthPerfLink {
             byte[] encryptedSessionKey = Crypto.encryptWithPublicKey(sessionKey.getEncoded(),
                     receiverInfo.getPublicKey());
 
+            // Payload contains: sender ID + encrypted session key
+            // its useless to send encrypted session key in the payload, but we need smth to sign and verify in the connection request
+            String payload = String.valueOf(ownId) + ":" + new String(encryptedSessionKey);
+            byte[] payloadBytes = payload.getBytes();
+
             // send connection request with encrypted session key
             long sequenceNumber = 0;
-            Message connectionRequest = new Message(MessageType.CONNECTION_REQUEST, encryptedSessionKey, sequenceNumber);
+            Message connectionRequest = new Message(MessageType.CONNECTION_REQUEST, payloadBytes, sequenceNumber, null);
+
+            connectionRequest.setEncryptedSessionKey(new String(encryptedSessionKey));
+            connectionRequest.setSignature(Crypto.signMessage(new String(connectionRequest.getPayload()), this.privateKey));
+            
             Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), sessionKey);
 
             send(connectionRequest, session); // send connection request and wait for reply

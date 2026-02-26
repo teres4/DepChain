@@ -19,7 +19,6 @@ public class Message {
 
     /*
      * CONNECTION_REQUEST:
-     * sender id
      * seq_number 0
      * session key encrypted with receiver public key
      * digital signature using sender private key
@@ -42,13 +41,6 @@ public class Message {
         this.payload = payload;
         this.sequenceNumber = sequenceNumber;
         this.hmac = hmac;
-    }
-
-    public Message(MessageType type, byte[] payload, long sequenceNumber) {
-        this.type = type;
-        this.payload = payload;
-        this.sequenceNumber = sequenceNumber;
-        this.hmac = null;
     }
 
     public Message(DatagramPacket packet) {
