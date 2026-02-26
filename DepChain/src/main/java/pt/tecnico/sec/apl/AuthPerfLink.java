@@ -1,17 +1,21 @@
 package pt.tecnico.sec.apl;
 
-import javax.crypto.SecretKey;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.Arrays;
-import pt.tecnico.sec.utils.MessageType;
+
+import javax.crypto.SecretKey;
+
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
 import pt.tecnico.sec.utils.MemberManagement;
+import pt.tecnico.sec.utils.MessageType;
 
 public class AuthPerfLink {
 
@@ -20,17 +24,17 @@ public class AuthPerfLink {
     private final int POOL_SIZE = 100;
     ExecutorService executorService = Executors.newFixedThreadPool(POOL_SIZE);
 
+    private long ownId;
+    private PrivateKey privateKey;
+
     private SessionManager sessionManager = new SessionManager();
     private MemberManagement memberManagement = new MemberManagement();
 
-    public AuthPerfLink() throws IOException {
+    public AuthPerfLink(long ownId, PrivateKey privateKey) throws IOException {
+        this.ownId = ownId;
+        this.privateKey = privateKey;
     }
 
-    // send authenticated message - gotta include sequence number and hmac
-    // wait for ack and retransmit if not received within timeout
-
-    // session request --> message + sequence number + sender ID + secret key
-    // message --> message + sequence number + hmac +
     public void send(Message message, Session session) {
         DatagramPacket packet = message.toDatagramPacket(session.getAddr());
 
@@ -92,18 +96,47 @@ public class AuthPerfLink {
             case DATA:
                 // verify the HMAC and the sequence number, and if they are correct, process the
                 // message
-                handleData(msg);
+                handleData(msg, addr);
                 break;
             default:
                 break;
         }
     }
 
+    // connection request has message type, sender id, seq number 0, session key encrypted 
+    // with receiver public key, and digital signature using sender private key
     public void handleConnectionRequest(Message msg, InetSocketAddress addr) {
         try {
-            long senderID = Long.parseLong(new String(msg.getPayload()));
-            // TODO: maybe create session only after verifying contents of the message
-            Session session = sessionManager.createSession(senderID);
+            // Verify message contents
+            if (msg.getType() != MessageType.CONNECTION_REQUEST) {
+                System.err.println("Invalid message type for connection request from: " + addr);
+                return;
+            }
+            if (msg.getSequenceNumber() != 0) {
+                System.err.println("Invalid sequence number in connection request from: " + addr);
+                return;
+            }
+
+            // Verify digital signature
+
+            // TODO PLS VERIFY THIS
+            // does this work? maybe the sender id should be in a separate field in the message instead of inside payload
+            // or maybe the payload should be a json object with different fields for sender id, session key, etc
+            long senderID = Long.parseLong(new String(msg.getPayload())); // MIGHT HAVE TO REPLACE THIS WITH ACTUAL PAYLOAD PARSING TO EXTRACT SENDER ID
+
+            PublicKey senderPublicKey = memberManagement.getMember(senderID).getPublicKey();
+            if (!Crypto.verifySignature(msg.getPayload(), msg.getSignature(), senderPublicKey)) {
+                System.err.println("Failed to verify signature for connection request from: " + addr);
+                return;
+            }
+
+            // Extract session key
+            byte[] sessionKeyBytes = Crypto.decryptWithPrivateKey(msg.getEncryptedSessionKey(), this.privateKey);
+            SecretKey sessionKey = Crypto.bytesToSecretKey(sessionKeyBytes);
+            sessionManager.createSession(senderID, addr, sessionKey);
+
+            // Prepare reply and send it back to the sender
+            
 
             long sequenceNumber = 1;
             // TODO: decrypt HMAC and save it on a variable
@@ -132,7 +165,7 @@ public class AuthPerfLink {
             }
 
             // TODO: checking HMAC wrong, should compare with contents of the entire reply
-            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), msg.getSequenceNumber().getBytes());
+            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), msg.getPayload());
             if (!Arrays.equals(expectedHmac, msg.getHmac())) {
                 System.err.println("HMAC verification failed for connection reply from: " + addr);
                 return;
@@ -156,10 +189,14 @@ public class AuthPerfLink {
         // marcar a mensagem como acknowledged de acordo com o sequence number
     }
 
-    public void handleData(Message msg) {
+    public void handleData(Message msg, InetSocketAddress addr) {
         // verify the HMAC and the sequence number, and if they are correct, process the
         // message
         // session.replyReceived();
+    }
+
+    public DatagramPacket prepareResponse() {
+        return msg.toDatagramPacket(session.getAddr());
     }
 
     public void startConnection(long receiverID) {
@@ -177,8 +214,7 @@ public class AuthPerfLink {
 
             // send connection request with encrypted session key
             long sequenceNumber = 0;
-            Message connectionRequest = new Message(MessageType.CONNECTION_REQUEST, encryptedSessionKey, sequenceNumber,
-                    new byte[0]); // TODO: verificar
+            Message connectionRequest = new Message(MessageType.CONNECTION_REQUEST, encryptedSessionKey, sequenceNumber);
             Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), sessionKey);
 
             send(connectionRequest, session); // send connection request and wait for reply

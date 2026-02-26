@@ -3,11 +3,9 @@ package pt.tecnico.sec.apl;
 import java.net.DatagramPacket;
 import java.net.InetSocketAddress;
 
-import javax.xml.crypto.Data;
-
 import com.google.gson.Gson;
 
-import pt.tecnico.sec.utils.*;
+import pt.tecnico.sec.utils.MessageType;
 
 public class Message {
     private final MessageType type;
@@ -46,6 +44,13 @@ public class Message {
         this.hmac = hmac;
     }
 
+    public Message(MessageType type, byte[] payload, long sequenceNumber) {
+        this.type = type;
+        this.payload = payload;
+        this.sequenceNumber = sequenceNumber;
+        this.hmac = null;
+    }
+
     public Message(DatagramPacket packet) {
         Gson gson = new Gson();
         String jsonMessage = new String(packet.getData(), 0, packet.getLength());
@@ -54,7 +59,14 @@ public class Message {
         this.type = parsedMessage.type;
         this.payload = parsedMessage.payload;
         this.sequenceNumber = parsedMessage.sequenceNumber;
-        this.hmac = parsedMessage.hmac;
+        if (parsedMessage.hmac != null) 
+            this.hmac = parsedMessage.hmac;
+        
+        if (parsedMessage.signature != null)
+            this.signature = parsedMessage.signature;
+
+        if (parsedMessage.encryptedSessionKey != null)
+            this.encryptedSessionKey = parsedMessage.encryptedSessionKey;
     }
 
     public MessageType getType() {
@@ -71,6 +83,26 @@ public class Message {
 
     public byte[] getHmac() {
         return hmac;
+    }
+
+    public void setHmac(byte[] hmac) {
+        this.hmac = hmac;
+    }
+
+    public String getSignature() {
+        return signature;
+    }
+
+    public void setSignature(String signature) {
+        this.signature = signature;
+    }
+
+    public String getEncryptedSessionKey() {
+        return encryptedSessionKey;
+    }
+
+    public void setEncryptedSessionKey(String encryptedSessionKey) {
+        this.encryptedSessionKey = encryptedSessionKey;
     }
 
     public DatagramPacket toDatagramPacket(InetSocketAddress addr) {

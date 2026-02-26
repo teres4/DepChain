@@ -22,8 +22,12 @@ public class Session {
         this.addr = addr;
     }
 
-    public String getSequenceNumber() {
-        return Long.toString(sequenceNumber);
+    public long getSequenceNumber() {
+        return sequenceNumber;
+    }
+
+    public void setSequenceNumber(long sequenceNumber) {
+        this.sequenceNumber = sequenceNumber;
     }
 
     public SecretKey getSessionKey() {
