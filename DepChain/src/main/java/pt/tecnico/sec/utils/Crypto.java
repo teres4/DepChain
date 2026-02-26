@@ -1,4 +1,4 @@
-package main.java.pt.tecnico.sec.utils;
+package pt.tecnico.sec.utils;
 
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -10,8 +10,9 @@ import java.security.SignatureException;
 import java.util.Base64;
 
 public class Crypto {
+    // TODO fetch asymmetric keys functions
 
-    public static SecretKey generateHmacKey() throws Exception {
+    public static SecretKey generateSecretKey() throws Exception {
         KeyGenerator keyGenerator = KeyGenerator.getInstance("HmacSHA256");
         return keyGenerator.generateKey();
     }
@@ -40,8 +41,9 @@ public class Crypto {
         byte[] signatureBytes = signature.sign();
         return Base64.getEncoder().encodeToString(signatureBytes);
     }
-    
-    public static boolean verifySignature(String message, String base64Signature, PublicKey publicKey) throws Exception {
+
+    public static boolean verifySignature(String message, String base64Signature, PublicKey publicKey)
+            throws Exception {
         Signature signature = Signature.getInstance("SHA256withRSA");
         signature.initVerify(publicKey);
         signature.update(message.getBytes());

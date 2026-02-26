@@ -1,0 +1,9 @@
+{
+    "servers": [
+        {
+            "id": 1,
+            "port": 12345,
+            "keyfile": "server1.pem"
+        }
+    ]
+}

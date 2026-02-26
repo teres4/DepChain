@@ -1,5 +1,6 @@
 package pt.tecnico.sec.apl;
 
+import javax.crypto.SecretKey;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -7,6 +8,7 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import pt.tecnico.sec.utils.MessageType;
+import pt.tecnico.sec.utils.Crypto;
 
 public class AuthPerfLink {
 
@@ -20,9 +22,36 @@ public class AuthPerfLink {
     public AuthPerfLink() throws IOException {
     }
 
+    public void createSession(long senderID) {
+        sessionManager.createSession(senderID);
+    }
+
+    // send authenticated message - gotta include sequence number and hmac
+    // wait for ack and retransmit if not received within timeout
+
+    // session request --> message + sequence number + sender ID + secret key
+    // message --> message + sequence number + hmac +
+    public void send(Message message, Session session) {
+
+        // check if theres a session with senderId
+        DatagramPacket packet = new DatagramPacket(message.toString().getBytes(), message.toString().getBytes().length,
+                session.getAddr());
+
+        boolean ackReceived = false;
+        while (!ackReceived) {
+            try {
+                datagramSocket.send(packet);
+                ackReceived = session.waitForReply();
+
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
     public void receive() {
         while (true) {
-            byte[] buffer = new byte[1024];
+            byte[] buffer = new byte[1024]; // TODO check and set appropriate buffer size
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
             try {
                 datagramSocket.receive(packet);
@@ -46,33 +75,51 @@ public class AuthPerfLink {
 
         InetSocketAddress addr = new InetSocketAddress(packet.getAddress(), packet.getPort());
 
-        Message msg = parseMessage(packet);
+        Message msg = new Message(packet);
 
+        switch (msg.getType()) {
+            case CONNECTION_REQUEST:
+                // create new session and send connection reply
+                handleConnectionRequest(msg, addr);
+                break;
+
+            case CONNECTION_REPLY:
+                // verify the HMAC and the sequence number, and if they are correct, mark the
+                // session as established
+                break;
+            case ACK:
+                // mark the message as acknowledged
+                handleAck(msg, addr);
+                break;
+            case DATA:
+                // verify the HMAC and the sequence number, and if they are correct, process the
+                // message
+                handleData(msg);
+                break;
+            default:
+                break;
+        }
     }
 
-    public Message parseMessage(DatagramPacket packet) {
-        // parse the message and return a Message object
-        // the message format is: MessageType:SequenceNumber:Data:HMAC
-        String message = new String(packet.getData(), 0, packet.getLength());
-        String[] parts = message.split(":");
-        if (parts.length < 2) {
-            // We need at least the message type and the sequence number
-            return null; // ignore malformed message
-        }
+    public void handleConnectionRequest(Message msg, InetSocketAddress addr) {
+        // create new session and send connection reply
+    }
 
-        MessageType type;
-        try {
-            type = MessageType.valueOf(parts[0]);
-        } catch (IllegalArgumentException e) {
-            // Unknown message type
-            return null; // ignore malformed message
-        }
+    public void handleConnectionReply(Message msg, InetSocketAddress addr) {
+        // verify the HMAC and the sequence number, and if they are correct, mark the
+        // session as established
+        // session.replyReceived();
+    }
 
-        switch (type) {
-            // TODO: implement message parsing and session management logic here
-            default:
-                return null; // ignore unknown message types
-        }
+    public void handleAck(Message msg, InetSocketAddress addr) {
+        // identificar a sessao
+        // marcar a mensagem como acknowledged de acordo com o sequence number
+    }
+
+    public void handleData(Message msg) {
+        // verify the HMAC and the sequence number, and if they are correct, process the
+        // message
+        // session.replyReceived();
     }
 
 }
