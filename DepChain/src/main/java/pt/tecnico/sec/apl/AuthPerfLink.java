@@ -187,6 +187,19 @@ public class AuthPerfLink {
         }
     }
 
+    public void sendAck(Session session) {
+        try {
+            MemberInfo senderMember = memberManagement.getMemberByAddress(session.getAddr());
+            // defini o payload do reply como "ACK" + senderID pq nsei o que por no conteudo do ACK
+            DatagramPacket ackPacket = prepareResponse(MessageType.ACK, "ACK" + senderMember.getId(), 
+                                        session.getSequenceNumber() + 1, session.getSessionKey(), session.getAddr());
+            datagramSocket.send(ackPacket);
+            System.out.println("ACK sent to: " + session.getAddr());
+        } catch (IOException e) {
+            System.err.println("Failed to send ACK: " + e.getMessage());
+        }
+    }
+
     public void handleAck(Message msg, InetSocketAddress addr) {
         try {
             MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
@@ -218,6 +231,17 @@ public class AuthPerfLink {
             System.out.println("Message acknowledged for session with sender: " + addr);
         } catch (Exception e) {
             System.err.println("Failed to handle ACK: " + e.getMessage());
+        }
+    }
+
+    public void sendData(Session session, String content) {
+        try {
+            DatagramPacket dataPacket = prepareResponse(MessageType.DATA, content, session.getSequenceNumber() + 1, 
+                                            session.getSessionKey(), session.getAddr());
+            datagramSocket.send(dataPacket);
+            System.out.println("DATA sent to: " + session.getAddr());
+        } catch (IOException e) {
+            System.err.println("Failed to send DATA: " + e.getMessage());
         }
     }
 
