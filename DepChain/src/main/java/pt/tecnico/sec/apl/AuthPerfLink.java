@@ -4,11 +4,14 @@ import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
+import java.net.SocketException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.crypto.SecretKey;
 
@@ -19,20 +22,32 @@ import pt.tecnico.sec.utils.MessageType;
 
 public class AuthPerfLink {
 
-    DatagramSocket datagramSocket = new DatagramSocket(8080);
+    private final DatagramSocket datagramSocket;
+    private final ExecutorService executorService;
+    private final SessionManager sessionManager;
+    private final MemberManagement memberManagement;
 
-    private final int POOL_SIZE = 100;
-    ExecutorService executorService = Executors.newFixedThreadPool(POOL_SIZE);
+    private final long ownId;
+    private final PrivateKey privateKey;
 
-    private long ownId;
-    private PrivateKey privateKey;
+    private final AtomicBoolean running = new AtomicBoolean(true);
 
-    private SessionManager sessionManager = new SessionManager();
-    private MemberManagement memberManagement = new MemberManagement();
-
+    // Default constructor for production use
     public AuthPerfLink(long ownId, PrivateKey privateKey) throws IOException {
+        this(ownId, privateKey, new DatagramSocket(8080), Executors.newFixedThreadPool(100),
+                new SessionManager(), new MemberManagement());
+    }
+
+    // Constructor with dependency injection for testing
+    public AuthPerfLink(long ownId, PrivateKey privateKey, DatagramSocket socket,
+            ExecutorService executorService, SessionManager sessionManager,
+            MemberManagement memberManagement) {
         this.ownId = ownId;
         this.privateKey = privateKey;
+        this.datagramSocket = socket;
+        this.executorService = executorService;
+        this.sessionManager = sessionManager;
+        this.memberManagement = memberManagement;
     }
 
     public void send(Message message, Session session) {
@@ -51,7 +66,7 @@ public class AuthPerfLink {
     }
 
     public void receive() {
-        while (true) {
+        while (running.get() && !datagramSocket.isClosed()) {
             byte[] buffer = new byte[1024]; // TODO check and set appropriate buffer size
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
             try {
@@ -60,8 +75,25 @@ public class AuthPerfLink {
                 System.out.println("Received: " + message);
                 executorService.submit(() -> handlePacket(packet));
             } catch (IOException e) {
-                e.printStackTrace();
+                if (running.get()) {
+                    e.printStackTrace();
+                }
+                // If not running, socket was closed intentionally
             }
+        }
+    }
+
+    public void shutdown() {
+        running.set(false);
+        datagramSocket.close();
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -103,17 +135,12 @@ public class AuthPerfLink {
         }
     }
 
-    // connection request has message type, seq number 0, session key encrypted 
+    // connection request has message type, seq number 0, session key encrypted
     // with receiver public key, and digital signature using sender private key
     public void handleConnectionRequest(Message msg, InetSocketAddress addr) {
         try {
             // Verify message contents
-            if (msg.getType() != MessageType.CONNECTION_REQUEST) {
-                System.err.println("Invalid message type for connection request from: " + addr);
-                return;
-            }
-            if (msg.getSequenceNumber() != 0) {
-                System.err.println("Invalid sequence number in connection request from: " + addr);
+            if (!validateConnectionRequest(msg, addr)) {
                 return;
             }
 
@@ -136,9 +163,9 @@ public class AuthPerfLink {
             sessionManager.createSession(senderMember.getId(), addr, sessionKey);
 
             // Prepare reply and send it back to the sender
-            // defini o payload do reply como "ACK" + senderID pq nsei o que por 
-            DatagramPacket replyPacket = prepareResponse(MessageType.CONNECTION_REPLY, "ACK" + senderMember.getId(), 
-                                                msg.getSequenceNumber() + 1, sessionKey, addr);
+            // defini o payload do reply como "ACK" + senderID pq nsei o que por
+            DatagramPacket replyPacket = prepareResponse(MessageType.CONNECTION_REPLY, "ACK" + senderMember.getId(),
+                    msg.getSequenceNumber() + 1, sessionKey, addr);
             datagramSocket.send(replyPacket);
 
             System.out.println("Connection reply sent to: " + addr);
@@ -147,7 +174,21 @@ public class AuthPerfLink {
         }
     }
 
-    // connection reply has message type, seq number 1, and HMAC and payload (ACK + senderID) 
+    // Validation helper methods for testing
+    boolean validateConnectionRequest(Message msg, InetSocketAddress addr) {
+        if (msg.getType() != MessageType.CONNECTION_REQUEST) {
+            System.err.println("Invalid message type for connection request from: " + addr);
+            return false;
+        }
+        if (msg.getSequenceNumber() != 0) {
+            System.err.println("Invalid sequence number in connection request from: " + addr);
+            return false;
+        }
+        return true;
+    }
+
+    // connection reply has message type, seq number 1, and HMAC and payload (ACK +
+    // senderID)
     public void handleConnectionReply(Message msg, InetSocketAddress addr) {
         try {
             if (msg.getType() != MessageType.CONNECTION_REPLY) {
@@ -162,20 +203,16 @@ public class AuthPerfLink {
 
             Session session = sessionManager.getSession(senderMember.getId());
             if (session == null) {
-                System.err.println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
+                System.err
+                        .println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
                 return;
             }
 
-            if (msg.getSequenceNumber() != session.getSequenceNumber() + 1) {
-                System.err.println("Invalid sequence number in connection reply from: " + addr);
+            if (!verifySequenceNumber(msg, session, addr)) {
                 return;
             }
 
-            // TODO: use cryptolib function to verify HMAC
-            byte[] data = concatenateMessageParts(msg.getType(), msg.getPayload(), msg.getSequenceNumber());
-            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), data);
-            if (!Arrays.equals(expectedHmac, msg.getHmac())) {
-                System.err.println("HMAC verification failed for connection reply from: " + addr);
+            if (!verifyHmac(msg, session, addr)) {
                 return;
             }
 
@@ -187,12 +224,36 @@ public class AuthPerfLink {
         }
     }
 
+    boolean verifySequenceNumber(Message msg, Session session, InetSocketAddress addr) {
+        if (msg.getSequenceNumber() != session.getSequenceNumber() + 1) {
+            System.err.println("Invalid sequence number in message from: " + addr);
+            return false;
+        }
+        return true;
+    }
+
+    boolean verifyHmac(Message msg, Session session, InetSocketAddress addr) {
+        try {
+            byte[] data = concatenateMessageParts(msg.getType(), msg.getPayload(), msg.getSequenceNumber());
+            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), data);
+            if (!Arrays.equals(expectedHmac, msg.getHmac())) {
+                System.err.println("HMAC verification failed from: " + addr);
+                return false;
+            }
+            return true;
+        } catch (Exception e) {
+            System.err.println("HMAC verification error from: " + addr + " - " + e.getMessage());
+            return false;
+        }
+    }
+
     public void sendAck(Session session) {
         try {
             MemberInfo senderMember = memberManagement.getMemberByAddress(session.getAddr());
-            // defini o payload do reply como "ACK" + senderID pq nsei o que por no conteudo do ACK
-            DatagramPacket ackPacket = prepareResponse(MessageType.ACK, "ACK" + senderMember.getId(), 
-                                        session.getSequenceNumber() + 1, session.getSessionKey(), session.getAddr());
+            // defini o payload do reply como "ACK" + senderID pq nsei o que por no conteudo
+            // do ACK
+            DatagramPacket ackPacket = prepareResponse(MessageType.ACK, "ACK" + senderMember.getId(),
+                    session.getSequenceNumber() + 1, session.getSessionKey(), session.getAddr());
             datagramSocket.send(ackPacket);
             System.out.println("ACK sent to: " + session.getAddr());
         } catch (IOException e) {
@@ -210,20 +271,16 @@ public class AuthPerfLink {
 
             Session session = sessionManager.getSession(senderMember.getId());
             if (session == null) {
-                System.err.println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
+                System.err
+                        .println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
                 return;
             }
 
-            if (msg.getSequenceNumber() != session.getSequenceNumber() + 1) {
-                System.err.println("Invalid sequence number in ACK from: " + addr);
+            if (!verifySequenceNumber(msg, session, addr)) {
                 return;
             }
 
-            // TODO: use cryptolib function to verify HMAC
-            byte[] data = concatenateMessageParts(msg.getType(), msg.getPayload(), msg.getSequenceNumber());
-            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), data);
-            if (!Arrays.equals(expectedHmac, msg.getHmac())) {
-                System.err.println("HMAC verification failed for ACK from: " + addr);
+            if (!verifyHmac(msg, session, addr)) {
                 return;
             }
 
@@ -236,8 +293,8 @@ public class AuthPerfLink {
 
     public void sendData(Session session, String content) {
         try {
-            DatagramPacket dataPacket = prepareResponse(MessageType.DATA, content, session.getSequenceNumber() + 1, 
-                                            session.getSessionKey(), session.getAddr());
+            DatagramPacket dataPacket = prepareResponse(MessageType.DATA, content, session.getSequenceNumber() + 1,
+                    session.getSessionKey(), session.getAddr());
             datagramSocket.send(dataPacket);
             System.out.println("DATA sent to: " + session.getAddr());
         } catch (IOException e) {
@@ -255,24 +312,21 @@ public class AuthPerfLink {
 
             Session session = sessionManager.getSession(senderMember.getId());
             if (session == null) {
-                System.err.println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
+                System.err
+                        .println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
                 return;
             }
 
-            if (msg.getSequenceNumber() != session.getSequenceNumber() + 1) {
-                System.err.println("Invalid sequence number in DATA from: " + addr);
+            if (!verifySequenceNumber(msg, session, addr)) {
                 return;
             }
 
-            // TODO: use cryptolib function to verify HMAC
-            byte[] data = concatenateMessageParts(msg.getType(), msg.getPayload(), msg.getSequenceNumber());
-            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), data);
-            if (!Arrays.equals(expectedHmac, msg.getHmac())) {
-                System.err.println("HMAC verification failed for DATA from: " + addr);
+            if (!verifyHmac(msg, session, addr)) {
                 return;
             }
 
-            // TODO: later this message that is received with the data will be used in the consensus protocol
+            // TODO: later this message that is received with the data will be used in the
+            // consensus protocol
             System.out.println("Processing message from: " + addr);
             session.replyReceived();
         } catch (Exception e) {
@@ -280,13 +334,13 @@ public class AuthPerfLink {
         }
     }
 
-    public DatagramPacket prepareResponse(MessageType type, String payload, long sequenceNumber, 
-                                        SecretKey sessionKey, InetSocketAddress addr) {
+    public DatagramPacket prepareResponse(MessageType type, String payload, long sequenceNumber,
+            SecretKey sessionKey, InetSocketAddress addr) {
         try {
             // TODO: use cryptolib function to create HMAC
             byte[] hmacData = concatenateMessageParts(type, payload.getBytes(), sequenceNumber);
             byte[] hmac = Crypto.generateHMAC(sessionKey, hmacData);
-            
+
             Message response = new Message(type, payload.getBytes(), sequenceNumber, hmac);
 
             return response.toDatagramPacket(addr);
@@ -297,19 +351,20 @@ public class AuthPerfLink {
     }
 
     // Concatenate message parts for HMAC
-    private byte[] concatenateMessageParts(MessageType type, byte[] payload, long sequenceNumber) {
+    byte[] concatenateMessageParts(MessageType type, byte[] payload, long sequenceNumber) {
         byte[] typeBytes = type.name().getBytes();
         byte[] seqBytes = String.valueOf(sequenceNumber).getBytes();
-        
+
         byte[] result = new byte[typeBytes.length + payload.length + seqBytes.length];
         System.arraycopy(typeBytes, 0, result, 0, typeBytes.length);
         System.arraycopy(payload, 0, result, typeBytes.length, payload.length);
         System.arraycopy(seqBytes, 0, result, typeBytes.length + payload.length, seqBytes.length);
-        
+
         return result;
     }
-    
-    // connection request has message type, seq number 0, encrypted session key and digital signature of requester
+
+    // connection request has message type, seq number 0, encrypted session key and
+    // digital signature of requester
     public void startConnection(long receiverID) {
         try {
             // generate session key and encrypt it with receiver public key
@@ -323,7 +378,8 @@ public class AuthPerfLink {
                     receiverInfo.getPublicKey());
 
             // Payload contains: sender ID + encrypted session key
-            // its useless to send encrypted session key in the payload, but we need smth to sign and verify in the connection request
+            // its useless to send encrypted session key in the payload, but we need smth to
+            // sign and verify in the connection request
             String payload = String.valueOf(ownId) + ":" + new String(encryptedSessionKey);
             byte[] payloadBytes = payload.getBytes();
 
@@ -332,8 +388,9 @@ public class AuthPerfLink {
             Message connectionRequest = new Message(MessageType.CONNECTION_REQUEST, payloadBytes, sequenceNumber, null);
 
             connectionRequest.setEncryptedSessionKey(new String(encryptedSessionKey));
-            connectionRequest.setSignature(Crypto.signMessage(new String(connectionRequest.getPayload()), this.privateKey));
-            
+            connectionRequest
+                    .setSignature(Crypto.signMessage(new String(connectionRequest.getPayload()), this.privateKey));
+
             Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), sessionKey);
 
             send(connectionRequest, session); // send connection request and wait for reply
