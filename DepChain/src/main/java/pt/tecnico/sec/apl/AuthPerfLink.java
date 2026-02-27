@@ -22,6 +22,7 @@ import pt.tecnico.sec.utils.MemberManagement;
 import pt.tecnico.sec.utils.MessageType;
 
 public class AuthPerfLink {
+    public static final int BUFFER_SIZE = 65536; // Maximum UDP packet size
 
     private final DatagramSocket datagramSocket;
     private final ExecutorService executorService;
@@ -68,7 +69,7 @@ public class AuthPerfLink {
 
     public void receive() {
         while (running.get() && !datagramSocket.isClosed()) {
-            byte[] buffer = new byte[1024]; // TODO check and set appropriate buffer size
+            byte[] buffer = new byte[BUFFER_SIZE]; 
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
             try {
                 datagramSocket.receive(packet);

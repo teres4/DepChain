@@ -33,9 +33,9 @@ tmux select-layout tiled
 
 echo "Running members..."
 
-tmux send-keys -t $P1 "docker exec -it depchain_member1 mvn exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='1 ./config/keys/private_key1.pem'" C-m
-tmux send-keys -t $P2 "docker exec -it depchain_member2 mvn exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='2 ./config/keys/private_key2.pem'" C-m
-tmux send-keys -t $P3 "docker exec -it depchain_member3 mvn exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='3 ./config/keys/private_key3.pem'" C-m
-tmux send-keys -t $P4 "docker exec -it depchain_member4 mvn exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='4 ./config/keys/private_key4.pem'" C-m
+tmux send-keys -t $P1 "docker exec -it depchain_member1 mvn compile exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='1 ./config/keys/private_key1.pem'" C-m
+tmux send-keys -t $P2 "docker exec -it depchain_member2 mvn compile exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='2 ./config/keys/private_key2.pem'" C-m
+tmux send-keys -t $P3 "docker exec -it depchain_member3 mvn compile exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='3 ./config/keys/private_key3.pem'" C-m
+tmux send-keys -t $P4 "docker exec -it depchain_member4 mvn compile exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='4 ./config/keys/private_key4.pem'" C-m
 
 tmux attach -t $SESSION
