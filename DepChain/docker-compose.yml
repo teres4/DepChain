@@ -1,0 +1,20 @@
+services:
+  server1:
+    build: .
+    container_name: depchain_member1
+    command: tail -f /dev/null
+
+  server2:
+    build: .
+    container_name: depchain_member2
+    command: tail -f /dev/null
+
+  server3:
+    build: .
+    container_name: depchain_member3
+    command: tail -f /dev/null
+
+  server4:
+    build: .
+    container_name: depchain_member4
+    command: tail -f /dev/null

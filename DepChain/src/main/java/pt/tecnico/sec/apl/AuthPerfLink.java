@@ -14,6 +14,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.crypto.SecretKey;
 
+import com.google.gson.Gson;
+
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
 import pt.tecnico.sec.utils.MemberManagement;
@@ -385,6 +387,21 @@ public class AuthPerfLink {
         } catch (Exception e) {
             e.printStackTrace();
             System.err.println("Failed to start connection: " + e.getMessage());
+        }
+    }
+    // Inner class to represent the connection message
+    private static class ConnectionMessage {
+        private final String encryptedSessionKey;
+        private final String signature;
+
+        public ConnectionMessage(String encryptedSessionKey, String signature) {
+            this.encryptedSessionKey = encryptedSessionKey;
+            this.signature = signature;
+        }
+
+        public String toJson() {
+            Gson gson = new Gson();
+            return gson.toJson(this);
         }
     }
 

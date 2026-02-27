@@ -14,7 +14,6 @@ public class MemberManagement {
     private MemberInfo[] members;
 
     private final String CONFIG_FILE = "config/membership/memberconfig.json";
-    private final String ADRESS = "localhost";
 
     public MemberManagement(long ownId) {
         try {
@@ -40,20 +39,18 @@ public class MemberManagement {
                     continue;
                 }
 
+                String host = server.get("host").getAsString();
                 int port = server.get("port").getAsInt();
                 String keyFile = server.get("keyfile").getAsString();
 
-                // Load public key from file
                 PublicKey publicKey = Crypto.getPublicKey("config/keys/" + keyFile);
 
-                // Create InetSocketAddress (using localhost as default)
-                InetSocketAddress addr = new InetSocketAddress(ADRESS, port);
+                InetSocketAddress addr = new InetSocketAddress(host, port);
 
-                // Create MemberInfo object
                 members[index++] = new MemberInfo(id, publicKey, keyFile, addr);
             }
         } catch (Exception e) {
-            System.err.println("Error loading member configuration: " + e.getMessage());
+            System.err.println("Error loading member configuration:");
             e.printStackTrace();
         }
     }
@@ -73,6 +70,7 @@ public class MemberManagement {
 
     public MemberInfo getMemberByAddress(InetSocketAddress addr) {
         for (MemberInfo member : members) {
+            System.out.println("Checking member: " + member.getAddr() + " against " + addr);
             if (member.getAddr().equals(addr)) {
                 return member;
             }

@@ -22,7 +22,7 @@ public interface Crypto {
 
     public static PublicKey getPublicKey(String keyFilePath) throws Exception {
         Path path = Paths.get(keyFilePath);
-        String keyString = Files.readString(path);
+        String keyString = new String(Files.readAllBytes(path));
         keyString = keyString.replaceAll("-----BEGIN PUBLIC KEY-----", "")
                              .replaceAll("-----END PUBLIC KEY-----", "")
                              .replaceAll("\\s+", "");
@@ -34,7 +34,7 @@ public interface Crypto {
 
     public static PrivateKey getPrivateKey(String keyFilePath) throws Exception {
         Path path = Paths.get(keyFilePath);
-        String keyString = Files.readString(path);
+        String keyString = new String(Files.readAllBytes(path));
         keyString = keyString.replaceAll("-----BEGIN PRIVATE KEY-----", "")
                              .replaceAll("-----END PRIVATE KEY-----", "")
                              .replaceAll("\\s+", "");

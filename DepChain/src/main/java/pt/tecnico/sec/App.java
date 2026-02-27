@@ -28,7 +28,7 @@ public class App
         Scanner scanner = new Scanner(System.in);
         boolean running = true;
 
-        AuthPerfLink apl = null;
+        final AuthPerfLink apl;
         try {
             apl = new AuthPerfLink(ownId, privateKeyPath);
         } catch (Exception e) {
@@ -37,6 +37,8 @@ public class App
             scanner.close();
             return;
         }
+
+        new Thread(() -> apl.receive()).start();
 
         System.out.println("\n\u001B[32m" +
             "███████╗███████╗ ██████╗\n" +
@@ -51,7 +53,8 @@ public class App
         while (running) {
             System.out.println("\nPlease choose an option:");
             System.out.println("1. View all members info");
-            System.out.println("2. Exit");
+            System.out.println("2. Start a new session");
+            System.out.println("3. Exit");
             System.out.print("Your choice: ");
 
             String choice = scanner.nextLine();
@@ -68,10 +71,31 @@ public class App
                         System.out.println("No members available.");
                     }
                     break;
-
+                
                 case "2":
+                    System.out.println("Choose member ID to start a session with. Available Members:");
+                    MemberInfo[] availableMembers = apl.getMembers();
+                    if (availableMembers != null && availableMembers.length > 0) {
+                        for (MemberInfo member : availableMembers) {
+                            System.out.println("ID: " + member.getId() + " Address: " + member.getAddr());
+                        }
+                        System.out.print("Enter member ID: ");
+                        String memberIdStr = scanner.nextLine();
+                        try {
+                            long memberId = Long.parseLong(memberIdStr);
+                            apl.startConnection(memberId);
+                        } catch (NumberFormatException e) {
+                            System.out.println("Invalid member ID. Please enter a valid number.");
+                        }
+                    } else {
+                        System.out.println("No members available to start a session with.");
+                    }
+                    break;
+
+                case "3":
                     System.out.println("Exiting the application. Goodbye!");
                     running = false;
+                    apl.shutdown();
                     break;
 
                 default:
