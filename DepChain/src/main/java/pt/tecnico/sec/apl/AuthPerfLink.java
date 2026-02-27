@@ -32,8 +32,8 @@ public class AuthPerfLink {
     private final AtomicBoolean running = new AtomicBoolean(true);
 
     // Default constructor for production use
-    public AuthPerfLink(long ownId, PrivateKey privateKey) throws IOException {
-        this(ownId, privateKey, new DatagramSocket(8080), Executors.newFixedThreadPool(100),
+    public AuthPerfLink(long ownId, String privateKeyString) throws IOException, Exception {
+        this(ownId, Crypto.getPrivateKey(privateKeyString), new DatagramSocket(8080), Executors.newFixedThreadPool(100),
                 new SessionManager(), new MemberManagement());
     }
 
@@ -351,19 +351,6 @@ public class AuthPerfLink {
         }
     }
 
-    // Concatenate message parts for HMAC
-    byte[] concatenateMessageParts(MessageType type, byte[] payload, long sequenceNumber) {
-        byte[] typeBytes = type.name().getBytes();
-        byte[] seqBytes = String.valueOf(sequenceNumber).getBytes();
-
-        byte[] result = new byte[typeBytes.length + payload.length + seqBytes.length];
-        System.arraycopy(typeBytes, 0, result, 0, typeBytes.length);
-        System.arraycopy(payload, 0, result, typeBytes.length, payload.length);
-        System.arraycopy(seqBytes, 0, result, typeBytes.length + payload.length, seqBytes.length);
-
-        return result;
-    }
-
     // connection request has message type, seq number 0, encrypted session key and
     // digital signature of requester
     public void startConnection(long receiverID) {
@@ -401,4 +388,7 @@ public class AuthPerfLink {
         }
     }
 
+    public MemberInfo[] getMembers() {
+        return memberManagement.getMembers();
+    }
 }

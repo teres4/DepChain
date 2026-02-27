@@ -31,4 +31,13 @@ public class MemberInfo {
     public InetSocketAddress getAddr() {
         return addr;
     }
+
+    @Override
+    public String toString() {
+        return "MemberInfo{" +
+                "id=" + id +
+                ", keyFile='" + keyFile + '\'' +
+                ", addr=" + addr +
+                '}';
+    }
 }

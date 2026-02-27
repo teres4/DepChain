@@ -11,9 +11,38 @@ import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.KeyFactory;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
+
 public interface Crypto {
 
-    // TODO fetch asymmetric keys functions
+    public static PublicKey getPublicKey(String keyFilePath) throws Exception {
+        Path path = Paths.get(keyFilePath);
+        String keyString = Files.readString(path);
+        keyString = keyString.replaceAll("-----BEGIN PUBLIC KEY-----", "")
+                             .replaceAll("-----END PUBLIC KEY-----", "")
+                             .replaceAll("\\s+", "");
+        byte[] keyBytes = Base64.getDecoder().decode(keyString);
+        X509EncodedKeySpec spec = new X509EncodedKeySpec(keyBytes);
+        KeyFactory kf = KeyFactory.getInstance("RSA");
+        return kf.generatePublic(spec);
+    }
+
+    public static PrivateKey getPrivateKey(String keyFilePath) throws Exception {
+        Path path = Paths.get(keyFilePath);
+        String keyString = Files.readString(path);
+        keyString = keyString.replaceAll("-----BEGIN PRIVATE KEY-----", "")
+                             .replaceAll("-----END PRIVATE KEY-----", "")
+                             .replaceAll("\\s+", "");
+        byte[] keyBytes = Base64.getDecoder().decode(keyString);
+        PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(keyBytes);
+        KeyFactory kf = KeyFactory.getInstance("RSA");
+        return kf.generatePrivate(spec);
+    }
 
     public static SecretKey generateSecretKey() throws Exception {
         KeyGenerator keyGenerator = KeyGenerator.getInstance("AES");

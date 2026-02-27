@@ -22,6 +22,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
 class AuthPerfLinkTest {
@@ -133,10 +135,11 @@ class AuthPerfLinkTest {
 
         byte[] payload = "test".getBytes();
         long sequenceNumber = 1;
-        byte[] hmacData = authPerfLink.concatenateMessageParts(MessageType.DATA, payload, sequenceNumber);
-        byte[] hmac = Crypto.generateHMAC(sessionKey, hmacData);
-
-        Message msg = new Message(MessageType.DATA, payload, sequenceNumber, hmac);
+        Message msg = new Message(MessageType.DATA, payload, sequenceNumber);
+        
+        byte[] jsonMessage = msg.toJsonString().getBytes();
+        byte[] hmac = Crypto.generateHMAC(sessionKey, jsonMessage);
+        msg.setHmac(hmac);
 
         // Act
         boolean result = authPerfLink.verifyHmac(msg, mockSession, TEST_ADDR);
@@ -160,27 +163,6 @@ class AuthPerfLinkTest {
 
         // Assert
         assertFalse(result);
-    }
-
-    @Test
-    void testConcatenateMessageParts() {
-        // Arrange
-        MessageType type = MessageType.DATA;
-        byte[] payload = "testPayload".getBytes();
-        long sequenceNumber = 42;
-
-        // Act
-        byte[] result = authPerfLink.concatenateMessageParts(type, payload, sequenceNumber);
-
-        // Assert
-        assertNotNull(result);
-        assertTrue(result.length > 0);
-
-        // Verify the structure by reconstructing parts
-        String resultStr = new String(result);
-        assertTrue(resultStr.contains("DATA"));
-        assertTrue(resultStr.contains("testPayload"));
-        assertTrue(resultStr.contains("42"));
     }
 
     @Test
@@ -214,12 +196,14 @@ class AuthPerfLinkTest {
         when(mockMemberManagement.getMemberByAddress(TEST_ADDR)).thenReturn(mockMember);
         when(mockSessionManager.getSession(PEER_ID)).thenReturn(mockSession);
 
-        // Create valid ACK message
+        // Create valid ACK message with only 3 fields
         byte[] payload = "ACK".getBytes();
         long sequenceNumber = 1;
-        byte[] hmacData = authPerfLink.concatenateMessageParts(MessageType.ACK, payload, sequenceNumber);
-        byte[] hmac = Crypto.generateHMAC(sessionKey, hmacData);
-        Message msg = new Message(MessageType.ACK, payload, sequenceNumber, hmac);
+        Message msg = new Message(MessageType.ACK, payload, sequenceNumber);
+
+        // Generate HMAC separately
+        byte[] hmac = Crypto.generateHMAC(sessionKey, msg.toJsonString().getBytes());
+        msg.setHmac(hmac);
 
         // Act
         authPerfLink.handleAck(msg, TEST_ADDR);
@@ -255,12 +239,14 @@ class AuthPerfLinkTest {
         when(mockMemberManagement.getMemberByAddress(TEST_ADDR)).thenReturn(mockMember);
         when(mockSessionManager.getSession(PEER_ID)).thenReturn(mockSession);
 
-        // Create valid DATA message
+        // Create valid DATA message with only 3 fields
         byte[] payload = "some data".getBytes();
         long sequenceNumber = 1;
-        byte[] hmacData = authPerfLink.concatenateMessageParts(MessageType.DATA, payload, sequenceNumber);
-        byte[] hmac = Crypto.generateHMAC(sessionKey, hmacData);
-        Message msg = new Message(MessageType.DATA, payload, sequenceNumber, hmac);
+        Message msg = new Message(MessageType.DATA, payload, sequenceNumber);
+
+        // Generate HMAC separately
+        byte[] hmac = Crypto.generateHMAC(sessionKey, msg.toJsonString().getBytes());
+        msg.setHmac(hmac);
 
         // Act
         authPerfLink.handleData(msg, TEST_ADDR);

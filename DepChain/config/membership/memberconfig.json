@@ -1,0 +1,25 @@
+{
+    "numberOfMembers": 4,
+    "servers": [
+        {
+            "id": 1,
+            "port": 12345,
+            "keyfile": "public_key1.pem"
+        },
+        {
+            "id": 2,
+            "port": 12346,
+            "keyfile": "public_key2.pem"
+        },
+        {
+            "id": 3,
+            "port": 12347,
+            "keyfile": "public_key3.pem"
+        },
+        {
+            "id": 4,
+            "port": 12348,
+            "keyfile": "public_key4.pem"
+        }
+    ]
+}

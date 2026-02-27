@@ -1,12 +1,10 @@
 package pt.tecnico.sec.apl;
 
 import java.net.InetSocketAddress;
-import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 import javax.crypto.SecretKey;
 
-import pt.tecnico.sec.utils.Crypto;
 
 public class SessionManager {
 
