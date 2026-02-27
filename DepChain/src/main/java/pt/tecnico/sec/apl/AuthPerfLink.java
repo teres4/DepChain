@@ -171,7 +171,7 @@ public class AuthPerfLink {
                 return;
             }
 
-            // Verify HMAC
+            // TODO: use cryptolib function to verify HMAC
             byte[] data = concatenateMessageParts(msg.getType(), msg.getPayload(), msg.getSequenceNumber());
             byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), data);
             if (!Arrays.equals(expectedHmac, msg.getHmac())) {
@@ -188,19 +188,78 @@ public class AuthPerfLink {
     }
 
     public void handleAck(Message msg, InetSocketAddress addr) {
-        // identificar a sessao
-        // marcar a mensagem como acknowledged de acordo com o sequence number
+        try {
+            MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
+            if (senderMember == null) {
+                System.err.println("Unknown sender address: " + addr);
+                return;
+            }
+
+            Session session = sessionManager.getSession(senderMember.getId());
+            if (session == null) {
+                System.err.println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
+                return;
+            }
+
+            if (msg.getSequenceNumber() != session.getSequenceNumber() + 1) {
+                System.err.println("Invalid sequence number in ACK from: " + addr);
+                return;
+            }
+
+            // TODO: use cryptolib function to verify HMAC
+            byte[] data = concatenateMessageParts(msg.getType(), msg.getPayload(), msg.getSequenceNumber());
+            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), data);
+            if (!Arrays.equals(expectedHmac, msg.getHmac())) {
+                System.err.println("HMAC verification failed for ACK from: " + addr);
+                return;
+            }
+
+            session.replyReceived();
+            System.out.println("Message acknowledged for session with sender: " + addr);
+        } catch (Exception e) {
+            System.err.println("Failed to handle ACK: " + e.getMessage());
+        }
     }
 
     public void handleData(Message msg, InetSocketAddress addr) {
-        // verify the HMAC and the sequence number, and if they are correct, process the
-        // message
-        // session.replyReceived();
+        try {
+            MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
+            if (senderMember == null) {
+                System.err.println("Unknown sender address: " + addr);
+                return;
+            }
+
+            Session session = sessionManager.getSession(senderMember.getId());
+            if (session == null) {
+                System.err.println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
+                return;
+            }
+
+            if (msg.getSequenceNumber() != session.getSequenceNumber() + 1) {
+                System.err.println("Invalid sequence number in DATA from: " + addr);
+                return;
+            }
+
+            // TODO: use cryptolib function to verify HMAC
+            byte[] data = concatenateMessageParts(msg.getType(), msg.getPayload(), msg.getSequenceNumber());
+            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), data);
+            if (!Arrays.equals(expectedHmac, msg.getHmac())) {
+                System.err.println("HMAC verification failed for DATA from: " + addr);
+                return;
+            }
+
+            // TODO: later this message that is received with the data will be used in the consensus protocol
+            System.out.println("Processing message from: " + addr);
+            session.replyReceived();
+        } catch (Exception e) {
+            System.err.println("Failed to handle DATA: " + e.getMessage());
+        }
     }
 
     public DatagramPacket prepareResponse(MessageType type, String payload, long sequenceNumber, 
                                         SecretKey sessionKey, InetSocketAddress addr) {
         try {
+            // TODO: use cryptolib function to create HMAC
             byte[] hmacData = concatenateMessageParts(type, payload.getBytes(), sequenceNumber);
             byte[] hmac = Crypto.generateHMAC(sessionKey, hmacData);
             
