@@ -8,6 +8,7 @@ import java.net.SocketException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -234,13 +235,15 @@ public class AuthPerfLink {
 
     boolean verifyHmac(Message msg, Session session, InetSocketAddress addr) {
         try {
-            byte[] data = concatenateMessageParts(msg.getType(), msg.getPayload(), msg.getSequenceNumber());
-            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), data);
-            if (!Arrays.equals(expectedHmac, msg.getHmac())) {
+            Message messageWithoutHmac = new Message(msg.getType(), msg.getPayload(), msg.getSequenceNumber());
+            String jsonMessage = messageWithoutHmac.toJsonString();
+            
+            boolean isValid = Crypto.verifyHmac(jsonMessage, Base64.getEncoder().encodeToString(msg.getHmac()), session.getSessionKey());
+
+            if (!isValid) {
                 System.err.println("HMAC verification failed from: " + addr);
-                return false;
             }
-            return true;
+            return isValid;
         } catch (Exception e) {
             System.err.println("HMAC verification error from: " + addr + " - " + e.getMessage());
             return false;
@@ -337,12 +340,12 @@ public class AuthPerfLink {
     public DatagramPacket prepareResponse(MessageType type, String payload, long sequenceNumber,
             SecretKey sessionKey, InetSocketAddress addr) {
         try {
-            // TODO: use cryptolib function to create HMAC
-            byte[] hmacData = concatenateMessageParts(type, payload.getBytes(), sequenceNumber);
-            byte[] hmac = Crypto.generateHMAC(sessionKey, hmacData);
+            Message response = new Message(type, payload.getBytes(), sequenceNumber);
+            String jsonMessage = response.toJsonString();
+            byte[] hmac = Crypto.generateHMAC(sessionKey, jsonMessage.getBytes());
+            response.setHmac(hmac);
 
-            Message response = new Message(type, payload.getBytes(), sequenceNumber, hmac);
-
+            // Convert the message to a DatagramPacket
             return response.toDatagramPacket(addr);
         } catch (Exception e) {
             System.err.println("Failed to prepare response: " + e.getMessage());

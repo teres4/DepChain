@@ -43,6 +43,12 @@ public class Message {
         this.hmac = hmac;
     }
 
+    public Message(MessageType type, byte[] payload, long sequenceNumber) {
+        this.type = type;
+        this.payload = payload;
+        this.sequenceNumber = sequenceNumber;
+    }
+
     public Message(DatagramPacket packet) {
         Gson gson = new Gson();
         String jsonMessage = new String(packet.getData(), 0, packet.getLength());
@@ -102,5 +108,10 @@ public class Message {
         String jsonMessage = gson.toJson(this);
         byte[] data = jsonMessage.getBytes();
         return new DatagramPacket(data, data.length, addr);
+    }
+
+    public String toJsonString() {
+        Gson gson = new Gson();
+        return gson.toJson(this);
     }
 }

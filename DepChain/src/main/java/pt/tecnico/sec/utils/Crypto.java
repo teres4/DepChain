@@ -20,13 +20,6 @@ public interface Crypto {
         return keyGenerator.generateKey();
     }
 
-    public static String createHmac(String message, SecretKey hmacKey) throws Exception {
-        Mac mac = Mac.getInstance("HmacSHA256");
-        mac.init(hmacKey);
-        byte[] hmacBytes = mac.doFinal(message.getBytes());
-        return Base64.getEncoder().encodeToString(hmacBytes);
-    }
-
     public static byte[] generateHMAC(SecretKey key, byte[] data) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(key);
@@ -35,7 +28,8 @@ public interface Crypto {
 
     public static boolean verifyHmac(String message, String receivedHmac, SecretKey hmacKey) {
         try {
-            String calculatedHmac = createHmac(message, hmacKey);
+            byte[] calculatedHmacBytes = generateHMAC(hmacKey, message.getBytes());
+            String calculatedHmac = Base64.getEncoder().encodeToString(calculatedHmacBytes);
             return calculatedHmac.equals(receivedHmac);
         } catch (Exception e) {
             e.printStackTrace();
