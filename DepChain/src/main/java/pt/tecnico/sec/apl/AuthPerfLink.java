@@ -34,7 +34,7 @@ public class AuthPerfLink {
     // Default constructor for production use
     public AuthPerfLink(long ownId, String privateKeyString) throws IOException, Exception {
         this(ownId, Crypto.getPrivateKey(privateKeyString), new DatagramSocket(8080), Executors.newFixedThreadPool(100),
-                new SessionManager(), new MemberManagement());
+                new SessionManager(), new MemberManagement(ownId));
     }
 
     // Constructor with dependency injection for testing

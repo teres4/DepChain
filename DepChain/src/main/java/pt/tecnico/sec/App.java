@@ -1,8 +1,6 @@
 package pt.tecnico.sec;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
-import pt.tecnico.sec.apl.Session;
-import pt.tecnico.sec.apl.SessionManager;
 import pt.tecnico.sec.utils.MemberInfo;
 
 import java.util.Scanner;
