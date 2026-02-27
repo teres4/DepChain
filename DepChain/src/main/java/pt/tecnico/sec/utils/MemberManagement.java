@@ -70,7 +70,6 @@ public class MemberManagement {
 
     public MemberInfo getMemberByAddress(InetSocketAddress addr) {
         for (MemberInfo member : members) {
-            System.out.println("Checking member: " + member.getAddr() + " against " + addr);
             if (member.getAddr().equals(addr)) {
                 return member;
             }

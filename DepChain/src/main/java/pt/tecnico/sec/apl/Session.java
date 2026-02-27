@@ -38,13 +38,13 @@ public class Session {
         // wait for ack with timeout
         long startTime = System.currentTimeMillis();
         while (System.currentTimeMillis() - startTime < TIMEOUT) {
-            System.out.println("Waiting for reply..." + (TIMEOUT - (System.currentTimeMillis() - startTime)) + "ms remaining");
             if (replyReceived) {
                 replyReceived = false; // reset for next message
                 return true;
             }
         }
         // retransmit message
+        System.out.println("Timeout waiting for reply, retransmitting...");
         return false;
     }
 

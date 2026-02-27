@@ -162,12 +162,13 @@ public class AuthPerfLink {
             // Extract session key
             byte[] sessionKeyBytes = Crypto.decryptWithPrivateKey(msg.getEncryptedSessionKey(), this.privateKey);
             SecretKey sessionKey = Crypto.bytesToSecretKey(sessionKeyBytes);
-            sessionManager.createSession(senderMember.getId(), addr, sessionKey);
+            Session session = sessionManager.createSession(senderMember.getId(), addr, sessionKey);
 
             // Prepare reply and send it back to the sender
             // defini o payload do reply como "ACK" + senderID pq nsei o que por
             DatagramPacket replyPacket = prepareResponse(MessageType.CONNECTION_REPLY, "ACK" + senderMember.getId(),
                     msg.getSequenceNumber() + 1, sessionKey, addr);
+            session.setSequenceNumber(msg.getSequenceNumber() + 1); // increment session sequence number after successful connection request reception
             datagramSocket.send(replyPacket);
 
             System.out.println("Connection reply sent to: " + addr);
@@ -218,6 +219,7 @@ public class AuthPerfLink {
                 return;
             }
 
+            session.setSequenceNumber(msg.getSequenceNumber()); //increment session sequence number after successful connection reply reception
             session.replyReceived();
             System.out.println("Connection reply verified and session established with: " + addr);
         } catch (Exception e) {
@@ -258,6 +260,7 @@ public class AuthPerfLink {
             // do ACK
             DatagramPacket ackPacket = prepareResponse(MessageType.ACK, "ACK" + senderMember.getId(),
                     session.getSequenceNumber() + 1, session.getSessionKey(), session.getAddr());
+            session.setSequenceNumber(session.getSequenceNumber() + 1); // increment session sequence number 
             datagramSocket.send(ackPacket);
             System.out.println("ACK sent to: " + session.getAddr());
         } catch (IOException e) {
@@ -288,6 +291,7 @@ public class AuthPerfLink {
                 return;
             }
 
+            session.setSequenceNumber(msg.getSequenceNumber()); // increment session sequence number after successful ACK reception
             session.replyReceived();
             System.out.println("Message acknowledged for session with sender: " + addr);
         } catch (Exception e) {
@@ -299,6 +303,7 @@ public class AuthPerfLink {
         try {
             DatagramPacket dataPacket = prepareResponse(MessageType.DATA, content, session.getSequenceNumber() + 1,
                     session.getSessionKey(), session.getAddr());
+            session.setSequenceNumber(session.getSequenceNumber() + 1); // increment session sequence number
             datagramSocket.send(dataPacket);
             System.out.println("DATA sent to: " + session.getAddr());
         } catch (IOException e) {
@@ -329,6 +334,7 @@ public class AuthPerfLink {
                 return;
             }
 
+            session.setSequenceNumber(msg.getSequenceNumber()); // increment session sequence number after successful data reception
             // TODO: later this message that is received with the data will be used in the
             // consensus protocol
             System.out.println("Processing message from: " + addr);
@@ -368,17 +374,20 @@ public class AuthPerfLink {
             byte[] encryptedSessionKey = Crypto.encryptWithPublicKey(sessionKey.getEncoded(),
                     receiverInfo.getPublicKey());
 
+            // base64 encode the encrypted session key
+            String encryptedSessionKeyBase64 = Base64.getEncoder().encodeToString(encryptedSessionKey);
+
             // Payload contains: sender ID + encrypted session key
             // its useless to send encrypted session key in the payload, but we need smth to
             // sign and verify in the connection request
-            String payload = String.valueOf(ownId) + ":" + new String(encryptedSessionKey);
+            String payload = String.valueOf(ownId) + ":" + encryptedSessionKeyBase64;
             byte[] payloadBytes = payload.getBytes();
 
             // send connection request with encrypted session key
             long sequenceNumber = 0;
             Message connectionRequest = new Message(MessageType.CONNECTION_REQUEST, payloadBytes, sequenceNumber, null);
 
-            connectionRequest.setEncryptedSessionKey(new String(encryptedSessionKey));
+            connectionRequest.setEncryptedSessionKey(encryptedSessionKeyBase64);
             connectionRequest
                     .setSignature(Crypto.signMessage(new String(connectionRequest.getPayload()), this.privateKey));
 
