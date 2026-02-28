@@ -12,7 +12,7 @@ public class Tree {
 
     private Node executedNode; // highest node whose branch has been executed.
 
-    private final Map<String, Node> TreeMap = new HashMap<>();
+    private final Map<String, Node> treeMap = new HashMap<>();
 
     public Tree() {
         this.root = new Node("genesis", "genesis", null, null);
@@ -43,6 +43,14 @@ public class Tree {
 
     public void setPrepareQC(QuorumCertificate prepareQC) {
         this.prepareQC = prepareQC;
+    }
+
+    public void addNode(Node node) {
+        treeMap.put(node.getHash(), node);
+    }
+
+    public Node getNode(String hash) {
+        return treeMap.get(hash);
     }
 
 }

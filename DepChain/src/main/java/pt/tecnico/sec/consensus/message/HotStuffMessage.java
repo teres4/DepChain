@@ -1,19 +1,21 @@
 package pt.tecnico.sec.consensus.message;
 
 import com.google.gson.Gson;
+import pt.tecnico.sec.apl.message.DataMessage;
 
-public abstract class HotStuffMessage {
+public abstract class HotStuffMessage extends DataMessage {
     private final HotStuffMessageType type;
     private final int viewNumber;
     private final long senderId;
 
-    protected HotStuffMessage(HotStuffMessageType type, int viewNumber, long senderId) {
+    protected HotStuffMessage(HotStuffMessageType type, int viewNumber, long senderId, long sequenceNumber, byte[] content, byte[] hmac) {
+        super(sequenceNumber, content, hmac);
         this.type = type;
         this.viewNumber = viewNumber;
         this.senderId = senderId;
     }
 
-    public HotStuffMessageType getType() { return type; }
+    public HotStuffMessageType getHotStuffType() { return type; }
     public int getViewNumber() { return viewNumber; }
     public long getSenderId() { return senderId; }
 
@@ -27,6 +29,12 @@ public abstract class HotStuffMessage {
 
     private static class TypeOnly {
         HotStuffMessageType type;
+    }
+
+    // Parse HotStuffMessage from DataMessage content
+    public static HotStuffMessage fromDataMessage(DataMessage dataMessage) {
+        String json = new String(dataMessage.getContent());
+        return fromJson(json);
     }
 
     public static HotStuffMessage fromJson(String json) {

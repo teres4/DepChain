@@ -8,6 +8,8 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.Base64;
 import java.util.Collection;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -23,7 +25,6 @@ import pt.tecnico.sec.apl.message.Message;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
 import pt.tecnico.sec.utils.MemberManager;
-import pt.tecnico.sec.utils.MemberManager;
 
 public class AuthPerfLink {
     public static final int BUFFER_SIZE = 65536; // Maximum UDP packet size
@@ -37,6 +38,8 @@ public class AuthPerfLink {
     private final PrivateKey privateKey;
 
     private final AtomicBoolean running = new AtomicBoolean(true);
+
+    private final ConcurrentLinkedQueue<Message> incomingMessages = new ConcurrentLinkedQueue<>();
 
     // Default constructor for production use
     public AuthPerfLink(long ownId, String privateKeyString) throws IOException, Exception {
@@ -56,7 +59,16 @@ public class AuthPerfLink {
         this.memberManagement = memberManagement;
     }
 
-    public void send(Message message, Session session) {
+    //TODO: incomingMessage for layer above to consume, currently just prints received messages
+    public Queue<Message> getIncomingMessages() {
+        return incomingMessages;
+    }
+
+    public void send(Message message, Long id) throws Exception {
+        Session session = sessionManager.getSession(id);
+        if (session == null) {
+            session = startConnection(id);
+        }
         DatagramPacket packet = message.toDatagramPacket(session.getAddr());
 
         boolean ackReceived = false;
@@ -202,6 +214,9 @@ public class AuthPerfLink {
             // this data will later be used by consensus layer, for now we just print it
             session.setSequenceNumber(msg.getSequenceNumber());
             System.out.println("Received DATA from: " + addr + " - Content: " + new String(msg.getContent()));
+            
+            //TODO: pass data to consensus layer instead of just printing it
+            incomingMessages.add(msg);
 
             sendDataAck(session, msg.getSequenceNumber() + 1);
         } catch (Exception e) {
@@ -233,7 +248,7 @@ public class AuthPerfLink {
             long seqNum = session.getSequenceNumber() + 1;
             DataMessage msg = buildDataMessage(seqNum, content.getBytes(), session.getSessionKey());
             session.setSequenceNumber(seqNum);
-            send(msg, session);
+            send(msg, session.getSenderID());
             System.out.println("DATA sent to: " + session.getAddr());
         } catch (Exception e) {
             System.err.println("Failed to send DATA: " + e.getMessage());
@@ -251,12 +266,12 @@ public class AuthPerfLink {
         }
     }
 
-    public void startConnection(long receiverID) {
+    public Session startConnection(long receiverID) {
         try {
             MemberInfo receiverInfo = memberManagement.getMember(receiverID);
             if (receiverInfo == null) {
                 System.err.println("No member found with ID: " + receiverID);
-                return;
+                return null;
             }
 
             SecretKey sessionKey = Crypto.generateSecretKey();
@@ -269,9 +284,10 @@ public class AuthPerfLink {
                     signature);
 
             Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), sessionKey);
-            send(connectionRequest, session);
+            return session;
         } catch (Exception e) {
             System.err.println("Failed to start connection: " + e.getMessage());
+            return null;
         }
     }
 
