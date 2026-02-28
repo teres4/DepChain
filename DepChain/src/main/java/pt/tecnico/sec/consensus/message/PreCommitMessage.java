@@ -1,5 +1,7 @@
 package pt.tecnico.sec.consensus.message;
 
+import pt.tecnico.sec.consensus.QuorumCertificate;
+
 // broadcast by leader after collecting n-f PREPARE votes
 public class PreCommitMessage extends HotStuffMessage {
     // in the pre commit message, the Block is null
@@ -11,11 +13,13 @@ public class PreCommitMessage extends HotStuffMessage {
         this.prepareQC = prepareQC;
     }
 
-    public QuorumCertificate getPrepareQC() { return prepareQC; }
+    public QuorumCertificate getPrepareQC() {
+        return prepareQC;
+    }
 
     @Override
     public String toString() {
         return "PreCommitMessage{view=" + getViewNumber() + ", sender=" + getSenderId() +
-               ", prepareQC=" + prepareQC + "}";
+                ", prepareQC=" + prepareQC + "}";
     }
 }

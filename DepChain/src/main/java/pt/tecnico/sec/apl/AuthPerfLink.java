@@ -22,7 +22,8 @@ import pt.tecnico.sec.apl.message.DataMessage;
 import pt.tecnico.sec.apl.message.Message;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
-import pt.tecnico.sec.utils.MemberManagement;
+import pt.tecnico.sec.utils.MemberManager;
+import pt.tecnico.sec.utils.MemberManager;
 
 public class AuthPerfLink {
     public static final int BUFFER_SIZE = 65536; // Maximum UDP packet size
@@ -30,7 +31,7 @@ public class AuthPerfLink {
     private final DatagramSocket datagramSocket;
     private final ExecutorService executorService;
     private final SessionManager sessionManager;
-    private final MemberManagement memberManagement;
+    private final MemberManager memberManagement;
 
     private final long ownId;
     private final PrivateKey privateKey;
@@ -40,13 +41,13 @@ public class AuthPerfLink {
     // Default constructor for production use
     public AuthPerfLink(long ownId, String privateKeyString) throws IOException, Exception {
         this(ownId, Crypto.getPrivateKey(privateKeyString), new DatagramSocket(8080), Executors.newFixedThreadPool(100),
-                new SessionManager(), new MemberManagement(ownId));
+                new SessionManager(), new MemberManager(ownId));
     }
 
     // Constructor with dependency injection for testing
     public AuthPerfLink(long ownId, PrivateKey privateKey, DatagramSocket socket,
             ExecutorService executorService, SessionManager sessionManager,
-            MemberManagement memberManagement) {
+            MemberManager memberManagement) {
         this.ownId = ownId;
         this.privateKey = privateKey;
         this.datagramSocket = socket;
@@ -110,9 +111,9 @@ public class AuthPerfLink {
 
             switch (msg.getType()) {
                 case CONNECTION_REQUEST -> handleConnectionRequest((ConnectionRequestMessage) msg, addr);
-                case CONNECTION_ACK     -> handleConnectionReply((ConnectionACKMessage) msg, addr);
-                case DATA               -> handleData((DataMessage) msg, addr);
-                case ACK                -> handleAck((DataACKMessage) msg, addr);
+                case CONNECTION_ACK -> handleConnectionReply((ConnectionACKMessage) msg, addr);
+                case DATA -> handleData((DataMessage) msg, addr);
+                case ACK -> handleAck((DataACKMessage) msg, addr);
                 default -> System.err.println("Unknown message type from: " + addr);
             }
         } catch (Exception e) {
@@ -157,7 +158,8 @@ public class AuthPerfLink {
     public void handleConnectionReply(ConnectionACKMessage msg, InetSocketAddress addr) {
         try {
             Session session = getSessionForAddress(addr);
-            if (session == null) return;
+            if (session == null)
+                return;
 
             // if it's a retransmission, ignore (connection already established)
             if (msg.getSequenceNumber() == session.getSequenceNumber()) {
@@ -165,8 +167,10 @@ public class AuthPerfLink {
                 return;
             }
 
-            if (!verifySequenceNumber(msg, session, addr)) return;
-            if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr)) return;
+            if (!verifySequenceNumber(msg, session, addr))
+                return;
+            if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr))
+                return;
 
             session.setSequenceNumber(msg.getSequenceNumber());
             session.replyReceived();
@@ -179,7 +183,8 @@ public class AuthPerfLink {
     public void handleData(DataMessage msg, InetSocketAddress addr) {
         try {
             Session session = getSessionForAddress(addr);
-            if (session == null) return;
+            if (session == null)
+                return;
 
             // if it's a retransmission, resend ACK
             if (msg.getSequenceNumber() == session.getSequenceNumber()) {
@@ -188,9 +193,11 @@ public class AuthPerfLink {
                 return;
             }
 
-            if (!verifySequenceNumber(msg, session, addr)) return;
+            if (!verifySequenceNumber(msg, session, addr))
+                return;
             String jsonWithoutHmac = msg.withoutHmac().toJsonString();
-            if (!verifyHmac(jsonWithoutHmac, msg.getHmac(), session, addr)) return;
+            if (!verifyHmac(jsonWithoutHmac, msg.getHmac(), session, addr))
+                return;
 
             // this data will later be used by consensus layer, for now we just print it
             session.setSequenceNumber(msg.getSequenceNumber());
@@ -205,10 +212,13 @@ public class AuthPerfLink {
     public void handleAck(DataACKMessage msg, InetSocketAddress addr) {
         try {
             Session session = getSessionForAddress(addr);
-            if (session == null) return;
+            if (session == null)
+                return;
 
-            if (!verifySequenceNumber(msg, session, addr)) return;
-            if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr)) return;
+            if (!verifySequenceNumber(msg, session, addr))
+                return;
+            if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr))
+                return;
 
             session.setSequenceNumber(msg.getSequenceNumber());
             session.replyReceived();
@@ -250,11 +260,13 @@ public class AuthPerfLink {
             }
 
             SecretKey sessionKey = Crypto.generateSecretKey();
-            byte[] encryptedSessionKey = Crypto.encryptWithPublicKey(sessionKey.getEncoded(), receiverInfo.getPublicKey());
+            byte[] encryptedSessionKey = Crypto.encryptWithPublicKey(sessionKey.getEncoded(),
+                    receiverInfo.getPublicKey());
             String encryptedSessionKeyBase64 = Base64.getEncoder().encodeToString(encryptedSessionKey);
 
             String signature = Crypto.signMessage(ownId + ":" + encryptedSessionKeyBase64, this.privateKey);
-            ConnectionRequestMessage connectionRequest = new ConnectionRequestMessage(ownId, encryptedSessionKeyBase64, signature);
+            ConnectionRequestMessage connectionRequest = new ConnectionRequestMessage(ownId, encryptedSessionKeyBase64,
+                    signature);
 
             Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), sessionKey);
             send(connectionRequest, session);
@@ -295,7 +307,8 @@ public class AuthPerfLink {
         try {
             boolean isValid = Crypto.verifyHmac(jsonWithoutHmac,
                     Base64.getEncoder().encodeToString(hmac), session.getSessionKey());
-            if (!isValid) System.err.println("HMAC verification failed from: " + addr);
+            if (!isValid)
+                System.err.println("HMAC verification failed from: " + addr);
             return isValid;
         } catch (Exception e) {
             System.err.println("HMAC verification error from: " + addr + " - " + e.getMessage());
@@ -324,7 +337,8 @@ public class AuthPerfLink {
     public String seeActiveSessions() {
         StringBuilder activeSessions = new StringBuilder("Active Sessions:\n");
         Collection<Session> sessions = sessionManager.getAllSessions();
-        if (sessions.isEmpty()) return "No active sessions found.";
+        if (sessions.isEmpty())
+            return "No active sessions found.";
         for (Session session : sessions) {
             activeSessions.append("Session with ID: ").append(session.getSenderID())
                     .append(", Address: ").append(session.getAddr())

@@ -9,7 +9,7 @@ import pt.tecnico.sec.apl.message.Message;
 import pt.tecnico.sec.apl.message.MessageType;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
-import pt.tecnico.sec.utils.MemberManagement;
+import pt.tecnico.sec.utils.MemberManager;
 import pt.tecnico.sec.utils.TestCryptoUtils;
 
 import javax.crypto.SecretKey;
@@ -34,7 +34,7 @@ class AuthPerfLinkTest {
     private DatagramSocket mockSocket;
     private ExecutorService mockExecutor;
     private SessionManager mockSessionManager;
-    private MemberManagement mockMemberManagement;
+    private MemberManager mockMemberManagement;
     private PrivateKey privateKey;
     private PublicKey publicKey;
 
@@ -53,7 +53,7 @@ class AuthPerfLinkTest {
         mockSocket = mock(DatagramSocket.class);
         mockExecutor = mock(ExecutorService.class);
         mockSessionManager = mock(SessionManager.class);
-        mockMemberManagement = mock(MemberManagement.class);
+        mockMemberManagement = mock(MemberManager.class);
 
         // Create AuthPerfLink with mocked dependencies
         authPerfLink = new AuthPerfLink(OWN_ID, privateKey, mockSocket, mockExecutor,
@@ -138,7 +138,7 @@ class AuthPerfLinkTest {
         byte[] payload = "test".getBytes();
         long sequenceNumber = 1;
         Message msg = new Message(MessageType.DATA, payload, sequenceNumber);
-        
+
         byte[] jsonMessage = msg.toJsonString().getBytes();
         byte[] hmac = Crypto.generateHMAC(sessionKey, jsonMessage);
         msg.setHmac(hmac);

@@ -1,5 +1,7 @@
 package pt.tecnico.sec.consensus.message;
 
+import pt.tecnico.sec.consensus.QuorumCertificate;
+
 // broadcast by leader after collecting n-f COMMIT votes
 // commitQC is proof that n-f replicas voted COMMIT on this block
 // upon receiving this, replicas will execute the commands in commitQC.node and transition to the next view
@@ -11,11 +13,13 @@ public class DecideMessage extends HotStuffMessage {
         this.commitQC = commitQC;
     }
 
-    public QuorumCertificate getCommitQC() { return commitQC; }
+    public QuorumCertificate getCommitQC() {
+        return commitQC;
+    }
 
     @Override
     public String toString() {
         return "DecideMessage{view=" + getViewNumber() + ", sender=" + getSenderId() +
-               ", commitQC=" + commitQC + "}";
+                ", commitQC=" + commitQC + "}";
     }
 }

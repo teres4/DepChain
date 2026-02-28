@@ -1,5 +1,7 @@
 package pt.tecnico.sec.consensus.message;
 
+import pt.tecnico.sec.consensus.QuorumCertificate;
+
 // sent by a replica as it transitions into a newView viewNumber
 // carries the highest prepareQC that said replica has seen (null if none, e.g. on startup)
 public class NewViewMessage extends HotStuffMessage {
@@ -10,11 +12,13 @@ public class NewViewMessage extends HotStuffMessage {
         this.prepareQC = prepareQC;
     }
 
-    public QuorumCertificate getPrepareQC() { return prepareQC; }
+    public QuorumCertificate getPrepareQC() {
+        return prepareQC;
+    }
 
     @Override
     public String toString() {
         return "NewViewMessage{view=" + getViewNumber() + ", sender=" + getSenderId() +
-               ", prepareQC=" + prepareQC + "}";
+                ", prepareQC=" + prepareQC + "}";
     }
 }

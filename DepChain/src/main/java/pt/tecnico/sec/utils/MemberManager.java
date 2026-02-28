@@ -9,13 +9,13 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
-public class MemberManagement {
+public class MemberManager {
 
     private MemberInfo[] members;
 
     private final String CONFIG_FILE = "config/membership/memberconfig.json";
 
-    public MemberManagement(long ownId) {
+    public MemberManager(long ownId) {
         try {
             // Read and parse the JSON config file
             Gson gson = new Gson();
