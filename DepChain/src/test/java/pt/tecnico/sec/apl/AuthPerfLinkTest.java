@@ -269,7 +269,7 @@ class AuthPerfLinkTest {
         when(mockMemberManagement.getMemberByAddress(TEST_ADDR)).thenReturn(mockMember);
 
         // Act
-        authPerfLink.sendAck(mockSession);
+        authPerfLink.sendAck(mockSession, mockSession.getSequenceNumber());
 
         // Assert
         verify(mockSocket).send(any(DatagramPacket.class));

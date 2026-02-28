@@ -61,7 +61,10 @@ public class AuthPerfLink {
                 ackReceived = session.waitForReply();
 
             } catch (IOException e) {
-                e.printStackTrace();
+                System.err.println("Failed to send message: " + e.getMessage());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.err.println("Interrupted while waiting for ACK: " + e.getMessage());
             }
         }
     }
@@ -180,19 +183,8 @@ public class AuthPerfLink {
 
     public void handleConnectionReply(Message msg, InetSocketAddress addr) {
         try {
-            if (msg.getType() != MessageType.CONNECTION_REPLY) {
-                System.err.println("Invalid message type for connection reply from: " + addr);
-                return;
-            }
-            MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
-            if (senderMember == null) {
-                System.err.println("Unknown sender address: " + addr);
-                return;
-            }
-
-            Session session = sessionManager.getSession(senderMember.getId());
+            Session session = validateAndGetSession(msg, MessageType.CONNECTION_REPLY, addr);
             if (session == null) {
-                System.err.println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
                 return;
             }
 
@@ -260,20 +252,8 @@ public class AuthPerfLink {
 
     public void handleAck(Message msg, InetSocketAddress addr) {
         try {
-            if (msg.getType() != MessageType.ACK) {
-                System.err.println("Invalid message type for ACK from: " + addr);
-                return;
-            }
-            MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
-            if (senderMember == null) {
-                System.err.println("Unknown sender address: " + addr);
-                return;
-            }
-
-            Session session = sessionManager.getSession(senderMember.getId());
+            Session session = validateAndGetSession(msg, MessageType.ACK, addr);
             if (session == null) {
-                System.err
-                        .println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
                 return;
             }
 
@@ -306,20 +286,8 @@ public class AuthPerfLink {
 
     public void handleData(Message msg, InetSocketAddress addr) {
         try {
-            if (msg.getType() != MessageType.DATA) {
-                System.err.println("Invalid message type for data from: " + addr);
-                return;
-            }
-            MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
-            if (senderMember == null) {
-                System.err.println("Unknown sender address: " + addr);
-                return;
-            }
-
-            Session session = sessionManager.getSession(senderMember.getId());
+            Session session = validateAndGetSession(msg, MessageType.DATA, addr);
             if (session == null) {
-                System.err
-                        .println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
                 return;
             }
 
@@ -425,5 +393,27 @@ public class AuthPerfLink {
 
     public Session getSession(long senderID) {
         return sessionManager.getSession(senderID);
+    }
+
+    // validate message type and get session from address
+    private Session validateAndGetSession(Message msg, MessageType expectedType, InetSocketAddress addr) {
+        if (msg.getType() != expectedType) {
+            System.err.println("Invalid message type (expected " + expectedType + ", got " + msg.getType() + ") from: " + addr);
+            return null;
+        }
+
+        MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
+        if (senderMember == null) {
+            System.err.println("Unknown sender address: " + addr);
+            return null;
+        }
+
+        Session session = sessionManager.getSession(senderMember.getId());
+        if (session == null) {
+            System.err.println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
+            return null;
+        }
+
+        return session;
     }
 }
