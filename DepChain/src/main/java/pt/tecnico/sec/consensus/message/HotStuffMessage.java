@@ -1,0 +1,53 @@
+package pt.tecnico.sec.consensus.message;
+
+import com.google.gson.Gson;
+
+public abstract class HotStuffMessage {
+    private final HotStuffMessageType type;
+    private final int viewNumber;
+    private final long senderId;
+
+    protected HotStuffMessage(HotStuffMessageType type, int viewNumber, long senderId) {
+        this.type = type;
+        this.viewNumber = viewNumber;
+        this.senderId = senderId;
+    }
+
+    public HotStuffMessageType getType() { return type; }
+    public int getViewNumber() { return viewNumber; }
+    public long getSenderId() { return senderId; }
+
+    public boolean matches(HotStuffMessageType type, int viewNumber) {
+        return this.type == type && this.viewNumber == viewNumber;
+    }
+
+    public String toJson() {
+        return new Gson().toJson(this);
+    }
+
+    private static class TypeOnly {
+        HotStuffMessageType type;
+    }
+
+    public static HotStuffMessage fromJson(String json) {
+        Gson gson = new Gson();
+        HotStuffMessageType type = gson.fromJson(json, TypeOnly.class).type;
+
+        return switch (type) {
+            case NEW_VIEW       -> gson.fromJson(json, NewViewMessage.class);
+            case PREPARE        -> gson.fromJson(json, PrepareMessage.class);
+            case PREPARE_VOTE   -> gson.fromJson(json, PrepareVoteMessage.class);
+            case PRE_COMMIT     -> gson.fromJson(json, PreCommitMessage.class);
+            case PRE_COMMIT_VOTE -> gson.fromJson(json, PreCommitVoteMessage.class);
+            case COMMIT         -> gson.fromJson(json, CommitMessage.class);
+            case COMMIT_VOTE    -> gson.fromJson(json, CommitVoteMessage.class);
+            case DECIDE         -> gson.fromJson(json, DecideMessage.class);
+            default -> throw new IllegalArgumentException("Unknown type: " + type);
+        };
+    }
+
+    @Override
+    public String toString() {
+        return "HotStuffMessage{type=" + type + ", view=" + viewNumber + ", sender=" + senderId + "}";
+    }
+}
