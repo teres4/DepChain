@@ -266,6 +266,7 @@ public class AuthPerfLink {
             }
 
             session.setSequenceNumber(msg.getSequenceNumber());
+            session.replyReceived();
             System.out.println("Message acknowledged for session with sender: " + addr);
         } catch (Exception e) {
             System.err.println("Failed to handle ACK: " + e.getMessage());
