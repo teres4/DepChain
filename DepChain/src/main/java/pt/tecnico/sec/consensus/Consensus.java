@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.consensus.message.*;
@@ -15,10 +16,10 @@ public class Consensus {
     private int viewNumber;
 
     // current leader ID
-    private final int leaderID = 0;
+    private final long leaderID = 0;
 
     // my ID
-    private final int replicaID;
+    private final long replicaID;
 
     // Quorum size
     private final int quorumSize;
@@ -37,6 +38,14 @@ public class Consensus {
 
     private QuorumCertificate QC; // highest QC known to this replica
 
+    public enum Phase {
+        NEW_VIEW, PREPARE, PRE_COMMIT, COMMIT, DECIDE
+    };
+
+    private Phase currentPhase;
+
+    ExecutorService executorService = java.util.concurrent.Executors.newFixedThreadPool(10);
+
     public Consensus(int replicaID, int totalReplicas, MemberManager memberManager, AuthPerfLink authPerfLink) {
         this.replicaID = replicaID;
         this.totalReplicas = totalReplicas;
@@ -51,54 +60,46 @@ public class Consensus {
     // highest node whose branch has been executed.
 
     public void consensusLoop() {
-        while (true) {
-            if (amLeader()) {
-            }
-            // send threads to send()
-            // receive returns 
-            // wait for messages and handle them accordingly
-            //             HotStuffMessage msg = HotStuffMessage.fromDataMessage(dataMsg);
+        if (amLeader()) {
+            // act both as leader and replica
 
-            // Option 1: Using getType()
-            // HotStuffMessageType type = msg.getType();
-            // switch (type) {
-            //     case NEW_VIEW -> handleNewView((NewViewMessage) msg);
-            //     case PREPARE -> handlePrepare((PrepareMessage) msg);
-            //     case PREPARE_VOTE -> handlePrepareVote((PrepareVoteMessage) msg);
-            //     case PRE_COMMIT -> handlePreCommit((PreCommitMessage) msg);
-            //     case PRE_COMMIT_VOTE -> handlePreCommitVote((PreCommitVoteMessage) msg);
-            //     case COMMIT -> handleCommit((CommitMessage) msg);
-            //     case COMMIT_VOTE -> handleCommitVote((CommitVoteMessage) msg);
-            //     case DECIDE -> handleDecide((DecideMessage) msg);
         }
+        prepare();
+        precommit();
+        commit();
+        decide();
+
     }
 
     public boolean amLeader() {
         return replicaID == leaderID;
     }
 
-    // If replica wants to start a new view, it sends a new view message to all replicas and waits for (n-f) responses. 
-    public void startNewView() {
+    // If ANYONE wants to start a new view, it sends a new view message to all
+    // replicas and ONLY THE LEADER waits for (n-f) responses.
+    public void startNewView() throws Exception {
         // send new view message to all replicas
         NewViewMessage newViewMessage = new NewViewMessage(viewNumber, QC, replicaID);
-        // authPerfLink.broadcast(newViewMessage);
+        broadcastMessage(newViewMessage);
     }
 
     // If it receives (n-f) new view messages, do stuff and move to prepare phase
-    // TODO this should be in a separate thread that listens for incoming messages and handles them ?
+    // TODO this should be in a separate thread that listens for incoming messages
+    // and handles them ?
     public void onReceiveNewViewMessage(NewViewMessage newViewMessage) {
-        // collects new view messages until it has (n-f) of them and chooses highest QC, then moves to prepare phase
+        // collects new view messages until it has (n-f) of them and chooses highest QC,
+        // then moves to prepare phase
 
         int responsesReceived = 0;
         List<QuorumCertificate> receivedQCs = new ArrayList<>();
 
         while (responsesReceived < quorumSize) {
             // if (response != null && response.getPrepareQC() != null) {
-            //     receivedQCs.add(response.getPrepareQC());
-            //     responsesReceived++;
+            // receivedQCs.add(response.getPrepareQC());
+            // responsesReceived++;
             // }
         }
-    
+
     }
 
     // prepare phase
@@ -107,7 +108,7 @@ public class Consensus {
     }
 
     public void onReceivePrepareMessage(PrepareMessage prepareMessage) {
-        
+
     }
 
     // pre-commit phase
@@ -128,7 +129,7 @@ public class Consensus {
 
     }
 
-    // decide phase 
+    // decide phase
     public void decide() {
 
     }
@@ -137,5 +138,16 @@ public class Consensus {
 
     }
 
+    public void newView() {
+
+    }
+
+    public void broadcastMessage(HotStuffMessage message) throws Exception {
+        for (int i = 0; i < totalReplicas; i++) {
+            if (i != replicaID) {
+                authPerfLink.sendData(i, message);
+            }
+        }
+    }
 
 }

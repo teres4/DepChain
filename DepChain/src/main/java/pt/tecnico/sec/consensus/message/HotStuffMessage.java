@@ -8,16 +8,26 @@ public abstract class HotStuffMessage extends DataMessage {
     private final int viewNumber;
     private final long senderId;
 
-    protected HotStuffMessage(HotStuffMessageType type, int viewNumber, long senderId, long sequenceNumber, byte[] content, byte[] hmac) {
-        super(sequenceNumber, content, hmac);
+    protected HotStuffMessage(HotStuffMessageType type, int viewNumber, long senderId) {
+        super(new byte[0]); // Temporary empty content
         this.type = type;
         this.viewNumber = viewNumber;
         this.senderId = senderId;
+        // Set actual content after construction (now that all fields are initialized)
+        setContent(toJson().getBytes());
     }
 
-    public HotStuffMessageType getHotStuffType() { return type; }
-    public int getViewNumber() { return viewNumber; }
-    public long getSenderId() { return senderId; }
+    public HotStuffMessageType getHotStuffType() {
+        return type;
+    }
+
+    public int getViewNumber() {
+        return viewNumber;
+    }
+
+    public long getSenderId() {
+        return senderId;
+    }
 
     public boolean matches(HotStuffMessageType type, int viewNumber) {
         return this.type == type && this.viewNumber == viewNumber;
@@ -42,14 +52,14 @@ public abstract class HotStuffMessage extends DataMessage {
         HotStuffMessageType type = gson.fromJson(json, TypeOnly.class).type;
 
         return switch (type) {
-            case NEW_VIEW       -> gson.fromJson(json, NewViewMessage.class);
-            case PREPARE        -> gson.fromJson(json, PrepareMessage.class);
-            case PREPARE_VOTE   -> gson.fromJson(json, PrepareVoteMessage.class);
-            case PRE_COMMIT     -> gson.fromJson(json, PreCommitMessage.class);
+            case NEW_VIEW -> gson.fromJson(json, NewViewMessage.class);
+            case PREPARE -> gson.fromJson(json, PrepareMessage.class);
+            case PREPARE_VOTE -> gson.fromJson(json, PrepareVoteMessage.class);
+            case PRE_COMMIT -> gson.fromJson(json, PreCommitMessage.class);
             case PRE_COMMIT_VOTE -> gson.fromJson(json, PreCommitVoteMessage.class);
-            case COMMIT         -> gson.fromJson(json, CommitMessage.class);
-            case COMMIT_VOTE    -> gson.fromJson(json, CommitVoteMessage.class);
-            case DECIDE         -> gson.fromJson(json, DecideMessage.class);
+            case COMMIT -> gson.fromJson(json, CommitMessage.class);
+            case COMMIT_VOTE -> gson.fromJson(json, CommitVoteMessage.class);
+            case DECIDE -> gson.fromJson(json, DecideMessage.class);
             default -> throw new IllegalArgumentException("Unknown type: " + type);
         };
     }

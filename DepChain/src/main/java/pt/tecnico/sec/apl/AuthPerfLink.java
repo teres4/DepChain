@@ -59,12 +59,13 @@ public class AuthPerfLink {
         this.memberManagement = memberManagement;
     }
 
-    //TODO: incomingMessage for layer above to consume, currently just prints received messages
+    // TODO: incomingMessage for layer above to consume, currently just prints
+    // received messages
     public Queue<Message> getIncomingMessages() {
         return incomingMessages;
     }
 
-    public void send(Message message, Long id) throws Exception {
+    private void send(Message message, long id) throws Exception {
         Session session = sessionManager.getSession(id);
         if (session == null) {
             session = startConnection(id);
@@ -85,6 +86,17 @@ public class AuthPerfLink {
         }
     }
 
+    private void sendAPI(Message message, int id) throws Exception {
+        // This is like the normal send but also signs the message based on the session
+        // key
+        Session session = sessionManager.getSession(id);
+        if (session == null) {
+            session = startConnection(id);
+        }
+
+        // Sign the message content with the session key
+    }
+
     public void receive() {
         while (running.get() && !datagramSocket.isClosed()) {
             byte[] buffer = new byte[BUFFER_SIZE];
@@ -100,7 +112,7 @@ public class AuthPerfLink {
         }
     }
 
-    public void shutdown() {
+    private void shutdown() {
         running.set(false);
         datagramSocket.close();
         executorService.shutdown();
@@ -114,7 +126,7 @@ public class AuthPerfLink {
         }
     }
 
-    public void handlePacket(DatagramPacket packet) {
+    private void handlePacket(DatagramPacket packet) {
         InetSocketAddress addr = new InetSocketAddress(packet.getAddress(), packet.getPort());
 
         try {
@@ -133,7 +145,7 @@ public class AuthPerfLink {
         }
     }
 
-    public void handleConnectionRequest(ConnectionRequestMessage msg, InetSocketAddress addr) {
+    private void handleConnectionRequest(ConnectionRequestMessage msg, InetSocketAddress addr) {
         try {
             if (msg.getSequenceNumber() != 0) {
                 System.err.println("Invalid sequence number in connection request from: " + addr);
@@ -167,7 +179,7 @@ public class AuthPerfLink {
         }
     }
 
-    public void handleConnectionReply(ConnectionACKMessage msg, InetSocketAddress addr) {
+    private void handleConnectionReply(ConnectionACKMessage msg, InetSocketAddress addr) {
         try {
             Session session = getSessionForAddress(addr);
             if (session == null)
@@ -192,7 +204,7 @@ public class AuthPerfLink {
         }
     }
 
-    public void handleData(DataMessage msg, InetSocketAddress addr) {
+    private void handleData(DataMessage msg, InetSocketAddress addr) {
         try {
             Session session = getSessionForAddress(addr);
             if (session == null)
@@ -214,8 +226,8 @@ public class AuthPerfLink {
             // this data will later be used by consensus layer, for now we just print it
             session.setSequenceNumber(msg.getSequenceNumber());
             System.out.println("Received DATA from: " + addr + " - Content: " + new String(msg.getContent()));
-            
-            //TODO: pass data to consensus layer instead of just printing it
+
+            // TODO: pass data to consensus layer instead of just printing it
             incomingMessages.add(msg);
 
             sendDataAck(session, msg.getSequenceNumber() + 1);
@@ -224,7 +236,7 @@ public class AuthPerfLink {
         }
     }
 
-    public void handleAck(DataACKMessage msg, InetSocketAddress addr) {
+    private void handleAck(DataACKMessage msg, InetSocketAddress addr) {
         try {
             Session session = getSessionForAddress(addr);
             if (session == null)
@@ -255,6 +267,22 @@ public class AuthPerfLink {
         }
     }
 
+    public void sendData(int receiverID, DataMessage DataMessage) {
+        try {
+            // sign the message with the session key and then send it
+            Session session = sessionManager.getSession(receiverID);
+            if (session == null) {
+                session = startConnection(receiverID);
+            }
+            DataMessage signedDataMessage = buildDataMessage(session.getSequenceNumber() + 1, DataMessage.getContent(),
+                    session.getSessionKey());
+            send(signedDataMessage, receiverID);
+            System.out.println("DATA sent to ID: " + receiverID);
+        } catch (Exception e) {
+            System.err.println("Failed to send DATA: " + e.getMessage());
+        }
+    }
+
     private void sendDataAck(Session session, long seqNum) {
         try {
             DataACKMessage ack = buildDataAck(seqNum, session.getSessionKey());
@@ -266,7 +294,7 @@ public class AuthPerfLink {
         }
     }
 
-    public Session startConnection(long receiverID) {
+    private Session startConnection(long receiverID) {
         try {
             MemberInfo receiverInfo = memberManagement.getMember(receiverID);
             if (receiverInfo == null) {
@@ -284,6 +312,7 @@ public class AuthPerfLink {
                     signature);
 
             Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), sessionKey);
+            send(connectionRequest, receiverID);
             return session;
         } catch (Exception e) {
             System.err.println("Failed to start connection: " + e.getMessage());
@@ -346,11 +375,11 @@ public class AuthPerfLink {
         return session;
     }
 
-    public MemberInfo[] getMembers() {
+    private MemberInfo[] getMembers() {
         return memberManagement.getMembers();
     }
 
-    public String seeActiveSessions() {
+    private String seeActiveSessions() {
         StringBuilder activeSessions = new StringBuilder("Active Sessions:\n");
         Collection<Session> sessions = sessionManager.getAllSessions();
         if (sessions.isEmpty())
@@ -364,7 +393,8 @@ public class AuthPerfLink {
         return activeSessions.toString();
     }
 
-    public Session getSession(long senderID) {
+    private Session getSession(long senderID) {
         return sessionManager.getSession(senderID);
     }
+
 }

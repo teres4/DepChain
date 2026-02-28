@@ -8,7 +8,7 @@ import javax.crypto.SecretKey;
 
 public class Session {
 
-    private long senderID; // replica ID of the other party in the session
+    private final long senderID; // replica ID of the other party in the session
     private long sequenceNumber;
     private SecretKey sessionKey;
     private boolean replyReceived = false;

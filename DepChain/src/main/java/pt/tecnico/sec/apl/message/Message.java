@@ -6,15 +6,20 @@ import java.net.InetSocketAddress;
 
 public abstract class Message {
     private final MessageType type;
-    private final long sequenceNumber;
+    private long sequenceNumber;
 
     protected Message(MessageType type, long sequenceNumber) {
         this.type = type;
         this.sequenceNumber = sequenceNumber;
     }
 
-    public MessageType getType() { return type; }
-    public long getSequenceNumber() { return sequenceNumber; }
+    public MessageType getType() {
+        return type;
+    }
+
+    public long getSequenceNumber() {
+        return sequenceNumber;
+    }
 
     public DatagramPacket toDatagramPacket(InetSocketAddress addr) {
         byte[] data = toJsonString().getBytes();
@@ -25,6 +30,12 @@ public abstract class Message {
 
     public String toJsonString() {
         return new Gson().toJson(this);
+    }
+
+    public void setSequenceNumber(long sequenceNumber) {
+        // This method is only used for DataMessages, which override it to allow setting
+        // the sequence number after creation.
+        this.sequenceNumber = sequenceNumber;
     }
 
     private static class TypeOnly {
@@ -39,9 +50,9 @@ public abstract class Message {
 
         return switch (type) {
             case CONNECTION_REQUEST -> gson.fromJson(json, ConnectionRequestMessage.class);
-            case CONNECTION_ACK     -> gson.fromJson(json, ConnectionACKMessage.class);
-            case DATA               -> gson.fromJson(json, DataMessage.class);
-            case ACK                -> gson.fromJson(json, DataACKMessage.class);
+            case CONNECTION_ACK -> gson.fromJson(json, ConnectionACKMessage.class);
+            case DATA -> gson.fromJson(json, DataMessage.class);
+            case ACK -> gson.fromJson(json, DataACKMessage.class);
             default -> throw new IllegalArgumentException("Unknown message type: " + type);
         };
     }
