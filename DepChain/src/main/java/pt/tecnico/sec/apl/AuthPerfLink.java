@@ -267,7 +267,7 @@ public class AuthPerfLink {
         }
     }
 
-    public void sendData(int receiverID, DataMessage DataMessage) {
+    public void sendData(long receiverID, DataMessage DataMessage) {
         try {
             // sign the message with the session key and then send it
             Session session = sessionManager.getSession(receiverID);

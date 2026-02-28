@@ -1,6 +1,5 @@
 package pt.tecnico.sec.consensus;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -36,7 +35,11 @@ public class Consensus {
     // tree structure
     private final Tree tree;
 
-    private QuorumCertificate QC; // highest QC known to this replica
+    // New-view message collection for leader
+    private final Map<Long, NewViewMessage> newViewMessages = new ConcurrentHashMap<>();
+
+    // Vote tracking for each node by node hash
+    private final Map<String, Set<Long>> prepareVotes = new ConcurrentHashMap<>();
 
     public enum Phase {
         NEW_VIEW, PREPARE, PRE_COMMIT, COMMIT, DECIDE
@@ -46,13 +49,14 @@ public class Consensus {
 
     ExecutorService executorService = java.util.concurrent.Executors.newFixedThreadPool(10);
 
-    public Consensus(int replicaID, int totalReplicas, MemberManager memberManager, AuthPerfLink authPerfLink) {
+    public Consensus(long replicaID, int totalReplicas, MemberManager memberManager, AuthPerfLink authPerfLink) {
         this.replicaID = replicaID;
         this.totalReplicas = totalReplicas;
         this.quorumSize = totalReplicas - (totalReplicas - 1) / 3; // n-f where f = (n-1)/3
         this.memberManager = memberManager;
         this.authPerfLink = authPerfLink;
         this.tree = new Tree();
+        this.viewNumber = 1; 
     }
 
     // tree pending commands
@@ -79,41 +83,94 @@ public class Consensus {
     // replicas and ONLY THE LEADER waits for (n-f) responses.
     public void startNewView() throws Exception {
         // send new view message to all replicas
-        NewViewMessage newViewMessage = new NewViewMessage(viewNumber, QC, replicaID);
+        NewViewMessage newViewMessage = new NewViewMessage(this.viewNumber, tree.getPrepareQC(), this.replicaID);
         broadcastMessage(newViewMessage);
     }
 
-    // If it receives (n-f) new view messages, do stuff and move to prepare phase
-    // TODO this should be in a separate thread that listens for incoming messages
-    // and handles them ?
-    public void onReceiveNewViewMessage(NewViewMessage newViewMessage) {
-        // collects new view messages until it has (n-f) of them and chooses highest QC,
-        // then moves to prepare phase
+    // Leader collects new-view messages and moves to prepare phase
+    // TODO case where collection of new view messages may be omitted by an incumbent leader ? 
+    public synchronized QuorumCertificate onReceiveNewViewMessage(NewViewMessage newViewMessage) {
+        if (!amLeader()) {
+            return null;
+        }
+        
+        if (newViewMessage.getViewNumber() != this.viewNumber) {
+            System.err.println("Received new-view message for view " + newViewMessage.getViewNumber() + 
+                             " but current view is " + this.viewNumber);
+            return null;
+        }
+        
+        newViewMessages.put(newViewMessage.getSenderId(), newViewMessage);
 
-        int responsesReceived = 0;
-        List<QuorumCertificate> receivedQCs = new ArrayList<>();
+        // if received (n-f) new-view messages
+        if (newViewMessages.size() >= this.quorumSize) {
+            // choose highest prepareQC from collected new-view messages
+            QuorumCertificate highQC = getHighestQC(newViewMessages.values().stream().toList());
+            
+            // clear collected new-view messages for next view
+            newViewMessages.clear();
+            return highQC;
+        }
+        return null;
+    }
 
-        while (responsesReceived < quorumSize) {
-            // if (response != null && response.getPrepareQC() != null) {
-            // receivedQCs.add(response.getPrepareQC());
-            // responsesReceived++;
-            // }
+    // prepare phase - leader creates new leaf, broadcasts prepare message with new leaf and highQC
+    public void prepare(QuorumCertificate highQC) throws Exception {
+        if (!amLeader()) {
+            return;
+        }
+        
+        Node newNode = createLeaf(highQC, "COMMAND"); // TODO: define command
+        tree.addNode(newNode);
+
+        // broadcast prepare message
+        PrepareMessage prepareMessage = new PrepareMessage(this.viewNumber, newNode, highQC, this.replicaID);
+        broadcastMessage(prepareMessage);
+    }
+
+    // prepare message from leader received
+    public void onReceivePrepareMessage(PrepareMessage prepareMessage) {
+        if (prepareMessage.getViewNumber() != this.viewNumber) {
+            System.err.println("Received prepare message for view " + prepareMessage.getViewNumber() + 
+                             " but current view is " + this.viewNumber);
+            return;
         }
 
+        if (safeNode(prepareMessage.getNode(), prepareMessage.getHighQC())) {
+            PrepareVoteMessage voteMessage = new PrepareVoteMessage(this.viewNumber, prepareMessage.getNode(), this.replicaID);
+            
+            // Send vote to leader 
+            try {
+                authPerfLink.sendData(leaderID, voteMessage);
+            } catch (Exception e) {
+                System.err.println("Failed to send prepare vote: " + e.getMessage());
+            }
+        }
     }
 
-    // prepare phase
-    public void prepare() {
-
-    }
-
-    public void onReceivePrepareMessage(PrepareMessage prepareMessage) {
-
+    // prepare vote message from replica received by leader
+    public synchronized void onReceivePrepareVoteMessage(PrepareVoteMessage voteMessage) throws Exception {
+        if (!amLeader()) {
+            return;
+        }
+        
+        // Validate view number - only accept votes for current view
+        if (voteMessage.getViewNumber() != this.viewNumber) {
+            System.err.println("Received prepare vote for view " + voteMessage.getViewNumber() + 
+                             " but current view is " + this.viewNumber);
+            return;
+        }
     }
 
     // pre-commit phase
-    public void precommit() {
-
+    public void precommit(QuorumCertificate prepareQC) throws Exception {
+        if (!amLeader()) {
+            return;
+        }
+        
+        // Broadcast prepareQC in pre-commit messages
+        PreCommitMessage preCommitMessage = new PreCommitMessage(this.viewNumber, prepareQC, this.replicaID);
+        broadcastMessage(preCommitMessage);
     }
 
     public void onReceivePreCommitMessage(PreCommitMessage preCommitMessage) {
@@ -136,6 +193,39 @@ public class Consensus {
 
     public void onReceiveDecideMessage(DecideMessage decideMessage) {
 
+    }
+
+    // TODO
+    private boolean safeNode(Node node, QuorumCertificate justify) {
+        return true;
+    }
+
+    private QuorumCertificate getHighestQC(List<NewViewMessage> messages) {
+        QuorumCertificate highQC = null;
+        int highestView = -1;
+        
+        for (NewViewMessage msg : messages) {
+            QuorumCertificate qc = msg.getPrepareQC();
+            if (qc != null && qc.getViewNumber() > highestView) {
+                highestView = qc.getViewNumber();
+                highQC = qc;
+            }
+        }
+        return highQC;
+    }
+
+    private Node createLeaf(QuorumCertificate parentQC, String command) {
+        // TODO HOW DO WE FIND THE PARENT NODE FOR THIS NEW NODE ?
+        Node parent = null;
+        
+        if (parent == null) {
+            throw new IllegalStateException("Parent node not found in tree for QC");
+        }
+        
+        // TODO: is this correct? should we calculate hash here instead
+        String parentHash = parent.getHash();
+        
+        return new Node(parentHash, command, parent, parentQC);
     }
 
     public void newView() {
