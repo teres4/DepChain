@@ -7,14 +7,13 @@ import java.net.InetSocketAddress;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.crypto.SecretKey;
-
-import com.google.gson.Gson;
 
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
@@ -399,23 +398,23 @@ public class AuthPerfLink {
             System.err.println("Failed to start connection: " + e.getMessage());
         }
     }
-    // Inner class to represent the connection message
-    private static class ConnectionMessage {
-        private final String encryptedSessionKey;
-        private final String signature;
-
-        public ConnectionMessage(String encryptedSessionKey, String signature) {
-            this.encryptedSessionKey = encryptedSessionKey;
-            this.signature = signature;
-        }
-
-        public String toJson() {
-            Gson gson = new Gson();
-            return gson.toJson(this);
-        }
-    }
 
     public MemberInfo[] getMembers() {
         return memberManagement.getMembers();
+    }
+
+    public String seeActiveSessions() {
+        StringBuilder activeSessions = new StringBuilder("Active Sessions:\n");
+        Collection<Session> sessions = sessionManager.getAllSessions();
+        if (sessions.isEmpty()) {
+            return "No active sessions found.";
+        }
+        for (Session session : sessions) {
+            activeSessions.append("Session with ID: ").append(session.getSenderID())
+                          .append(", Address: ").append(session.getAddr())
+                          .append(", Sequence Number: ").append(session.getSequenceNumber())
+                          .append("\n");
+        }
+        return activeSessions.toString();
     }
 }

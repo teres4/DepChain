@@ -2,6 +2,7 @@ package pt.tecnico.sec.apl;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.Collection;
 
 import javax.crypto.SecretKey;
 
@@ -29,6 +30,10 @@ public class SessionManager {
         Session session = new Session(senderID, sequenceNumber, sessionKey, addr);
         addSession(senderID, session);
         return session;
+    }
+
+    public Collection<Session> getAllSessions() {
+        return sessions.values();
     }
 
 }
