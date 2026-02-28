@@ -99,14 +99,6 @@ public class AuthPerfLink {
     }
 
     public void handlePacket(DatagramPacket packet) {
-
-        // for each message, check if theres a session
-        // if there is, verify the HMAC and the sequence number, and if they are
-        // correct, process the message
-        // if there isnt, check if its a connection request, and if it is, create a new
-        // session and send a connection reply
-        // if it isnt, discard the message
-
         InetSocketAddress addr = new InetSocketAddress(packet.getAddress(), packet.getPort());
 
         Message msg = new Message(packet);
@@ -136,8 +128,6 @@ public class AuthPerfLink {
         }
     }
 
-    // connection request has message type, seq number 0, session key encrypted
-    // with receiver public key, and digital signature using sender private key
     public void handleConnectionRequest(Message msg, InetSocketAddress addr) {
         try {
             // Verify message contents
@@ -164,10 +154,9 @@ public class AuthPerfLink {
             Session session = sessionManager.createSession(senderMember.getId(), addr, sessionKey);
 
             // Prepare reply and send it back to the sender
-            // defini o payload do reply como "ACK" + senderID pq nsei o que por
-            DatagramPacket replyPacket = prepareResponse(MessageType.CONNECTION_REPLY, "ACK" + senderMember.getId(),
-                    msg.getSequenceNumber() + 1, sessionKey, addr);
-            session.setSequenceNumber(msg.getSequenceNumber() + 1); // increment session sequence number after successful connection request reception
+            DatagramPacket replyPacket = prepareResponse(MessageType.CONNECTION_REPLY, "ACK:" + senderMember.getId() + 
+                    ":" + msg.getSequenceNumber() + 1, msg.getSequenceNumber() + 1, sessionKey, addr);
+            session.setSequenceNumber(msg.getSequenceNumber() + 1);
             datagramSocket.send(replyPacket);
 
             System.out.println("Connection reply sent to: " + addr);
@@ -189,8 +178,6 @@ public class AuthPerfLink {
         return true;
     }
 
-    // connection reply has message type, seq number 1, and HMAC and payload (ACK +
-    // senderID)
     public void handleConnectionReply(Message msg, InetSocketAddress addr) {
         try {
             if (msg.getType() != MessageType.CONNECTION_REPLY) {
@@ -205,12 +192,18 @@ public class AuthPerfLink {
 
             Session session = sessionManager.getSession(senderMember.getId());
             if (session == null) {
-                System.err
-                        .println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
+                System.err.println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
                 return;
             }
 
-            if (!verifySequenceNumber(msg, session, addr)) {
+            // if it's a retransmission, resend ACK
+            if (msg.getSequenceNumber() == session.getSequenceNumber() - 1) {
+                System.out.println("Received retransmission of connection reply from: " + addr + ", resending ACK");
+                sendAck(session, msg.getSequenceNumber() + 1);
+                return;
+            }
+            // verify if its the expected sequence number, if not discard the message
+            else if (!verifySequenceNumber(msg, session, addr)) { 
                 return;
             }
 
@@ -218,7 +211,7 @@ public class AuthPerfLink {
                 return;
             }
 
-            session.setSequenceNumber(msg.getSequenceNumber()); //increment session sequence number after successful connection reply reception
+            session.setSequenceNumber(msg.getSequenceNumber());
             session.replyReceived();
             System.out.println("Connection reply verified and session established with: " + addr);
         } catch (Exception e) {
@@ -252,14 +245,12 @@ public class AuthPerfLink {
         }
     }
 
-    public void sendAck(Session session) {
+    public void sendAck(Session session, long sequenceNumber) {
         try {
             MemberInfo senderMember = memberManagement.getMemberByAddress(session.getAddr());
-            // defini o payload do reply como "ACK" + senderID pq nsei o que por no conteudo
-            // do ACK
-            DatagramPacket ackPacket = prepareResponse(MessageType.ACK, "ACK" + senderMember.getId(),
-                    session.getSequenceNumber() + 1, session.getSessionKey(), session.getAddr());
-            session.setSequenceNumber(session.getSequenceNumber() + 1); // increment session sequence number 
+            DatagramPacket ackPacket = prepareResponse(MessageType.ACK, "ACK:" + senderMember.getId() + ":" + 
+                        sequenceNumber, sequenceNumber, session.getSessionKey(), session.getAddr());
+            session.setSequenceNumber(sequenceNumber);
             datagramSocket.send(ackPacket);
             System.out.println("ACK sent to: " + session.getAddr());
         } catch (IOException e) {
@@ -269,6 +260,10 @@ public class AuthPerfLink {
 
     public void handleAck(Message msg, InetSocketAddress addr) {
         try {
+            if (msg.getType() != MessageType.ACK) {
+                System.err.println("Invalid message type for ACK from: " + addr);
+                return;
+            }
             MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
             if (senderMember == null) {
                 System.err.println("Unknown sender address: " + addr);
@@ -290,8 +285,7 @@ public class AuthPerfLink {
                 return;
             }
 
-            session.setSequenceNumber(msg.getSequenceNumber()); // increment session sequence number after successful ACK reception
-            session.replyReceived();
+            session.setSequenceNumber(msg.getSequenceNumber());
             System.out.println("Message acknowledged for session with sender: " + addr);
         } catch (Exception e) {
             System.err.println("Failed to handle ACK: " + e.getMessage());
@@ -312,6 +306,10 @@ public class AuthPerfLink {
 
     public void handleData(Message msg, InetSocketAddress addr) {
         try {
+            if (msg.getType() != MessageType.DATA) {
+                System.err.println("Invalid message type for data from: " + addr);
+                return;
+            }
             MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
             if (senderMember == null) {
                 System.err.println("Unknown sender address: " + addr);
@@ -325,7 +323,14 @@ public class AuthPerfLink {
                 return;
             }
 
-            if (!verifySequenceNumber(msg, session, addr)) {
+            // if it's a retransmission, resend ACK
+            if (msg.getSequenceNumber() == session.getSequenceNumber() - 1) {
+                System.out.println("Received retransmission of connection reply from: " + addr + ", resending ACK");
+                sendAck(session, msg.getSequenceNumber() + 1);
+                return;
+            }
+            // verify if its the expected sequence number, if not discard the message
+            else if (!verifySequenceNumber(msg, session, addr)) { 
                 return;
             }
 
@@ -333,12 +338,11 @@ public class AuthPerfLink {
                 return;
             }
 
-            session.setSequenceNumber(msg.getSequenceNumber()); // increment session sequence number after successful data reception
+            session.setSequenceNumber(msg.getSequenceNumber());
             // TODO: later this message that is received with the data will be used in the
             // consensus protocol
             System.out.println("Received DATA from: " + addr + " - Content: " + new String(msg.getPayload()));
-            session.replyReceived();
-            sendAck(session);
+            sendAck(session, msg.getSequenceNumber() + 1);
         } catch (Exception e) {
             System.err.println("Failed to handle DATA: " + e.getMessage());
         }
