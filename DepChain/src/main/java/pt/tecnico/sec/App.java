@@ -55,7 +55,8 @@ public class App
             System.out.println("1. View all members info");
             System.out.println("2. Start a new session");
             System.out.println("3. View active sessions");
-            System.out.println("4. Exit");
+            System.out.println("4. Send data to a session");
+            System.out.println("5. Exit");
             System.out.print("Your choice: ");
 
             String choice = scanner.nextLine();
@@ -98,6 +99,23 @@ public class App
                     break;
 
                 case "4":
+                    System.out.println("Choose a session to send data to. Active Sessions:");
+                    System.out.println(apl.seeActiveSessions());
+                    System.out.print("Enter receiver ID: ");
+                    String receiverIdStr = scanner.nextLine();
+                    try {
+                        long receiverID = Long.parseLong(receiverIdStr);
+                        System.out.print("Enter the data to send: ");
+                        String data = scanner.nextLine();
+                        apl.sendData(apl.getSession(receiverID), data);
+                    } catch (NumberFormatException e) {
+                        System.out.println("Invalid receiver ID. Please enter a valid number.");
+                    } catch (Exception e) {
+                        System.out.println("Failed to send data: " + e.getMessage());
+                    }
+                    break;
+
+                case "5":
                     System.out.println("Exiting the application. Goodbye!");
                     running = false;
                     apl.shutdown();

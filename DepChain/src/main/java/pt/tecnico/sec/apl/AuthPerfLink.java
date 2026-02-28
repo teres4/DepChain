@@ -336,8 +336,9 @@ public class AuthPerfLink {
             session.setSequenceNumber(msg.getSequenceNumber()); // increment session sequence number after successful data reception
             // TODO: later this message that is received with the data will be used in the
             // consensus protocol
-            System.out.println("Processing message from: " + addr);
+            System.out.println("Received DATA from: " + addr + " - Content: " + new String(msg.getPayload()));
             session.replyReceived();
+            sendAck(session);
         } catch (Exception e) {
             System.err.println("Failed to handle DATA: " + e.getMessage());
         }
@@ -416,5 +417,9 @@ public class AuthPerfLink {
                           .append("\n");
         }
         return activeSessions.toString();
+    }
+
+    public Session getSession(long senderID) {
+        return sessionManager.getSession(senderID);
     }
 }

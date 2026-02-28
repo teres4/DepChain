@@ -114,4 +114,13 @@ public class Message {
         Gson gson = new Gson();
         return gson.toJson(this);
     }
+
+    @Override
+    public String toString() {
+        return "Message{" +
+                "type=" + type +
+                ", payload=" + new String(payload) +
+                ", sequenceNumber=" + sequenceNumber +
+                '}';
+    }
 }
