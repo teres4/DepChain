@@ -15,10 +15,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.crypto.SecretKey;
 
+import pt.tecnico.sec.apl.message.ConnectionACKMessage;
+import pt.tecnico.sec.apl.message.ConnectionRequestMessage;
+import pt.tecnico.sec.apl.message.DataACKMessage;
+import pt.tecnico.sec.apl.message.DataMessage;
+import pt.tecnico.sec.apl.message.Message;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
 import pt.tecnico.sec.utils.MemberManagement;
-import pt.tecnico.sec.utils.MessageType;
 
 public class AuthPerfLink {
     public static final int BUFFER_SIZE = 65536; // Maximum UDP packet size
@@ -59,7 +63,6 @@ public class AuthPerfLink {
             try {
                 datagramSocket.send(packet);
                 ackReceived = session.waitForReply();
-
             } catch (IOException e) {
                 System.err.println("Failed to send message: " + e.getMessage());
             } catch (InterruptedException e) {
@@ -71,18 +74,15 @@ public class AuthPerfLink {
 
     public void receive() {
         while (running.get() && !datagramSocket.isClosed()) {
-            byte[] buffer = new byte[BUFFER_SIZE]; 
+            byte[] buffer = new byte[BUFFER_SIZE];
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
             try {
                 datagramSocket.receive(packet);
-                Message message = new Message(packet);
-                System.out.println("Received: " + message);
                 executorService.submit(() -> handlePacket(packet));
             } catch (IOException e) {
                 if (running.get()) {
                     e.printStackTrace();
                 }
-                // If not running, socket was closed intentionally
             }
         }
     }
@@ -104,41 +104,29 @@ public class AuthPerfLink {
     public void handlePacket(DatagramPacket packet) {
         InetSocketAddress addr = new InetSocketAddress(packet.getAddress(), packet.getPort());
 
-        Message msg = new Message(packet);
+        try {
+            Message msg = Message.fromPacket(packet);
+            System.out.println("Received: " + msg);
 
-        switch (msg.getType()) {
-            case CONNECTION_REQUEST:
-                // create new session and send connection reply
-                handleConnectionRequest(msg, addr);
-                break;
-
-            case CONNECTION_REPLY:
-                // verify the HMAC and the sequence number, and if they are correct, mark the
-                // session as established
-                handleConnectionReply(msg, addr);
-                break;
-            case ACK:
-                // mark the message as acknowledged
-                handleAck(msg, addr);
-                break;
-            case DATA:
-                // verify the HMAC and the sequence number, and if they are correct, process the
-                // message
-                handleData(msg, addr);
-                break;
-            default:
-                break;
+            switch (msg.getType()) {
+                case CONNECTION_REQUEST -> handleConnectionRequest((ConnectionRequestMessage) msg, addr);
+                case CONNECTION_ACK     -> handleConnectionReply((ConnectionACKMessage) msg, addr);
+                case DATA               -> handleData((DataMessage) msg, addr);
+                case ACK                -> handleAck((DataACKMessage) msg, addr);
+                default -> System.err.println("Unknown message type from: " + addr);
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to handle packet from: " + addr + " - " + e.getMessage());
         }
     }
 
-    public void handleConnectionRequest(Message msg, InetSocketAddress addr) {
+    public void handleConnectionRequest(ConnectionRequestMessage msg, InetSocketAddress addr) {
         try {
-            // Verify message contents
-            if (!validateConnectionRequest(msg, addr)) {
+            if (msg.getSequenceNumber() != 0) {
+                System.err.println("Invalid sequence number in connection request from: " + addr);
                 return;
             }
 
-            // Verify digital signature
             MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
             if (senderMember == null) {
                 System.err.println("Unknown sender address: " + addr);
@@ -146,21 +134,19 @@ public class AuthPerfLink {
             }
 
             PublicKey senderPublicKey = senderMember.getPublicKey();
-            if (!Crypto.verifySignature(msg.getPayload(), msg.getSignature(), senderPublicKey)) {
+            if (!Crypto.verifySignature(msg.getSignableContent().getBytes(), msg.getSignature(), senderPublicKey)) {
                 System.err.println("Failed to verify signature for connection request from: " + addr);
                 return;
             }
 
-            // Extract session key
             byte[] sessionKeyBytes = Crypto.decryptWithPrivateKey(msg.getEncryptedSessionKey(), this.privateKey);
             SecretKey sessionKey = Crypto.bytesToSecretKey(sessionKeyBytes);
             Session session = sessionManager.createSession(senderMember.getId(), addr, sessionKey);
 
-            // Prepare reply and send it back to the sender
-            DatagramPacket replyPacket = prepareResponse(MessageType.CONNECTION_REPLY, "ACK:" + senderMember.getId() + 
-                    ":" + msg.getSequenceNumber() + 1, msg.getSequenceNumber() + 1, sessionKey, addr);
-            session.setSequenceNumber(msg.getSequenceNumber() + 1);
-            datagramSocket.send(replyPacket);
+            long replySeqNum = msg.getSequenceNumber() + 1;
+            ConnectionACKMessage reply = buildConnectionReply(replySeqNum, sessionKey);
+            session.setSequenceNumber(replySeqNum);
+            datagramSocket.send(reply.toDatagramPacket(addr));
 
             System.out.println("Connection reply sent to: " + addr);
         } catch (Exception e) {
@@ -168,106 +154,65 @@ public class AuthPerfLink {
         }
     }
 
-    // Validation helper methods for testing
-    boolean validateConnectionRequest(Message msg, InetSocketAddress addr) {
-        if (msg.getType() != MessageType.CONNECTION_REQUEST) {
-            System.err.println("Invalid message type for connection request from: " + addr);
-            return false;
-        }
-        if (msg.getSequenceNumber() != 0) {
-            System.err.println("Invalid sequence number in connection request from: " + addr);
-            return false;
-        }
-        return true;
-    }
-
-    public void handleConnectionReply(Message msg, InetSocketAddress addr) {
+    public void handleConnectionReply(ConnectionACKMessage msg, InetSocketAddress addr) {
         try {
-            Session session = validateAndGetSession(msg, MessageType.CONNECTION_REPLY, addr);
-            if (session == null) {
+            Session session = getSessionForAddress(addr);
+            if (session == null) return;
+
+            // if it's a retransmission, ignore (connection already established)
+            if (msg.getSequenceNumber() == session.getSequenceNumber()) {
+                System.out.println("Received duplicate connection reply from: " + addr + ", ignoring");
                 return;
             }
 
-            // if it's a retransmission, resend ACK
-            if (msg.getSequenceNumber() == session.getSequenceNumber() - 1) {
-                System.out.println("Received retransmission of connection reply from: " + addr + ", resending ACK");
-                sendAck(session, msg.getSequenceNumber() + 1);
-                return;
-            }
-            // verify if its the expected sequence number, if not discard the message
-            else if (!verifySequenceNumber(msg, session, addr)) { 
-                return;
-            }
-
-            if (!verifyHmac(msg, session, addr)) {
-                return;
-            }
+            if (!verifySequenceNumber(msg, session, addr)) return;
+            if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr)) return;
 
             session.setSequenceNumber(msg.getSequenceNumber());
             session.replyReceived();
             System.out.println("Connection reply verified and session established with: " + addr);
         } catch (Exception e) {
-            e.printStackTrace();
             System.err.println("Failed to handle connection reply: " + e.getMessage());
         }
     }
 
-    boolean verifySequenceNumber(Message msg, Session session, InetSocketAddress addr) {
-        if (msg.getSequenceNumber() != session.getSequenceNumber() + 1) {
-            System.err.println("Invalid sequence number in message from: " + addr);
-            return false;
-        }
-        return true;
-    }
-
-    boolean verifyHmac(Message msg, Session session, InetSocketAddress addr) {
+    public void handleData(DataMessage msg, InetSocketAddress addr) {
         try {
-            Message messageWithoutHmac = new Message(msg.getType(), msg.getPayload(), msg.getSequenceNumber());
-            String jsonMessage = messageWithoutHmac.toJsonString();
-            
-            boolean isValid = Crypto.verifyHmac(jsonMessage, Base64.getEncoder().encodeToString(msg.getHmac()), session.getSessionKey());
+            Session session = getSessionForAddress(addr);
+            if (session == null) return;
 
-            if (!isValid) {
-                System.err.println("HMAC verification failed from: " + addr);
+            // if it's a retransmission, resend ACK
+            if (msg.getSequenceNumber() == session.getSequenceNumber()) {
+                System.out.println("Received retransmission of data from: " + addr + ", resending ACK");
+                sendDataAck(session, msg.getSequenceNumber() + 1);
+                return;
             }
-            return isValid;
+
+            if (!verifySequenceNumber(msg, session, addr)) return;
+            String jsonWithoutHmac = msg.withoutHmac().toJsonString();
+            if (!verifyHmac(jsonWithoutHmac, msg.getHmac(), session, addr)) return;
+
+            // this data will later be used by consensus layer, for now we just print it
+            session.setSequenceNumber(msg.getSequenceNumber());
+            System.out.println("Received DATA from: " + addr + " - Content: " + new String(msg.getContent()));
+
+            sendDataAck(session, msg.getSequenceNumber() + 1);
         } catch (Exception e) {
-            System.err.println("HMAC verification error from: " + addr + " - " + e.getMessage());
-            return false;
+            System.err.println("Failed to handle DATA: " + e.getMessage());
         }
     }
 
-    public void sendAck(Session session, long sequenceNumber) {
+    public void handleAck(DataACKMessage msg, InetSocketAddress addr) {
         try {
-            MemberInfo senderMember = memberManagement.getMemberByAddress(session.getAddr());
-            DatagramPacket ackPacket = prepareResponse(MessageType.ACK, "ACK:" + senderMember.getId() + ":" + 
-                        sequenceNumber, sequenceNumber, session.getSessionKey(), session.getAddr());
-            session.setSequenceNumber(sequenceNumber);
-            datagramSocket.send(ackPacket);
-            System.out.println("ACK sent to: " + session.getAddr());
-        } catch (IOException e) {
-            System.err.println("Failed to send ACK: " + e.getMessage());
-        }
-    }
+            Session session = getSessionForAddress(addr);
+            if (session == null) return;
 
-    public void handleAck(Message msg, InetSocketAddress addr) {
-        try {
-            Session session = validateAndGetSession(msg, MessageType.ACK, addr);
-            if (session == null) {
-                return;
-            }
-
-            if (!verifySequenceNumber(msg, session, addr)) {
-                return;
-            }
-
-            if (!verifyHmac(msg, session, addr)) {
-                return;
-            }
+            if (!verifySequenceNumber(msg, session, addr)) return;
+            if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr)) return;
 
             session.setSequenceNumber(msg.getSequenceNumber());
             session.replyReceived();
-            System.out.println("Message acknowledged for session with sender: " + addr);
+            System.out.println("Message acknowledged by: " + addr);
         } catch (Exception e) {
             System.err.println("Failed to handle ACK: " + e.getMessage());
         }
@@ -275,102 +220,101 @@ public class AuthPerfLink {
 
     public void sendData(Session session, String content) {
         try {
-            DatagramPacket dataPacket = prepareResponse(MessageType.DATA, content, session.getSequenceNumber() + 1,
-                    session.getSessionKey(), session.getAddr());
-            session.setSequenceNumber(session.getSequenceNumber() + 1); // increment session sequence number
-            datagramSocket.send(dataPacket);
+            long seqNum = session.getSequenceNumber() + 1;
+            DataMessage msg = buildDataMessage(seqNum, content.getBytes(), session.getSessionKey());
+            session.setSequenceNumber(seqNum);
+            send(msg, session);
             System.out.println("DATA sent to: " + session.getAddr());
-        } catch (IOException e) {
+        } catch (Exception e) {
             System.err.println("Failed to send DATA: " + e.getMessage());
         }
     }
 
-    public void handleData(Message msg, InetSocketAddress addr) {
+    private void sendDataAck(Session session, long seqNum) {
         try {
-            Session session = validateAndGetSession(msg, MessageType.DATA, addr);
-            if (session == null) {
-                return;
-            }
-
-            // if it's a retransmission, resend ACK
-            if (msg.getSequenceNumber() == session.getSequenceNumber() - 1) {
-                System.out.println("Received retransmission of connection reply from: " + addr + ", resending ACK");
-                sendAck(session, msg.getSequenceNumber() + 1);
-                return;
-            }
-            // verify if its the expected sequence number, if not discard the message
-            else if (!verifySequenceNumber(msg, session, addr)) { 
-                return;
-            }
-
-            if (!verifyHmac(msg, session, addr)) {
-                return;
-            }
-
-            session.setSequenceNumber(msg.getSequenceNumber());
-            // TODO: later this message that is received with the data will be used in the
-            // consensus protocol
-            System.out.println("Received DATA from: " + addr + " - Content: " + new String(msg.getPayload()));
-            sendAck(session, msg.getSequenceNumber() + 1);
+            DataACKMessage ack = buildDataAck(seqNum, session.getSessionKey());
+            session.setSequenceNumber(seqNum);
+            datagramSocket.send(ack.toDatagramPacket(session.getAddr()));
+            System.out.println("ACK sent to: " + session.getAddr());
         } catch (Exception e) {
-            System.err.println("Failed to handle DATA: " + e.getMessage());
+            System.err.println("Failed to send ACK: " + e.getMessage());
         }
     }
 
-    public DatagramPacket prepareResponse(MessageType type, String payload, long sequenceNumber,
-            SecretKey sessionKey, InetSocketAddress addr) {
-        try {
-            Message response = new Message(type, payload.getBytes(), sequenceNumber);
-            String jsonMessage = response.toJsonString();
-            byte[] hmac = Crypto.generateHMAC(sessionKey, jsonMessage.getBytes());
-            response.setHmac(hmac);
-
-            // Convert the message to a DatagramPacket
-            return response.toDatagramPacket(addr);
-        } catch (Exception e) {
-            System.err.println("Failed to prepare response: " + e.getMessage());
-            return null;
-        }
-    }
-
-    // connection request has message type, seq number 0, encrypted session key and
-    // digital signature of requester
     public void startConnection(long receiverID) {
         try {
-            // generate session key and encrypt it with receiver public key
             MemberInfo receiverInfo = memberManagement.getMember(receiverID);
             if (receiverInfo == null) {
                 System.err.println("No member found with ID: " + receiverID);
                 return;
             }
-            SecretKey sessionKey = Crypto.generateSecretKey();
-            byte[] encryptedSessionKey = Crypto.encryptWithPublicKey(sessionKey.getEncoded(),
-                    receiverInfo.getPublicKey());
 
-            // base64 encode the encrypted session key
+            SecretKey sessionKey = Crypto.generateSecretKey();
+            byte[] encryptedSessionKey = Crypto.encryptWithPublicKey(sessionKey.getEncoded(), receiverInfo.getPublicKey());
             String encryptedSessionKeyBase64 = Base64.getEncoder().encodeToString(encryptedSessionKey);
 
-            // Payload contains: sender ID + encrypted session key
-            // its useless to send encrypted session key in the payload, but we need smth to
-            // sign and verify in the connection request
-            String payload = String.valueOf(ownId) + ":" + encryptedSessionKeyBase64;
-            byte[] payloadBytes = payload.getBytes();
-
-            // send connection request with encrypted session key
-            long sequenceNumber = 0;
-            Message connectionRequest = new Message(MessageType.CONNECTION_REQUEST, payloadBytes, sequenceNumber, null);
-
-            connectionRequest.setEncryptedSessionKey(encryptedSessionKeyBase64);
-            connectionRequest
-                    .setSignature(Crypto.signMessage(new String(connectionRequest.getPayload()), this.privateKey));
+            String signature = Crypto.signMessage(ownId + ":" + encryptedSessionKeyBase64, this.privateKey);
+            ConnectionRequestMessage connectionRequest = new ConnectionRequestMessage(ownId, encryptedSessionKeyBase64, signature);
 
             Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), sessionKey);
-
-            send(connectionRequest, session); // send connection request and wait for reply
+            send(connectionRequest, session);
         } catch (Exception e) {
-            e.printStackTrace();
             System.err.println("Failed to start connection: " + e.getMessage());
         }
+    }
+
+    // helper functions
+
+    private ConnectionACKMessage buildConnectionReply(long seqNum, SecretKey sessionKey) throws Exception {
+        ConnectionACKMessage msgWithoutHmac = new ConnectionACKMessage(seqNum, null);
+        byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
+        return new ConnectionACKMessage(seqNum, hmac);
+    }
+
+    private DataMessage buildDataMessage(long seqNum, byte[] content, SecretKey sessionKey) throws Exception {
+        DataMessage msg = new DataMessage(seqNum, content, null);
+        return new DataMessage(seqNum, content, Crypto.generateHMAC(sessionKey, msg.toJsonString().getBytes()));
+    }
+
+    private DataACKMessage buildDataAck(long seqNum, SecretKey sessionKey) throws Exception {
+        DataACKMessage msgWithoutHmac = new DataACKMessage(seqNum, null);
+        byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
+        return new DataACKMessage(seqNum, hmac);
+    }
+
+    boolean verifySequenceNumber(Message msg, Session session, InetSocketAddress addr) {
+        if (msg.getSequenceNumber() != session.getSequenceNumber() + 1) {
+            System.err.println("Invalid sequence number in message from: " + addr +
+                    " (expected " + (session.getSequenceNumber() + 1) + ", got " + msg.getSequenceNumber() + ")");
+            return false;
+        }
+        return true;
+    }
+
+    boolean verifyHmac(String jsonWithoutHmac, byte[] hmac, Session session, InetSocketAddress addr) {
+        try {
+            boolean isValid = Crypto.verifyHmac(jsonWithoutHmac,
+                    Base64.getEncoder().encodeToString(hmac), session.getSessionKey());
+            if (!isValid) System.err.println("HMAC verification failed from: " + addr);
+            return isValid;
+        } catch (Exception e) {
+            System.err.println("HMAC verification error from: " + addr + " - " + e.getMessage());
+            return false;
+        }
+    }
+
+    private Session getSessionForAddress(InetSocketAddress addr) {
+        MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
+        if (senderMember == null) {
+            System.err.println("Unknown sender address: " + addr);
+            return null;
+        }
+        Session session = sessionManager.getSession(senderMember.getId());
+        if (session == null) {
+            System.err.println("No session found for sender ID: " + senderMember.getId());
+            return null;
+        }
+        return session;
     }
 
     public MemberInfo[] getMembers() {
@@ -380,41 +324,17 @@ public class AuthPerfLink {
     public String seeActiveSessions() {
         StringBuilder activeSessions = new StringBuilder("Active Sessions:\n");
         Collection<Session> sessions = sessionManager.getAllSessions();
-        if (sessions.isEmpty()) {
-            return "No active sessions found.";
-        }
+        if (sessions.isEmpty()) return "No active sessions found.";
         for (Session session : sessions) {
             activeSessions.append("Session with ID: ").append(session.getSenderID())
-                          .append(", Address: ").append(session.getAddr())
-                          .append(", Sequence Number: ").append(session.getSequenceNumber())
-                          .append("\n");
+                    .append(", Address: ").append(session.getAddr())
+                    .append(", Sequence Number: ").append(session.getSequenceNumber())
+                    .append("\n");
         }
         return activeSessions.toString();
     }
 
     public Session getSession(long senderID) {
         return sessionManager.getSession(senderID);
-    }
-
-    // validate message type and get session from address
-    private Session validateAndGetSession(Message msg, MessageType expectedType, InetSocketAddress addr) {
-        if (msg.getType() != expectedType) {
-            System.err.println("Invalid message type (expected " + expectedType + ", got " + msg.getType() + ") from: " + addr);
-            return null;
-        }
-
-        MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
-        if (senderMember == null) {
-            System.err.println("Unknown sender address: " + addr);
-            return null;
-        }
-
-        Session session = sessionManager.getSession(senderMember.getId());
-        if (session == null) {
-            System.err.println("No session found for sender ID: " + senderMember.getId() + " from address: " + addr);
-            return null;
-        }
-
-        return session;
     }
 }

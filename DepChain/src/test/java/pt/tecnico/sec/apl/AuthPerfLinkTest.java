@@ -4,10 +4,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+
+import pt.tecnico.sec.apl.message.Message;
+import pt.tecnico.sec.apl.message.MessageType;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
 import pt.tecnico.sec.utils.MemberManagement;
-import pt.tecnico.sec.utils.MessageType;
 import pt.tecnico.sec.utils.TestCryptoUtils;
 
 import javax.crypto.SecretKey;
