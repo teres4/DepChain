@@ -3,6 +3,7 @@ package pt.tecnico.sec;
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.message.HotStuffMessage;
+import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
 
 import java.util.Scanner;
@@ -61,6 +62,7 @@ public class App {
             System.out.println("2. Start a new session");
             System.out.println("3. View active sessions");
             System.out.println("4. Send data to a session");
+            System.out.println("6. Generate threshold keys (for testing)");
             System.out.println("5. Exit");
             System.out.print("Your choice: ");
 
@@ -124,6 +126,14 @@ public class App {
                     System.out.println("Exiting the application. Goodbye!");
                     running = false;
                     apl.shutdown();
+                    break;
+
+                case "6":
+                    try {
+                        Crypto.generateAndSaveThresholdKeys(5, 3, "config/threshold-keys");
+                    } catch (Exception e) {
+                        System.out.println("Failed to generate threshold keys: " + e.getMessage());
+                    }
                     break;
 
                 default:

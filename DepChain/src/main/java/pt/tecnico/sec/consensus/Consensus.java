@@ -16,6 +16,9 @@ import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberManager;
 
+import com.weavechain.sig.ThresholdSigEd25519;
+import com.weavechain.sig.ThresholdSigEd25519Params;
+
 public class Consensus {
     // current viewnumber
     private AtomicInteger viewNumber;
@@ -41,9 +44,6 @@ public class Consensus {
     // tree structure
     private final Tree tree;
 
-    private PrivateKey myPrivateKey;
-    private Map<Long, PublicKey> replicaPublicKeys;
-
     // New-view message collection for leader
     private final Map<Long, NewViewMessage> newViewMessages = new ConcurrentHashMap<>();
 
@@ -61,28 +61,30 @@ public class Consensus {
 
     ExecutorService executorService = java.util.concurrent.Executors.newFixedThreadPool(10);
 
+    ThresholdSigEd25519 thresholdSig;
+
+    // Threshold signature keys
+    private byte[] privateKeyShare;
+    private byte[] publicKey;
+
     public Consensus(long replicaID, int totalReplicas, MemberManager memberManager, AuthPerfLink authPerfLink) {
         this.replicaID = replicaID;
         this.totalReplicas = totalReplicas;
         this.quorumSize = totalReplicas - (totalReplicas - 1) / 3; // n-f where f = (n-1)/3
         this.memberManager = memberManager;
         this.authPerfLink = authPerfLink;
+        this.thresholdSig = new ThresholdSigEd25519(totalReplicas, quorumSize);
         this.tree = new Tree();
 
+        // Load threshold signature keys
         try {
-            this.myPrivateKey = Crypto.getPrivateKey("config/keys/private_key" + (replicaID + 1) + ".pem");
-            this.replicaPublicKeys = new HashMap<>();
-            this.viewNumber = new AtomicInteger(1);
-
-            for (int i = 0; i < totalReplicas; i++) {
-                PublicKey pubKey = Crypto.getPublicKey("config/keys/public_key" + (i + 1) + ".pem");
-                replicaPublicKeys.put((long) i, pubKey);
-            }
+            this.privateKeyShare = Crypto.loadThresholdPrivateKeyShare(
+                    "config/threshold-keys/private_share_" + (replicaID + 1) + ".bin");
+            this.publicKey = Crypto.loadThresholdPublicKey("config/threshold-keys/public_key.bin");
         } catch (Exception e) {
-            System.err.println("Failed to load cryptographic keys: " + e.getMessage());
-            e.printStackTrace();
+            System.err.println("Failed to load threshold keys: " + e.getMessage());
+            throw new RuntimeException("Cannot initialize consensus without threshold keys", e);
         }
-
     }
 
     // one thread
@@ -100,14 +102,6 @@ public class Consensus {
         if (amLeader()) {
 
         }
-        // prepare();
-        // precommit();
-        // commit();
-        // decide();
-
-    }
-
-    public void consensusLoopLeader() {
 
     }
 
@@ -186,10 +180,11 @@ public class Consensus {
         }
 
         setCurrentPhase(Phase.PREPARE);
-        
-        // if highQC is null, then this is the very first proposal and the new node should extend from the root
+
+        // if highQC is null, then this is the very first proposal and the new node
+        // should extend from the root
         Node parentNode = (highQC != null) ? tree.getNode(highQC.getNodeHash()) : tree.getRoot();
-        
+
         Node newNode = createLeaf(parentNode, "COMMAND"); // TODO: define command
         tree.addNode(newNode);
 
@@ -209,14 +204,12 @@ public class Consensus {
         String prepareNodeHash = prepareMessage.getHighQC().getNodeHash();
         Node prepareNode = tree.getNode(prepareNodeHash);
 
-        if (tree.extendsFrom(prepareMessage.getNode(), prepareNode) 
+        if (tree.extendsFrom(prepareMessage.getNode(), prepareNode)
                 && safeNode(prepareMessage.getNode(), prepareMessage.getHighQC())) {
             // if replica accepts the prepare message, it adds the new node to its tree
             tree.addNode(prepareMessage.getNode());
 
-            String messageToSign = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, this.viewNumber.get(),
-                    prepareMessage.getNode().getHash());
-            String partialSig = tsign(messageToSign);
+            String partialSig = tsign(HotStuffMessageType.PREPARE_VOTE, this.viewNumber.get(), prepareNodeHash);
 
             // send prepare vote with partial signature to leader
             PrepareVoteMessage voteMessage = new PrepareVoteMessage(this.viewNumber.get(), prepareMessage.getNode(),
@@ -244,12 +237,17 @@ public class Consensus {
         // get number of prepare votes for the current proposal
         // if leader receives (n - f) prepare votes for curProposal, then combine them
         // into precommit QC and move to pre-commit phase
-
+        if (prepareVotes.size() >= this.quorumSize) {
+            System.err.println("Already received enough prepare votes for view " + this.viewNumber.get());
+            return;
+        }
         prepareVotes.add(voteMessage);
 
         if (prepareVotes.size() >= this.quorumSize) {
             // combine prepare votes into precommit QC
-            QuorumCertificate preCommitQC = combinePrepareVotes(voteMessage.getNode(), prepareVotes);
+            @SuppressWarnings("unchecked")
+            Queue<HotStuffMessage> voteQueue = (Queue<HotStuffMessage>) (Queue<?>) prepareVotes;
+            QuorumCertificate preCommitQC = QC(voteMessage.getNode(), voteQueue);
             // move to pre-commit phase
             this.viewNumber.incrementAndGet();
             this.prepareVotes.clear();
@@ -258,10 +256,116 @@ public class Consensus {
 
     }
 
-    public QuorumCertificate combinePrepareVotes(Node node, Queue<PrepareVoteMessage> votes) {
-        // Combine prepare votes into a QuorumCertificate for the given node
+    public QuorumCertificate QC(Node node, Queue<HotStuffMessage> votes) {
+        try {
+            // Use tcombine to get the combined signature
+            String combinedSigBase64 = tcombine(votes);
+            if (combinedSigBase64 == null) {
+                return null;
+            }
 
-        return null; // TODO: implement proper QC creation with threshold signatures
+            // Create and return QuorumCertificate
+            // Get view number and type from first vote
+            HotStuffMessage firstVote = votes.peek();
+            int viewNum = firstVote != null ? firstVote.getViewNumber() : this.viewNumber.get();
+            String qcType = firstVote instanceof PrepareVoteMessage ? "prepare"
+                    : firstVote instanceof PreCommitVoteMessage ? "pre-commit"
+                            : firstVote instanceof CommitVoteMessage ? "commit" : "unknown";
+
+            return new QuorumCertificate(
+                    viewNum,
+                    node.getHash(),
+                    qcType,
+                    combinedSigBase64);
+        } catch (Exception e) {
+            System.err.println("Failed to create QC: " + e.getMessage());
+            return null;
+        }
+    }
+
+    public String tcombine(Queue<HotStuffMessage> votes) {
+        try {
+            // Extract partial signatures and indices from votes
+            int voteCount = votes.size();
+            byte[][] signatureShares = new byte[voteCount][];
+            int[] indices = new int[voteCount];
+
+            int i = 0;
+            for (HotStuffMessage vote : votes) {
+                String partialSig = null;
+                long senderId = vote.getSenderId();
+
+                // Extract partial signature based on message type
+                if (vote instanceof PrepareVoteMessage) {
+                    partialSig = ((PrepareVoteMessage) vote).getPartialSig();
+                } else if (vote instanceof PreCommitVoteMessage) {
+                    partialSig = ((PreCommitVoteMessage) vote).getPartialSig();
+                } else if (vote instanceof CommitVoteMessage) {
+                    partialSig = ((CommitVoteMessage) vote).getPartialSig();
+                }
+
+                if (partialSig != null) {
+                    signatureShares[i] = java.util.Base64.getDecoder().decode(partialSig);
+                    indices[i] = (int) (senderId + 1); // Convert to 1-based indexing
+                    i++;
+                }
+            }
+
+            // Combine signature shares
+            byte[] combinedSig = Crypto.combineThresholdSignatures(thresholdSig, indices, signatureShares);
+            return java.util.Base64.getEncoder().encodeToString(combinedSig);
+        } catch (Exception e) {
+            System.err.println("Failed to combine signatures: " + e.getMessage());
+            return null;
+        }
+    }
+
+    public String tsign(HotStuffMessageType type, int viewNumber, String nodeHash) {
+        try {
+            // Create message to sign
+            String message = createVoteMessage(type, viewNumber, nodeHash);
+            byte[] messageBytes = message.getBytes();
+
+            // Sign with this replica's private key share (1-based indexing)
+            byte[] signatureShare = Crypto.thresholdSign(
+                    thresholdSig,
+                    (int) (replicaID + 1),
+                    privateKeyShare,
+                    messageBytes);
+
+            // Return base64-encoded signature
+            return java.util.Base64.getEncoder().encodeToString(signatureShare);
+        } catch (Exception e) {
+            System.err.println("Failed to create threshold signature: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Verify a threshold signature (typically a combined signature from a QC)
+     * 
+     * @param signatureBase64 Base64-encoded threshold signature (can be partial or
+     *                        combined)
+     * @param message         The message that was signed
+     * @param senderId        The sender ID (used for context, not for verification)
+     * @return true if signature is valid, false otherwise
+     */
+    public boolean tverify(String signatureBase64, String message, long senderId) {
+        try {
+            if (signatureBase64 == null || signatureBase64.isEmpty()) {
+                return false;
+            }
+
+            // Decode the signature
+            byte[] signature = java.util.Base64.getDecoder().decode(signatureBase64);
+            byte[] messageBytes = message.getBytes();
+
+            // Verify using the threshold public key
+            return Crypto.verifyThresholdSignature(publicKey, messageBytes, signature);
+        } catch (Exception e) {
+            System.err.println("Failed to verify threshold signature: " + e.getMessage());
+            return false;
+        }
     }
 
     // pre-commit phase
@@ -330,19 +434,8 @@ public class Consensus {
 
         // safety rule: if node extends from lockedQC.node
         Node lockedNode = tree.getNode(lockedQC.getNodeHash());
-        
-        return tree.extendsFrom(node, lockedNode);
-    }
 
-    // TODO implement threshold signature
-    private String tsign(String message) {
-        try {
-            return Crypto.signMessage(message, myPrivateKey);
-        } catch (Exception e) {
-            System.err.println("Failed to generate partial signature: " + e.getMessage());
-            e.printStackTrace();
-            return null;
-        }
+        return tree.extendsFrom(node, lockedNode);
     }
 
     private String createVoteMessage(HotStuffMessageType type, int viewNumber, String nodeHash) {
@@ -363,11 +456,11 @@ public class Consensus {
         return highQC;
     }
 
-    private Node createLeaf(Node parent, String command) throws Exception{
+    private Node createLeaf(Node parent, String command) throws Exception {
         if (parent == null) {
             throw new IllegalStateException("Parent node cannot be null");
         }
-        
+
         String nodeData = parent.getHash() + "|" + command + "|" + viewNumber.get();
         String nodeHash;
         nodeHash = Crypto.hash(nodeData);
@@ -375,18 +468,15 @@ public class Consensus {
         return new Node(nodeHash, command, parent, null);
     }
 
-    public void newView() {
-
-    }
-
     public void broadcastMessage(HotStuffMessage message) throws Exception {
         for (int i = 0; i < totalReplicas; i++) {
             if (i != replicaID) {
+                final int replicaIndex = i;
                 executorService.submit(() -> {
                     try {
-                        authPerfLink.sendData(i, message);
+                        authPerfLink.sendData(replicaIndex, message);
                     } catch (Exception e) {
-                        System.err.println("Failed to send message to replica " + i + ": " + e.getMessage());
+                        System.err.println("Failed to send message to replica " + replicaIndex + ": " + e.getMessage());
                     }
                 });
                 // TODO: send message to my replica self

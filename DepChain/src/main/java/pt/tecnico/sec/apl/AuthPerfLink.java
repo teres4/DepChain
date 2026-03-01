@@ -270,7 +270,7 @@ public class AuthPerfLink {
         }
     }
 
-    private void handleData(DataMessage msg, InetSocketAddress addr) {
+    public void handleData(DataMessage msg, InetSocketAddress addr) {
         try {
             Session session = getSessionForAddress(addr);
             if (session == null)
@@ -303,7 +303,7 @@ public class AuthPerfLink {
         }
     }
 
-    private void handleAck(DataACKMessage msg, InetSocketAddress addr) {
+    public void handleAck(DataACKMessage msg, InetSocketAddress addr) {
         try {
             Session session = getSessionForAddress(addr);
             if (session == null)
