@@ -53,4 +53,21 @@ public class Tree {
         return treeMap.get(hash);
     }
 
+    // check if node extends from ancestor
+    public boolean extendsFrom(Node node, Node ancestor) {
+        if (node == null || ancestor == null) {
+            return false;
+        }
+        
+        Node current = node;
+        while (current != null) {
+            if (current.equals(ancestor) || 
+                (current.getHash() != null && current.getHash().equals(ancestor.getHash()))) {
+                return true;
+            }
+            current = current.getParent();
+        }
+        return false;
+    }
+    
 }

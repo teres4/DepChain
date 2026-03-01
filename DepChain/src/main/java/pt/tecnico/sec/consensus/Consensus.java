@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -210,7 +209,7 @@ public class Consensus {
         String prepareNodeHash = prepareMessage.getHighQC().getNodeHash();
         Node prepareNode = tree.getNode(prepareNodeHash);
 
-        if (extendsFrom(prepareMessage.getNode(), prepareNode) 
+        if (tree.extendsFrom(prepareMessage.getNode(), prepareNode) 
                 && safeNode(prepareMessage.getNode(), prepareMessage.getHighQC())) {
             // if replica accepts the prepare message, it adds the new node to its tree
             tree.addNode(prepareMessage.getNode());
@@ -331,16 +330,8 @@ public class Consensus {
 
         // safety rule: if node extends from lockedQC.node
         Node lockedNode = tree.getNode(lockedQC.getNodeHash());
-        return extendsFrom(node, lockedNode);
-    }
-
-    // TODO : implement proper tree traversal to check if node extends from ancestor
-    private boolean extendsFrom(Node node, Node ancestor) {
-        if (node == null || ancestor == null) {
-            return false;
-        }
-
-        return true;
+        
+        return tree.extendsFrom(node, lockedNode);
     }
 
     // TODO implement threshold signature
