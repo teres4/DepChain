@@ -459,20 +459,80 @@ public class Consensus {
             return;
         }
         setCurrentPhase(Phase.COMMIT);
+        CommitMessage commitMessage = new CommitMessage(this.viewNumber.get(), preCommitQC, this.replicaID);
+        broadcastMessage(commitMessage);
     }
 
     public void onReceiveCommitMessage(CommitMessage commitMessage) {
+        if (commitMessage.getViewNumber() != this.viewNumber.get()) {
+            System.err.println("Received commit message for view " + commitMessage.getViewNumber() +
+                    " but current view is " + this.viewNumber);
+            return;
+        }
 
+        QuorumCertificate preCommitQC = commitMessage.getPrecommitQC();
+
+        // verify the QC signature is legitimate
+        String expectedMsg = createVoteMessage(HotStuffMessageType.PRE_COMMIT_VOTE, preCommitQC.getViewNumber(), preCommitQC.getNodeHash());
+        if (!tverify(preCommitQC.getSignatures(), expectedMsg, commitMessage.getSenderId())) {
+            System.err.println("Commit message has invalid QC signature, ignoring");
+            return;
+        }
+
+        // check the node exists in our tree
+        Node node = tree.getNode(preCommitQC.getNodeHash());
+        if (node == null) {
+            System.err.println("Commit message references unknown node, ignoring");
+            return;
+        }
+
+        // TODO: where to use this lockedQC? how can we use it for safety checks?
+        // this is where we lock
+        // this means that we only accept proposals that extend from this node in future views
+        // even if they come with a valid QC
+        tree.setLockedQC(preCommitQC);
+
+        // sign and send commit vote to leader
+        String partialSig = tsign(HotStuffMessageType.COMMIT_VOTE, this.viewNumber.get(), preCommitQC.getNodeHash());
+        CommitVoteMessage voteMessage = new CommitVoteMessage(this.viewNumber.get(), node, this.replicaID, partialSig);
+
+        authPerfLink.sendData(this.leaderID, voteMessage);
     }
 
-    public void onReceiveCommitVoteMessage(CommitVoteMessage voteMessage) {
-        if (!checkPhase(Phase.COMMIT) || !amLeader()) {
+    public synchronized void onReceiveCommitVoteMessage(CommitVoteMessage voteMessage) throws Exception {
+        if (!amLeader() || !checkPhase(Phase.COMMIT)) {
             return;
+        }
+
+        if (voteMessage.getViewNumber() != this.viewNumber.get()) {
+            System.err.println("Received commit vote for view " + voteMessage.getViewNumber() +
+                    " but current view is " + this.viewNumber.get());
+            return;
+        }
+
+        if (curProposal == null || !voteMessage.getNode().getHash().equals(curProposal.getHash())) {
+            System.err.println("Received commit vote for wrong node, ignoring");
+            return;
+        }
+
+        if (commitVotes.size() >= this.quorumSize) {
+            System.err.println("Already received enough commit votes for view " + this.viewNumber.get());
+            return;
+        }
+
+        commitVotes.add(voteMessage);
+
+        if (commitVotes.size() >= this.quorumSize) {
+            @SuppressWarnings("unchecked")
+            Queue<HotStuffMessage> voteQueue = (Queue<HotStuffMessage>) (Queue<?>) commitVotes;
+            QuorumCertificate commitQC = QC(voteMessage.getNode(), voteQueue);
+            this.commitVotes.clear();
+            decide(commitQC);
         }
     }
 
     // decide phase
-    public void decide() {
+    public void decide(QuorumCertificate commitQC) throws Exception {
         if (!amLeader()) {
             return;
         }

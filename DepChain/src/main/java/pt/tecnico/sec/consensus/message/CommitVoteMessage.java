@@ -10,10 +10,10 @@ public class CommitVoteMessage extends HotStuffMessage {
     private final Node node;
     private final String partialSig;
 
-    public CommitVoteMessage(int viewNumber, Node node, long senderId) {
+    public CommitVoteMessage(int viewNumber, Node node, long senderId, String partialSig) {
         super(HotStuffMessageType.COMMIT_VOTE, viewNumber, senderId);
         this.node = node;
-        this.partialSig = null;
+        this.partialSig = partialSig;
     }
 
     public Node getNode() {
