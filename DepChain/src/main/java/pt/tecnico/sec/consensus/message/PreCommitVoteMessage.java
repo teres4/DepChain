@@ -7,10 +7,10 @@ public class PreCommitVoteMessage extends HotStuffMessage {
     private final Node node;
     private final String partialSig;
 
-    public PreCommitVoteMessage(int viewNumber, Node node, long senderId) {
+    public PreCommitVoteMessage(int viewNumber, Node node, long senderId, String partialSig) {
         super(HotStuffMessageType.PRE_COMMIT_VOTE, viewNumber, senderId);
         this.node = node;
-        this.partialSig = null;
+        this.partialSig = partialSig;
     }
 
     public Node getNode() {

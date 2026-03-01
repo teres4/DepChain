@@ -398,16 +398,63 @@ public class Consensus {
             return;
         }
 
+        QuorumCertificate prepareQC = preCommitMessage.getPrepareQC();
+
+        // verify the QC signature is legitimate
+        String expectedMsg = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, prepareQC.getViewNumber(), prepareQC.getNodeHash());
+        if (!tverify(prepareQC.getSignatures(), expectedMsg, preCommitMessage.getSenderId())) {
+            System.err.println("Pre-commit message has invalid QC signature, ignoring");
+            return;
+        }
+
+        // check the node exists in our tree, leader can be byzantine
+        Node node = tree.getNode(prepareQC.getNodeHash());
+        if (node == null) {
+            System.err.println("Pre-commit message references unknown node, ignoring");
+            return;
+        }
+
+        // sign and send pre-commit vote to leader, sign over the hash of the proposal
+        String partialSig = tsign(HotStuffMessageType.PRE_COMMIT_VOTE, this.viewNumber.get(), prepareQC.getNodeHash());
+        PreCommitVoteMessage voteMessage = new PreCommitVoteMessage(this.viewNumber.get(), node, this.replicaID, partialSig);
+        
+        authPerfLink.sendData(this.leaderID, voteMessage);
     }
 
-    public void onReceivePreCommitVoteMessage(PreCommitVoteMessage voteMessage) {
-        if (!checkPhase(Phase.PRE_COMMIT) || !amLeader()) {
+    public synchronized void onReceivePreCommitVoteMessage(PreCommitVoteMessage voteMessage) throws Exception {
+        if (!amLeader() || !checkPhase(Phase.PRE_COMMIT)) {
             return;
+        }
+
+        if (voteMessage.getViewNumber() != this.viewNumber.get()) {
+            System.err.println("Received pre-commit vote for view " + voteMessage.getViewNumber() +
+                    " but current view is " + this.viewNumber.get());
+            return;
+        }
+
+        if (curProposal == null || !voteMessage.getNode().getHash().equals(curProposal.getHash())) {
+            System.err.println("Received pre-commit vote for wrong node, ignoring");
+            return;
+        }
+
+        if (preCommitVotes.size() >= this.quorumSize) {
+            System.err.println("Already received enough pre-commit votes for view " + this.viewNumber.get());
+            return;
+        }
+
+        preCommitVotes.add(voteMessage);
+
+        if (preCommitVotes.size() >= this.quorumSize) {
+            @SuppressWarnings("unchecked")
+            Queue<HotStuffMessage> voteQueue = (Queue<HotStuffMessage>) (Queue<?>) preCommitVotes;
+            QuorumCertificate preCommitQC = QC(voteMessage.getNode(), voteQueue);
+            this.preCommitVotes.clear();
+            commit(preCommitQC);
         }
     }
 
     // commit phase
-    public void commit() {
+    public void commit(QuorumCertificate preCommitQC) throws Exception {
         if (!amLeader()) {
             return;
         }
