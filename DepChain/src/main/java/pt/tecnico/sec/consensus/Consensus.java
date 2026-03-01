@@ -59,6 +59,12 @@ public class Consensus {
 
     private Phase currentPhase;
 
+    // will be used to check if the proposal is the same for all votes in the same phase
+    // volatile keyword means that changes to this variable are immediately visible to all threads
+    // since we can have differrent threads handling different messages, we need to make sure 
+    // that they see the most up to date proposal when they receive votes
+    private volatile Node curProposal = null;
+
     ExecutorService executorService = java.util.concurrent.Executors.newFixedThreadPool(10);
 
     ThresholdSigEd25519 thresholdSig;
@@ -186,6 +192,7 @@ public class Consensus {
         Node parentNode = (highQC != null) ? tree.getNode(highQC.getNodeHash()) : tree.getRoot();
 
         Node newNode = createLeaf(parentNode, "COMMAND"); // TODO: define command
+        this.curProposal = newNode;
         tree.addNode(newNode);
 
         // broadcast prepare message
@@ -231,6 +238,11 @@ public class Consensus {
         if (voteMessage.getViewNumber() != this.viewNumber.get()) {
             System.err.println("Received prepare vote for view " + voteMessage.getViewNumber() +
                     " but current view is " + this.viewNumber.get());
+            return;
+        }
+
+        if (curProposal == null || !voteMessage.getNode().getHash().equals(curProposal.getHash())) {
+            System.err.println("Received prepare vote for wrong node, ignoring");
             return;
         }
 
