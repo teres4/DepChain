@@ -68,10 +68,10 @@ public class Consensus {
             // act both as leader and replica
 
         }
-        prepare();
-        precommit();
-        commit();
-        decide();
+        // prepare();
+        // precommit();
+        // commit();
+        // decide();
 
     }
 
@@ -195,8 +195,25 @@ public class Consensus {
 
     }
 
-    // TODO
     private boolean safeNode(Node node, QuorumCertificate justify) {
+        QuorumCertificate lockedQC = tree.getLockedQC();
+
+        // liveness rule = accept if justify has higher view than lockedQC
+        if (justify != null && justify.getViewNumber() > lockedQC.getViewNumber()) {
+            return true;
+        }
+        
+        // safety rule: if node extends from lockedQC.node
+        Node lockedNode = tree.getNode(lockedQC.getNodeHash());
+        return extendsFrom(node, lockedNode);
+    }
+
+    // TODO : implement proper tree traversal to check if node extends from ancestor
+    private boolean extendsFrom(Node node, Node ancestor) {
+        if (node == null || ancestor == null) {
+            return false;
+        }
+        
         return true;
     }
 
