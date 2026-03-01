@@ -3,6 +3,7 @@ package pt.tecnico.sec.utils;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Signature;
+import java.security.MessageDigest;
 import java.util.Base64;
 
 import javax.crypto.Cipher;
@@ -97,5 +98,11 @@ public interface Crypto {
 
     public static SecretKey bytesToSecretKey(byte[] keyBytes) {
         return new SecretKeySpec(keyBytes, "AES");
+    }
+
+    public static String hash(String data) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] hashBytes = digest.digest(data.getBytes());
+        return Base64.getEncoder().encodeToString(hashBytes);
     }
 }

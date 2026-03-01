@@ -69,11 +69,11 @@ public class Consensus {
         this.memberManager = memberManager;
         this.authPerfLink = authPerfLink;
         this.tree = new Tree();
-        this.viewNumber = 1;
 
         try {
             this.myPrivateKey = Crypto.getPrivateKey("config/keys/private_key" + (replicaID + 1) + ".pem");
             this.replicaPublicKeys = new HashMap<>();
+            this.viewNumber = new AtomicInteger(1);
 
             for (int i = 0; i < totalReplicas; i++) {
                 PublicKey pubKey = Crypto.getPublicKey("config/keys/public_key" + (i + 1) + ".pem");
@@ -146,7 +146,7 @@ public class Consensus {
     }
 
     // Leader collects new-view messages and moves to prepare phase
-    public synchronized QuorumCertificate onReceiveNewViewMessage(NewViewMessage newViewMessage) {
+    public synchronized QuorumCertificate onReceiveNewViewMessage(NewViewMessage newViewMessage) throws Exception {
 
         if (newViewMessage.getViewNumber() <= this.viewNumber.get()) {
             System.err.println("Received new-view message for view " + newViewMessage.getViewNumber() +
@@ -187,8 +187,11 @@ public class Consensus {
         }
 
         setCurrentPhase(Phase.PREPARE);
-
-        Node newNode = createLeaf(highQC, "COMMAND"); // TODO: define command
+        
+        // if highQC is null, then this is the very first proposal and the new node should extend from the root
+        Node parentNode = (highQC != null) ? tree.getNode(highQC.getNodeHash()) : tree.getRoot();
+        
+        Node newNode = createLeaf(parentNode, "COMMAND"); // TODO: define command
         tree.addNode(newNode);
 
         // broadcast prepare message
@@ -204,7 +207,11 @@ public class Consensus {
             return;
         }
 
-        if (safeNode(prepareMessage.getNode(), prepareMessage.getHighQC())) {
+        String prepareNodeHash = prepareMessage.getHighQC().getNodeHash();
+        Node prepareNode = tree.getNode(prepareNodeHash);
+
+        if (extendsFrom(prepareMessage.getNode(), prepareNode) 
+                && safeNode(prepareMessage.getNode(), prepareMessage.getHighQC())) {
             // if replica accepts the prepare message, it adds the new node to its tree
             tree.addNode(prepareMessage.getNode());
 
@@ -365,18 +372,16 @@ public class Consensus {
         return highQC;
     }
 
-    private Node createLeaf(QuorumCertificate parentQC, String command) {
-        // TODO HOW DO WE FIND THE PARENT NODE FOR THIS NEW NODE ?
-        Node parent = null;
-
+    private Node createLeaf(Node parent, String command) throws Exception{
         if (parent == null) {
-            throw new IllegalStateException("Parent node not found in tree for QC");
+            throw new IllegalStateException("Parent node cannot be null");
         }
+        
+        String nodeData = parent.getHash() + "|" + command + "|" + viewNumber.get();
+        String nodeHash;
+        nodeHash = Crypto.hash(nodeData);
 
-        // TODO: is this correct? should we calculate hash here instead
-        String parentHash = parent.getHash();
-
-        return new Node(parentHash, command, parent, parentQC);
+        return new Node(nodeHash, command, parent, null);
     }
 
     public void newView() {
