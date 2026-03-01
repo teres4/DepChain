@@ -537,9 +537,37 @@ public class Consensus {
             return;
         }
         setCurrentPhase(Phase.DECIDE);
+        DecideMessage decideMessage = new DecideMessage(this.viewNumber.get(), commitQC, this.replicaID);
+        broadcastMessage(decideMessage);
     }
 
     public void onReceiveDecideMessage(DecideMessage decideMessage) {
+        if (decideMessage.getViewNumber() != this.viewNumber.get()) {
+            System.err.println("Received decide message for view " + decideMessage.getViewNumber() +
+                    " but current view is " + this.viewNumber);
+            return;
+        }
+
+        QuorumCertificate commitQC = decideMessage.getCommitQC();
+
+        // verify the QC signature is legitimate
+        String expectedMsg = createVoteMessage(HotStuffMessageType.COMMIT_VOTE, commitQC.getViewNumber(), commitQC.getNodeHash());
+        if (!tverify(commitQC.getSignatures(), expectedMsg, decideMessage.getSenderId())) {
+            System.err.println("Decide message has invalid QC signature, ignoring");
+            return;
+        }
+
+        // get the decided node
+        Node decidedNode = tree.getNode(commitQC.getNodeHash());
+        if (decidedNode == null) {
+            System.err.println("Decide message references unknown node, ignoring");
+            return;
+        }
+
+        // TODO: upcall to blockchain layer
+        // for now we should just print the decided command or store in an append only array/log
+        System.out.println("Decided on command: " + decidedNode.getCommand());
+        // onDecide(decidedNode);
 
     }
 
