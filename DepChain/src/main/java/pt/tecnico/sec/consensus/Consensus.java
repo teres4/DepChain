@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.consensus.message.*;
@@ -15,7 +16,7 @@ import pt.tecnico.sec.utils.MemberManager;
 
 public class Consensus {
     // current viewnumber
-    private int viewNumber;
+    private AtomicInteger viewNumber;
 
     // current leader ID
     private final long leaderID = 0;
@@ -44,6 +45,12 @@ public class Consensus {
     // New-view message collection for leader
     private final Map<Long, NewViewMessage> newViewMessages = new ConcurrentHashMap<>();
 
+    private final Map<Long, PrepareVoteMessage> prepareVotes = new ConcurrentHashMap<>();
+    private final Map<Long, PreCommitVoteMessage> preCommitVotes = new ConcurrentHashMap<>();
+    private final Map<Long, CommitVoteMessage> commitVotes = new ConcurrentHashMap<>();
+
+    private volatile boolean newViewInterrupt = false;
+
     public enum Phase {
         NEW_VIEW, PREPARE, PRE_COMMIT, COMMIT, DECIDE
     };
@@ -60,11 +67,11 @@ public class Consensus {
         this.authPerfLink = authPerfLink;
         this.tree = new Tree();
         this.viewNumber = 1;
-        
+
         try {
             this.myPrivateKey = Crypto.getPrivateKey("config/keys/private_key" + (replicaID + 1) + ".pem");
             this.replicaPublicKeys = new HashMap<>();
-            
+
             for (int i = 0; i < totalReplicas; i++) {
                 PublicKey pubKey = Crypto.getPublicKey("config/keys/public_key" + (i + 1) + ".pem");
                 replicaPublicKeys.put((long) i, pubKey);
@@ -73,13 +80,21 @@ public class Consensus {
             System.err.println("Failed to load cryptographic keys: " + e.getMessage());
             e.printStackTrace();
         }
+
     }
 
-    // tree pending commands
-
-    // highest node whose branch has been executed.
-
+    // one thread
     public void consensusLoop() {
+        executorService.submit(() -> authPerfLink.receive());
+
+        authPerfLink.setMessageListener((content) -> {
+            try {
+                HotStuffMessage msg = HotStuffMessage.fromJson(content);
+                executorService.submit(() -> handleMessage(msg));
+            } catch (Exception e) {
+                System.err.println("Failed to handle consensus message: " + e.getMessage());
+            }
+        });
         if (amLeader()) {
             // act both as leader and replica
 
@@ -95,74 +110,90 @@ public class Consensus {
         return replicaID == leaderID;
     }
 
-    // If ANYONE wants to start a new view, it sends a new view message to all
-    // replicas and ONLY THE LEADER waits for (n-f) responses.
+    public boolean amLeader(int viewNumber) {
+        return replicaID == (viewNumber % totalReplicas);
+    }
+
+    // If ANYONE wants to start a new view, it sends a new view message to the new
+    // LEader and ONLY THE LEADER waits for (n-f) responses.
     public void startNewView() throws Exception {
         // send new view message to all replicas
-        NewViewMessage newViewMessage = new NewViewMessage(this.viewNumber, tree.getPrepareQC(), this.replicaID);
+        NewViewMessage newViewMessage = new NewViewMessage(this.viewNumber.get(), tree.getPrepareQC(), this.replicaID);
         broadcastMessage(newViewMessage);
     }
 
     // Leader collects new-view messages and moves to prepare phase
-    // TODO case where collection of new view messages may be omitted by an incumbent leader ? 
     public synchronized QuorumCertificate onReceiveNewViewMessage(NewViewMessage newViewMessage) {
-        if (!amLeader()) {
+        // if (!amLeader()) {
+        // return null;
+        // }
+
+        if (newViewMessage.getViewNumber() <= this.viewNumber.get()) {
+            System.err.println("Received new-view message for view " + newViewMessage.getViewNumber() +
+                    " but current view is " + this.viewNumber);
             return null;
         }
-        
-        if (newViewMessage.getViewNumber() != this.viewNumber) {
-            System.err.println("Received new-view message for view " + newViewMessage.getViewNumber() + 
-                             " but current view is " + this.viewNumber);
+
+        if (!amLeader(newViewMessage.getViewNumber() + 1)) {
+            System.err.println("Received new-view message for view " + newViewMessage.getViewNumber() +
+                    " but am not Leader for next view");
             return null;
         }
-        
+
         newViewMessages.put(newViewMessage.getSenderId(), newViewMessage);
 
         // if received (n-f) new-view messages
         if (newViewMessages.size() >= this.quorumSize) {
             // choose highest prepareQC from collected new-view messages
             QuorumCertificate highQC = getHighestQC(newViewMessages.values().stream().toList());
-            
-            // clear collected new-view messages for next view
-            newViewMessages.clear();
+
+            // clear collected new-view messages from this view for next view
+            for (Long senderId : newViewMessages.keySet()) {
+                if (newViewMessages.get(senderId).getViewNumber() == this.viewNumber.get()) {
+                    newViewMessages.remove(senderId);
+                }
+            }
             return highQC;
         }
         return null;
     }
 
-    // prepare phase - leader creates new leaf, broadcasts prepare message with new leaf and highQC
+    // prepare phase - leader creates new leaf, broadcasts prepare message with new
+    // leaf and highQC
     public void prepare(QuorumCertificate highQC) throws Exception {
         if (!amLeader()) {
             return;
         }
-        
+
         Node newNode = createLeaf(highQC, "COMMAND"); // TODO: define command
         tree.addNode(newNode);
 
         // broadcast prepare message
-        PrepareMessage prepareMessage = new PrepareMessage(this.viewNumber, newNode, highQC, this.replicaID);
+        PrepareMessage prepareMessage = new PrepareMessage(this.viewNumber.get(), newNode, highQC, this.replicaID);
         broadcastMessage(prepareMessage);
     }
 
     // prepare message from leader received
     public void onReceivePrepareMessage(PrepareMessage prepareMessage) throws Exception {
-        if (prepareMessage.getViewNumber() != this.viewNumber) {
-            System.err.println("Received prepare message for view " + prepareMessage.getViewNumber() + 
-                             " but current view is " + this.viewNumber);
+        if (prepareMessage.getViewNumber() != this.viewNumber.get()) {
+            System.err.println("Received prepare message for view " + prepareMessage.getViewNumber() +
+                    " but current view is " + this.viewNumber);
             return;
         }
 
         if (safeNode(prepareMessage.getNode(), prepareMessage.getHighQC())) {
             // if replica accepts the prepare message, it adds the new node to its tree
             tree.addNode(prepareMessage.getNode());
-            
-            String messageToSign = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, this.viewNumber, prepareMessage.getNode().getHash());
+
+            String messageToSign = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, this.viewNumber.get(),
+                    prepareMessage.getNode().getHash());
             String partialSig = tsign(messageToSign);
-            
+
             // send prepare vote with partial signature to leader
-            PrepareVoteMessage voteMessage = new PrepareVoteMessage(this.viewNumber, prepareMessage.getNode(), this.replicaID, partialSig);
-            
-            // Send vote to leader 
+            PrepareVoteMessage voteMessage = new PrepareVoteMessage(this.viewNumber.get(), prepareMessage.getNode(),
+                    this.replicaID, partialSig);
+
+            // Send vote to leader
             authPerfLink.sendData(this.leaderID, voteMessage);
 
         }
@@ -173,17 +204,29 @@ public class Consensus {
         if (!amLeader()) {
             return;
         }
-        
+
         // Validate view number - only accept votes for current view
-        if (voteMessage.getViewNumber() != this.viewNumber) {
-            System.err.println("Received prepare vote for view " + voteMessage.getViewNumber() + 
-                             " but current view is " + this.viewNumber);
+        if (voteMessage.getViewNumber() != this.viewNumber.get()) {
+            System.err.println("Received prepare vote for view " + voteMessage.getViewNumber() +
+                    " but current view is " + this.viewNumber.get());
             return;
         }
 
-        // get number of prepare votes for the current proposal 
-        // if leader receives (n - f) prepare votes for curProposal, then combine them into precommit QC and move to pre-commit phase
-        
+        // get number of prepare votes for the current proposal
+        // if leader receives (n - f) prepare votes for curProposal, then combine them
+        // into precommit QC and move to pre-commit phase
+
+        // prepareVotes.put(voteMessage.getSignature(), voteMessage);
+
+        if (prepareVotes.size() >= this.quorumSize) {
+            // combine prepare votes into precommit QC
+            QuorumCertificate preCommitQC = combinePrepareVotes(prepareVotes.values().stream().toList());
+            // move to pre-commit phase
+            this.viewNumber.incrementAndGet();
+            this.prepareVotes.clear();
+            precommit(preCommitQC);
+        }
+
     }
 
     // pre-commit phase
@@ -191,9 +234,9 @@ public class Consensus {
         if (!amLeader()) {
             return;
         }
-        
+
         // Broadcast prepareQC in pre-commit messages
-        PreCommitMessage preCommitMessage = new PreCommitMessage(this.viewNumber, prepareQC, this.replicaID);
+        PreCommitMessage preCommitMessage = new PreCommitMessage(this.viewNumber.get(), prepareQC, this.replicaID);
         broadcastMessage(preCommitMessage);
     }
 
@@ -234,7 +277,7 @@ public class Consensus {
         if (justify != null && justify.getViewNumber() > lockedQC.getViewNumber()) {
             return true;
         }
-        
+
         // safety rule: if node extends from lockedQC.node
         Node lockedNode = tree.getNode(lockedQC.getNodeHash());
         return extendsFrom(node, lockedNode);
@@ -245,7 +288,7 @@ public class Consensus {
         if (node == null || ancestor == null) {
             return false;
         }
-        
+
         return true;
     }
 
@@ -259,7 +302,7 @@ public class Consensus {
             return null;
         }
     }
-    
+
     private String createVoteMessage(HotStuffMessageType type, int viewNumber, String nodeHash) {
         return String.format("VOTE|type=%s|view=%d|node=%s", type, viewNumber, nodeHash);
     }
@@ -267,7 +310,7 @@ public class Consensus {
     private QuorumCertificate getHighestQC(List<NewViewMessage> messages) {
         QuorumCertificate highQC = null;
         int highestView = -1;
-        
+
         for (NewViewMessage msg : messages) {
             QuorumCertificate qc = msg.getPrepareQC();
             if (qc != null && qc.getViewNumber() > highestView) {
@@ -281,14 +324,14 @@ public class Consensus {
     private Node createLeaf(QuorumCertificate parentQC, String command) {
         // TODO HOW DO WE FIND THE PARENT NODE FOR THIS NEW NODE ?
         Node parent = null;
-        
+
         if (parent == null) {
             throw new IllegalStateException("Parent node not found in tree for QC");
         }
-        
+
         // TODO: is this correct? should we calculate hash here instead
         String parentHash = parent.getHash();
-        
+
         return new Node(parentHash, command, parent, parentQC);
     }
 
@@ -305,22 +348,22 @@ public class Consensus {
     }
 
     public void handleMessage(HotStuffMessage msg) {
-        if (msg.getViewNumber() != this.viewNumber) {
-            System.err.println("Ignoring message from view " + msg.getViewNumber() + 
-                            " (current view: " + this.viewNumber + ")");
+        if (msg.getViewNumber() != this.viewNumber.get()) {
+            System.err.println("Ignoring message from view " + msg.getViewNumber() +
+                    " (current view: " + this.viewNumber + ")");
             return;
         }
 
         try {
             switch (msg.getHotStuffType()) {
-                case NEW_VIEW      -> onReceiveNewViewMessage((NewViewMessage) msg);
-                case PREPARE       -> onReceivePrepareMessage((PrepareMessage) msg);
-                case PREPARE_VOTE  -> onReceivePrepareVoteMessage((PrepareVoteMessage) msg);
-                case PRE_COMMIT    -> onReceivePreCommitMessage((PreCommitMessage) msg);
+                case NEW_VIEW -> onReceiveNewViewMessage((NewViewMessage) msg);
+                case PREPARE -> onReceivePrepareMessage((PrepareMessage) msg);
+                case PREPARE_VOTE -> onReceivePrepareVoteMessage((PrepareVoteMessage) msg);
+                case PRE_COMMIT -> onReceivePreCommitMessage((PreCommitMessage) msg);
                 case PRE_COMMIT_VOTE -> onReceivePreCommitVoteMessage((PreCommitVoteMessage) msg);
-                case COMMIT        -> onReceiveCommitMessage((CommitMessage) msg);
-                case COMMIT_VOTE   -> onReceiveCommitVoteMessage((CommitVoteMessage) msg);
-                case DECIDE        -> onReceiveDecideMessage((DecideMessage) msg);
+                case COMMIT -> onReceiveCommitMessage((CommitMessage) msg);
+                case COMMIT_VOTE -> onReceiveCommitVoteMessage((CommitVoteMessage) msg);
+                case DECIDE -> onReceiveDecideMessage((DecideMessage) msg);
                 default -> System.err.println("Unknown message type: " + msg.getHotStuffType());
             }
         } catch (Exception e) {

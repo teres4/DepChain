@@ -7,10 +7,8 @@ import pt.tecnico.sec.utils.MemberInfo;
 
 import java.util.Scanner;
 
-public class App 
-{
-    public static void main( String[] args ) 
-    {
+public class App {
+    public static void main(String[] args) {
         if (args.length < 2) {
             System.err.println("Usage: mvn exec:java -Dexec.args=\"<ownId> <privateKeyPath>\"");
             return;
@@ -42,32 +40,20 @@ public class App
 
         // create consensus object
         Consensus consensus = new Consensus(
-            ownId,
-            apl.getMembers() != null ? apl.getMembers().length + 1 : 1,
-            apl.getMemberManager(),
-            apl
-        );
-
-        apl.setMessageListener((content) -> {
-            try {
-                HotStuffMessage msg = HotStuffMessage.fromJson(content);
-                consensus.handleMessage(msg);
-            } catch (Exception e) {
-                System.err.println("Failed to handle consensus message: " + e.getMessage());
-            }
-        });
-
-        new Thread(() -> apl.receive()).start();
+                ownId,
+                apl.getMembers() != null ? apl.getMembers().length + 1 : 1,
+                apl.getMemberManager(),
+                apl);
 
         System.out.println("\n\u001B[32m" +
-            "███████╗███████╗ ██████╗\n" +
-            "██╔════╝██╔════╝██╔════╝\n" +
-            "███████╗█████╗  ██║     \n" +
-            "╚════██║██╔══╝  ██║     \n" +
-            "███████║███████╗╚██████╗\n" +
-            "╚══════╝╚══════╝ ╚═════╝\n" +
-            "     SEC-PROJECT" +
-            "\u001B[0m");
+                "███████╗███████╗ ██████╗\n" +
+                "██╔════╝██╔════╝██╔════╝\n" +
+                "███████╗█████╗  ██║     \n" +
+                "╚════██║██╔══╝  ██║     \n" +
+                "███████║███████╗╚██████╗\n" +
+                "╚══════╝╚══════╝ ╚═════╝\n" +
+                "     SEC-PROJECT" +
+                "\u001B[0m");
 
         while (running) {
             System.out.println("\nPlease choose an option:");
@@ -92,7 +78,7 @@ public class App
                         System.out.println("No members available.");
                     }
                     break;
-                
+
                 case "2":
                     System.out.println("Choose member ID to start a session with. Available Members:");
                     MemberInfo[] availableMembers = apl.getMembers();
