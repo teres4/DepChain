@@ -30,7 +30,7 @@ public class AuthPerfLink {
 
     // fields
     public interface MessageListener {
-        void onMessage(String content, InetSocketAddress from);
+        void onMessage(String content);
     }
 
     public static final int BUFFER_SIZE = 65536; // Maximum UDP packet size
@@ -294,7 +294,7 @@ public class AuthPerfLink {
             System.out.println("Received DATA from: " + addr + " - Content: " + new String(msg.getContent()));
 
             if (messageListener != null) {
-                messageListener.onMessage(new String(msg.getContent()), addr);
+                messageListener.onMessage(new String(msg.getContent()));
             }
 
             sendDataAck(session, msg.getSequenceNumber() + 1);

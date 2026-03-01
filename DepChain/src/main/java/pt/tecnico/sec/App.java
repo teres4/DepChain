@@ -48,10 +48,10 @@ public class App
             apl
         );
 
-        apl.setMessageListener((content, from) -> {
+        apl.setMessageListener((content) -> {
             try {
                 HotStuffMessage msg = HotStuffMessage.fromJson(content);
-                consensus.handleMessage(msg, from);
+                consensus.handleMessage(msg);
             } catch (Exception e) {
                 System.err.println("Failed to handle consensus message: " + e.getMessage());
             }

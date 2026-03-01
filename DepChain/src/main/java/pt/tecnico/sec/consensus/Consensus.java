@@ -201,12 +201,20 @@ public class Consensus {
 
     }
 
+    public void onReceivePreCommitVoteMessage(PreCommitVoteMessage voteMessage) {
+
+    }
+
     // commit phase
     public void commit() {
 
     }
 
     public void onReceiveCommitMessage(CommitMessage commitMessage) {
+
+    }
+
+    public void onReceiveCommitVoteMessage(CommitVoteMessage voteMessage) {
 
     }
 
@@ -296,4 +304,27 @@ public class Consensus {
         }
     }
 
+    public void handleMessage(HotStuffMessage msg) {
+        if (msg.getViewNumber() != this.viewNumber) {
+            System.err.println("Ignoring message from view " + msg.getViewNumber() + 
+                            " (current view: " + this.viewNumber + ")");
+            return;
+        }
+
+        try {
+            switch (msg.getHotStuffType()) {
+                case NEW_VIEW      -> onReceiveNewViewMessage((NewViewMessage) msg);
+                case PREPARE       -> onReceivePrepareMessage((PrepareMessage) msg);
+                case PREPARE_VOTE  -> onReceivePrepareVoteMessage((PrepareVoteMessage) msg);
+                case PRE_COMMIT    -> onReceivePreCommitMessage((PreCommitMessage) msg);
+                case PRE_COMMIT_VOTE -> onReceivePreCommitVoteMessage((PreCommitVoteMessage) msg);
+                case COMMIT        -> onReceiveCommitMessage((CommitMessage) msg);
+                case COMMIT_VOTE   -> onReceiveCommitVoteMessage((CommitVoteMessage) msg);
+                case DECIDE        -> onReceiveDecideMessage((DecideMessage) msg);
+                default -> System.err.println("Unknown message type: " + msg.getHotStuffType());
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to handle message of type " + msg.getHotStuffType() + ": " + e.getMessage());
+        }
+    }
 }
