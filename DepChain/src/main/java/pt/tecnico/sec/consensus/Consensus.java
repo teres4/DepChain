@@ -5,7 +5,10 @@ import java.security.PublicKey;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -45,9 +48,9 @@ public class Consensus {
     // New-view message collection for leader
     private final Map<Long, NewViewMessage> newViewMessages = new ConcurrentHashMap<>();
 
-    private final Map<Long, PrepareVoteMessage> prepareVotes = new ConcurrentHashMap<>();
-    private final Map<Long, PreCommitVoteMessage> preCommitVotes = new ConcurrentHashMap<>();
-    private final Map<Long, CommitVoteMessage> commitVotes = new ConcurrentHashMap<>();
+    private final Queue<PrepareVoteMessage> prepareVotes = new ConcurrentLinkedQueue<>();
+    private final Queue<PreCommitVoteMessage> preCommitVotes = new ConcurrentLinkedQueue<>();
+    private final Queue<CommitVoteMessage> commitVotes = new ConcurrentLinkedQueue<>();
 
     private volatile boolean newViewInterrupt = false;
 
@@ -96,7 +99,6 @@ public class Consensus {
             }
         });
         if (amLeader()) {
-            // act both as leader and replica
 
         }
         // prepare();
@@ -106,12 +108,33 @@ public class Consensus {
 
     }
 
+    public void consensusLoopLeader() {
+
+    }
+
     public boolean amLeader() {
         return replicaID == leaderID;
     }
 
     public boolean amLeader(int viewNumber) {
         return replicaID == (viewNumber % totalReplicas);
+    }
+
+    public synchronized Phase getCurrentPhase() {
+        return currentPhase;
+    }
+
+    public synchronized void setCurrentPhase(Phase phase) {
+        this.currentPhase = phase;
+    }
+
+    public synchronized boolean checkPhase(Phase phase) {
+        if (this.currentPhase != phase) {
+            System.err.println(
+                    "Invalid or Outdated phase: expected " + phase + " but current phase is " + this.currentPhase);
+            return false;
+        }
+        return true;
     }
 
     // If ANYONE wants to start a new view, it sends a new view message to the new
@@ -124,9 +147,6 @@ public class Consensus {
 
     // Leader collects new-view messages and moves to prepare phase
     public synchronized QuorumCertificate onReceiveNewViewMessage(NewViewMessage newViewMessage) {
-        // if (!amLeader()) {
-        // return null;
-        // }
 
         if (newViewMessage.getViewNumber() <= this.viewNumber.get()) {
             System.err.println("Received new-view message for view " + newViewMessage.getViewNumber() +
@@ -153,6 +173,7 @@ public class Consensus {
                     newViewMessages.remove(senderId);
                 }
             }
+            prepare(highQC); // TODO:
             return highQC;
         }
         return null;
@@ -164,6 +185,8 @@ public class Consensus {
         if (!amLeader()) {
             return;
         }
+
+        setCurrentPhase(Phase.PREPARE);
 
         Node newNode = createLeaf(highQC, "COMMAND"); // TODO: define command
         tree.addNode(newNode);
@@ -201,7 +224,7 @@ public class Consensus {
 
     // prepare vote message from replica received by leader
     public synchronized void onReceivePrepareVoteMessage(PrepareVoteMessage voteMessage) throws Exception {
-        if (!amLeader()) {
+        if (!amLeader() || !checkPhase(Phase.PREPARE)) {
             return;
         }
 
@@ -216,11 +239,11 @@ public class Consensus {
         // if leader receives (n - f) prepare votes for curProposal, then combine them
         // into precommit QC and move to pre-commit phase
 
-        // prepareVotes.put(voteMessage.getSignature(), voteMessage);
+        prepareVotes.add(voteMessage);
 
         if (prepareVotes.size() >= this.quorumSize) {
             // combine prepare votes into precommit QC
-            QuorumCertificate preCommitQC = combinePrepareVotes(prepareVotes.values().stream().toList());
+            QuorumCertificate preCommitQC = combinePrepareVotes(voteMessage.getNode(), prepareVotes);
             // move to pre-commit phase
             this.viewNumber.incrementAndGet();
             this.prepareVotes.clear();
@@ -229,28 +252,44 @@ public class Consensus {
 
     }
 
+    public QuorumCertificate combinePrepareVotes(Node node, Queue<PrepareVoteMessage> votes) {
+        // Combine prepare votes into a QuorumCertificate for the given node
+
+        return null; // TODO: implement proper QC creation with threshold signatures
+    }
+
     // pre-commit phase
     public void precommit(QuorumCertificate prepareQC) throws Exception {
         if (!amLeader()) {
             return;
         }
-
+        setCurrentPhase(Phase.PRE_COMMIT);
         // Broadcast prepareQC in pre-commit messages
         PreCommitMessage preCommitMessage = new PreCommitMessage(this.viewNumber.get(), prepareQC, this.replicaID);
         broadcastMessage(preCommitMessage);
     }
 
     public void onReceivePreCommitMessage(PreCommitMessage preCommitMessage) {
+        if (preCommitMessage.getViewNumber() != this.viewNumber.get()) {
+            System.err.println("Received pre-commit message for view " + preCommitMessage.getViewNumber() +
+                    " but current view is " + this.viewNumber);
+            return;
+        }
 
     }
 
     public void onReceivePreCommitVoteMessage(PreCommitVoteMessage voteMessage) {
-
+        if (!checkPhase(Phase.PRE_COMMIT) || !amLeader()) {
+            return;
+        }
     }
 
     // commit phase
     public void commit() {
-
+        if (!amLeader()) {
+            return;
+        }
+        setCurrentPhase(Phase.COMMIT);
     }
 
     public void onReceiveCommitMessage(CommitMessage commitMessage) {
@@ -258,12 +297,17 @@ public class Consensus {
     }
 
     public void onReceiveCommitVoteMessage(CommitVoteMessage voteMessage) {
-
+        if (!checkPhase(Phase.COMMIT) || !amLeader()) {
+            return;
+        }
     }
 
     // decide phase
     public void decide() {
-
+        if (!amLeader()) {
+            return;
+        }
+        setCurrentPhase(Phase.DECIDE);
     }
 
     public void onReceiveDecideMessage(DecideMessage decideMessage) {
@@ -342,7 +386,14 @@ public class Consensus {
     public void broadcastMessage(HotStuffMessage message) throws Exception {
         for (int i = 0; i < totalReplicas; i++) {
             if (i != replicaID) {
-                authPerfLink.sendData(i, message);
+                executorService.submit(() -> {
+                    try {
+                        authPerfLink.sendData(i, message);
+                    } catch (Exception e) {
+                        System.err.println("Failed to send message to replica " + i + ": " + e.getMessage());
+                    }
+                });
+                // TODO: send message to my replica self
             }
         }
     }
