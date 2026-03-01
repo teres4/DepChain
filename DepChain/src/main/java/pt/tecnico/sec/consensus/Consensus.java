@@ -81,6 +81,7 @@ public class Consensus {
         this.authPerfLink = authPerfLink;
         this.thresholdSig = new ThresholdSigEd25519(totalReplicas, quorumSize);
         this.tree = new Tree();
+        this.viewNumber = new AtomicInteger(1);
 
         // Load threshold signature keys
         try {

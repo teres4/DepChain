@@ -24,6 +24,10 @@ public class Node {
         return hash;
     }
 
+    public String getCommand() {
+        return command;
+    }
+
     public Node getParent() {
         return parent;
     }
