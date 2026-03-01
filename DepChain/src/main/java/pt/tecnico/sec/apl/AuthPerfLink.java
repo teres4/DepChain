@@ -27,36 +27,36 @@ import pt.tecnico.sec.utils.MemberInfo;
 import pt.tecnico.sec.utils.MemberManager;
 
 public class AuthPerfLink {
+
+    // fields
+    public interface MessageListener {
+        void onMessage(String content, InetSocketAddress from);
+    }
+
     public static final int BUFFER_SIZE = 65536; // Maximum UDP packet size
+
+    private final long ownId;
+    private final PrivateKey privateKey;
 
     private final DatagramSocket datagramSocket;
     private final ExecutorService executorService;
     private final SessionManager sessionManager;
     private final MemberManager memberManagement;
 
-    private final long ownId;
-    private final PrivateKey privateKey;
-
     private final AtomicBoolean running = new AtomicBoolean(true);
 
     private final ConcurrentLinkedQueue<Message> incomingMessages = new ConcurrentLinkedQueue<>();
 
-    public interface MessageListener {
-        void onMessage(String content, InetSocketAddress from);
-    }
-
     private MessageListener messageListener;
 
-    public void setMessageListener(MessageListener listener) {
-        this.messageListener = listener;
-    }
+    // constructors
 
     // Default constructor for production use
     public AuthPerfLink(long ownId, String privateKeyString) throws IOException, Exception {
         this(ownId, Crypto.getPrivateKey(privateKeyString), new DatagramSocket(8080), Executors.newFixedThreadPool(100),
                 new SessionManager(), new MemberManager(ownId));
     }
-    
+
     // Constructor with dependency injection for testing
     public AuthPerfLink(long ownId, PrivateKey privateKey, DatagramSocket socket,
             ExecutorService executorService, SessionManager sessionManager,
@@ -69,42 +69,10 @@ public class AuthPerfLink {
         this.memberManagement = memberManagement;
     }
 
-    // TODO: incomingMessage for layer above to consume, currently just prints
-    // received messages
-    public Queue<Message> getIncomingMessages() {
-        return incomingMessages;
-    }
+    // public methods
 
-    private void send(Message message, long id) throws Exception {
-        Session session = sessionManager.getSession(id);
-        if (session == null) {
-            session = startConnection(id);
-        }
-        DatagramPacket packet = message.toDatagramPacket(session.getAddr());
-
-        boolean ackReceived = false;
-        while (!ackReceived) {
-            try {
-                datagramSocket.send(packet);
-                ackReceived = session.waitForReply();
-            } catch (IOException e) {
-                System.err.println("Failed to send message: " + e.getMessage());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                System.err.println("Interrupted while waiting for ACK: " + e.getMessage());
-            }
-        }
-    }
-
-    private void sendAPI(Message message, int id) throws Exception {
-        // This is like the normal send but also signs the message based on the session
-        // key
-        Session session = sessionManager.getSession(id);
-        if (session == null) {
-            session = startConnection(id);
-        }
-
-        // Sign the message content with the session key
+    public void setMessageListener(MessageListener listener) {
+        this.messageListener = listener;
     }
 
     public void receive() {
@@ -122,7 +90,7 @@ public class AuthPerfLink {
         }
     }
 
-    private void shutdown() {
+    public void shutdown() {
         running.set(false);
         datagramSocket.close();
         executorService.shutdown();
@@ -135,6 +103,94 @@ public class AuthPerfLink {
             Thread.currentThread().interrupt();
         }
     }
+
+    public void sendData(Session session, String content) {
+        try {
+            long seqNum = session.getSequenceNumber() + 1;
+            DataMessage msg = buildDataMessage(seqNum, content.getBytes(), session.getSessionKey());
+            session.setSequenceNumber(seqNum);
+            send(msg, session.getSenderID());
+            System.out.println("DATA sent to: " + session.getAddr());
+        } catch (Exception e) {
+            System.err.println("Failed to send DATA: " + e.getMessage());
+        }
+    }
+
+    public void sendData(long receiverID, DataMessage DataMessage) {
+        try {
+            // sign the message with the session key and then send it
+            Session session = sessionManager.getSession(receiverID);
+            if (session == null) {
+                session = startConnection(receiverID);
+            }
+            DataMessage signedDataMessage = buildDataMessage(session.getSequenceNumber() + 1, DataMessage.getContent(),
+                    session.getSessionKey());
+            send(signedDataMessage, receiverID);
+            System.out.println("DATA sent to ID: " + receiverID);
+        } catch (Exception e) {
+            System.err.println("Failed to send DATA: " + e.getMessage());
+        }
+    }
+
+    public Session startConnection(long receiverID) {
+        try {
+            MemberInfo receiverInfo = memberManagement.getMember(receiverID);
+            if (receiverInfo == null) {
+                System.err.println("No member found with ID: " + receiverID);
+                return null;
+            }
+
+            SecretKey sessionKey = Crypto.generateSecretKey();
+            byte[] encryptedSessionKey = Crypto.encryptWithPublicKey(sessionKey.getEncoded(),
+                    receiverInfo.getPublicKey());
+            String encryptedSessionKeyBase64 = Base64.getEncoder().encodeToString(encryptedSessionKey);
+
+            String signature = Crypto.signMessage(ownId + ":" + encryptedSessionKeyBase64, this.privateKey);
+            ConnectionRequestMessage connectionRequest = new ConnectionRequestMessage(ownId, encryptedSessionKeyBase64,
+                    signature);
+
+            Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), sessionKey);
+            send(connectionRequest, receiverID);
+            return session;
+        } catch (Exception e) {
+            System.err.println("Failed to start connection: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // TODO: incomingMessage for layer above to consume, currently just prints
+    // received messages
+    public Queue<Message> getIncomingMessages() {
+        return incomingMessages;
+    }
+
+    public MemberInfo[] getMembers() {
+        return memberManagement.getMembers();
+    }
+
+    public MemberManager getMemberManager() {
+        return memberManagement;
+    }
+
+    public String seeActiveSessions() {
+        StringBuilder activeSessions = new StringBuilder("Active Sessions:\n");
+        Collection<Session> sessions = sessionManager.getAllSessions();
+        if (sessions.isEmpty())
+            return "No active sessions found.";
+        for (Session session : sessions) {
+            activeSessions.append("Session with ID: ").append(session.getSenderID())
+                    .append(", Address: ").append(session.getAddr())
+                    .append(", Sequence Number: ").append(session.getSequenceNumber())
+                    .append("\n");
+        }
+        return activeSessions.toString();
+    }
+
+    public Session getSession(long senderID) {
+        return sessionManager.getSession(senderID);
+    }
+
+    // private methods
 
     private void handlePacket(DatagramPacket packet) {
         InetSocketAddress addr = new InetSocketAddress(packet.getAddress(), packet.getPort());
@@ -266,31 +322,26 @@ public class AuthPerfLink {
         }
     }
 
-    public void sendData(Session session, String content) {
-        try {
-            long seqNum = session.getSequenceNumber() + 1;
-            DataMessage msg = buildDataMessage(seqNum, content.getBytes(), session.getSessionKey());
-            session.setSequenceNumber(seqNum);
-            send(msg, session.getSenderID());
-            System.out.println("DATA sent to: " + session.getAddr());
-        } catch (Exception e) {
-            System.err.println("Failed to send DATA: " + e.getMessage());
-        }
-    }
+    // send helpers
 
-    public void sendData(long receiverID, DataMessage DataMessage) {
-        try {
-            // sign the message with the session key and then send it
-            Session session = sessionManager.getSession(receiverID);
-            if (session == null) {
-                session = startConnection(receiverID);
+    private void send(Message message, long id) throws Exception {
+        Session session = sessionManager.getSession(id);
+        if (session == null) {
+            session = startConnection(id);
+        }
+        DatagramPacket packet = message.toDatagramPacket(session.getAddr());
+
+        boolean ackReceived = false;
+        while (!ackReceived) {
+            try {
+                datagramSocket.send(packet);
+                ackReceived = session.waitForReply();
+            } catch (IOException e) {
+                System.err.println("Failed to send message: " + e.getMessage());
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.err.println("Interrupted while waiting for ACK: " + e.getMessage());
             }
-            DataMessage signedDataMessage = buildDataMessage(session.getSequenceNumber() + 1, DataMessage.getContent(),
-                    session.getSessionKey());
-            send(signedDataMessage, receiverID);
-            System.out.println("DATA sent to ID: " + receiverID);
-        } catch (Exception e) {
-            System.err.println("Failed to send DATA: " + e.getMessage());
         }
     }
 
@@ -305,33 +356,7 @@ public class AuthPerfLink {
         }
     }
 
-    private Session startConnection(long receiverID) {
-        try {
-            MemberInfo receiverInfo = memberManagement.getMember(receiverID);
-            if (receiverInfo == null) {
-                System.err.println("No member found with ID: " + receiverID);
-                return null;
-            }
-
-            SecretKey sessionKey = Crypto.generateSecretKey();
-            byte[] encryptedSessionKey = Crypto.encryptWithPublicKey(sessionKey.getEncoded(),
-                    receiverInfo.getPublicKey());
-            String encryptedSessionKeyBase64 = Base64.getEncoder().encodeToString(encryptedSessionKey);
-
-            String signature = Crypto.signMessage(ownId + ":" + encryptedSessionKeyBase64, this.privateKey);
-            ConnectionRequestMessage connectionRequest = new ConnectionRequestMessage(ownId, encryptedSessionKeyBase64,
-                    signature);
-
-            Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), sessionKey);
-            send(connectionRequest, receiverID);
-            return session;
-        } catch (Exception e) {
-            System.err.println("Failed to start connection: " + e.getMessage());
-            return null;
-        }
-    }
-
-    // helper functions
+    // build message helpers
 
     private ConnectionACKMessage buildConnectionReply(long seqNum, SecretKey sessionKey) throws Exception {
         ConnectionACKMessage msgWithoutHmac = new ConnectionACKMessage(seqNum, null);
@@ -349,6 +374,8 @@ public class AuthPerfLink {
         byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
         return new DataACKMessage(seqNum, hmac);
     }
+
+    // verification helpers
 
     boolean verifySequenceNumber(Message msg, Session session, InetSocketAddress addr) {
         if (msg.getSequenceNumber() != session.getSequenceNumber() + 1) {
@@ -385,31 +412,4 @@ public class AuthPerfLink {
         }
         return session;
     }
-
-    private MemberInfo[] getMembers() {
-        return memberManagement.getMembers();
-    }
-
-    private MemberManager getMemberManager() {
-        return memberManagement;
-    }
-
-    private String seeActiveSessions() {
-        StringBuilder activeSessions = new StringBuilder("Active Sessions:\n");
-        Collection<Session> sessions = sessionManager.getAllSessions();
-        if (sessions.isEmpty())
-            return "No active sessions found.";
-        for (Session session : sessions) {
-            activeSessions.append("Session with ID: ").append(session.getSenderID())
-                    .append(", Address: ").append(session.getAddr())
-                    .append(", Sequence Number: ").append(session.getSequenceNumber())
-                    .append("\n");
-        }
-        return activeSessions.toString();
-    }
-
-    private Session getSession(long senderID) {
-        return sessionManager.getSession(senderID);
-    }
-
 }
