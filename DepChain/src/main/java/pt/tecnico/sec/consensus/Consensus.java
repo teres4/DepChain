@@ -1,13 +1,16 @@
 package pt.tecnico.sec.consensus;
 
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.consensus.message.*;
+import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberManager;
 
 public class Consensus {
@@ -35,11 +38,11 @@ public class Consensus {
     // tree structure
     private final Tree tree;
 
+    private PrivateKey myPrivateKey;
+    private Map<Long, PublicKey> replicaPublicKeys;
+
     // New-view message collection for leader
     private final Map<Long, NewViewMessage> newViewMessages = new ConcurrentHashMap<>();
-
-    // Vote tracking for each node by node hash
-    private final Map<String, Set<Long>> prepareVotes = new ConcurrentHashMap<>();
 
     public enum Phase {
         NEW_VIEW, PREPARE, PRE_COMMIT, COMMIT, DECIDE
@@ -56,7 +59,20 @@ public class Consensus {
         this.memberManager = memberManager;
         this.authPerfLink = authPerfLink;
         this.tree = new Tree();
-        this.viewNumber = 1; 
+        this.viewNumber = 1;
+        
+        try {
+            this.myPrivateKey = Crypto.getPrivateKey("config/keys/private_key" + (replicaID + 1) + ".pem");
+            this.replicaPublicKeys = new HashMap<>();
+            
+            for (int i = 0; i < totalReplicas; i++) {
+                PublicKey pubKey = Crypto.getPublicKey("config/keys/public_key" + (i + 1) + ".pem");
+                replicaPublicKeys.put((long) i, pubKey);
+            }
+        } catch (Exception e) {
+            System.err.println("Failed to load cryptographic keys: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     // tree pending commands
@@ -129,7 +145,7 @@ public class Consensus {
     }
 
     // prepare message from leader received
-    public void onReceivePrepareMessage(PrepareMessage prepareMessage) {
+    public void onReceivePrepareMessage(PrepareMessage prepareMessage) throws Exception {
         if (prepareMessage.getViewNumber() != this.viewNumber) {
             System.err.println("Received prepare message for view " + prepareMessage.getViewNumber() + 
                              " but current view is " + this.viewNumber);
@@ -137,14 +153,18 @@ public class Consensus {
         }
 
         if (safeNode(prepareMessage.getNode(), prepareMessage.getHighQC())) {
-            PrepareVoteMessage voteMessage = new PrepareVoteMessage(this.viewNumber, prepareMessage.getNode(), this.replicaID);
+            // if replica accepts the prepare message, it adds the new node to its tree
+            tree.addNode(prepareMessage.getNode());
+            
+            String messageToSign = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, this.viewNumber, prepareMessage.getNode().getHash());
+            String partialSig = tsign(messageToSign);
+            
+            // send prepare vote with partial signature to leader
+            PrepareVoteMessage voteMessage = new PrepareVoteMessage(this.viewNumber, prepareMessage.getNode(), this.replicaID, partialSig);
             
             // Send vote to leader 
-            try {
-                authPerfLink.sendData(leaderID, voteMessage);
-            } catch (Exception e) {
-                System.err.println("Failed to send prepare vote: " + e.getMessage());
-            }
+            authPerfLink.sendData(this.leaderID, voteMessage);
+
         }
     }
 
@@ -160,6 +180,10 @@ public class Consensus {
                              " but current view is " + this.viewNumber);
             return;
         }
+
+        // get number of prepare votes for the current proposal 
+        // if leader receives (n - f) prepare votes for curProposal, then combine them into precommit QC and move to pre-commit phase
+        
     }
 
     // pre-commit phase
@@ -215,6 +239,21 @@ public class Consensus {
         }
         
         return true;
+    }
+
+    // TODO implement threshold signature
+    private String tsign(String message) {
+        try {
+            return Crypto.signMessage(message, myPrivateKey);
+        } catch (Exception e) {
+            System.err.println("Failed to generate partial signature: " + e.getMessage());
+            e.printStackTrace();
+            return null;
+        }
+    }
+    
+    private String createVoteMessage(HotStuffMessageType type, int viewNumber, String nodeHash) {
+        return String.format("VOTE|type=%s|view=%d|node=%s", type, viewNumber, nodeHash);
     }
 
     private QuorumCertificate getHighestQC(List<NewViewMessage> messages) {

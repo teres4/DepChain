@@ -7,10 +7,10 @@ public class PrepareVoteMessage extends HotStuffMessage {
     private final Node node; // used by the leader to verify the vote is for the correct block
     private final String partialSig; // something to do with threshold signatures, still need to figure out
 
-    public PrepareVoteMessage(int viewNumber, Node node, long senderId) {
+    public PrepareVoteMessage(int viewNumber, Node node, long senderId, String partialSig) {
         super(HotStuffMessageType.PREPARE_VOTE, viewNumber, senderId);
         this.node = node;
-        this.partialSig = null;
+        this.partialSig = partialSig;
     }
 
     public Node getNode() {
@@ -24,6 +24,6 @@ public class PrepareVoteMessage extends HotStuffMessage {
     @Override
     public String toString() {
         return "PrepareVoteMessage{view=" + getViewNumber() + ", sender=" + getSenderId() +
-                ", node=" + node + "}";
+                ", node=" + node + ", partialSig=" + partialSig + "}";
     }
 }

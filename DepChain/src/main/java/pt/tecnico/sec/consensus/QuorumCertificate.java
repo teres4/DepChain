@@ -30,4 +30,8 @@ public class QuorumCertificate {
     public String getType() {
         return type;
     }
+    
+    public String getSignatures() {
+        return signatures;
+    }
 }
