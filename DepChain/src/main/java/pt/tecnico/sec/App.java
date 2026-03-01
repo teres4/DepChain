@@ -1,6 +1,8 @@
 package pt.tecnico.sec;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
+import pt.tecnico.sec.consensus.Consensus;
+import pt.tecnico.sec.consensus.message.HotStuffMessage;
 import pt.tecnico.sec.utils.MemberInfo;
 
 import java.util.Scanner;
@@ -37,6 +39,23 @@ public class App
             scanner.close();
             return;
         }
+
+        // create consensus object
+        Consensus consensus = new Consensus(
+            ownId,
+            apl.getMembers() != null ? apl.getMembers().length + 1 : 1,
+            apl.getMemberManager(),
+            apl
+        );
+
+        apl.setMessageListener((content, from) -> {
+            try {
+                HotStuffMessage msg = HotStuffMessage.fromJson(content);
+                consensus.handleMessage(msg, from);
+            } catch (Exception e) {
+                System.err.println("Failed to handle consensus message: " + e.getMessage());
+            }
+        });
 
         new Thread(() -> apl.receive()).start();
 

@@ -41,12 +41,22 @@ public class AuthPerfLink {
 
     private final ConcurrentLinkedQueue<Message> incomingMessages = new ConcurrentLinkedQueue<>();
 
+    public interface MessageListener {
+        void onMessage(String content, InetSocketAddress from);
+    }
+
+    private MessageListener messageListener;
+
+    public void setMessageListener(MessageListener listener) {
+        this.messageListener = listener;
+    }
+
     // Default constructor for production use
     public AuthPerfLink(long ownId, String privateKeyString) throws IOException, Exception {
         this(ownId, Crypto.getPrivateKey(privateKeyString), new DatagramSocket(8080), Executors.newFixedThreadPool(100),
                 new SessionManager(), new MemberManager(ownId));
     }
-
+    
     // Constructor with dependency injection for testing
     public AuthPerfLink(long ownId, PrivateKey privateKey, DatagramSocket socket,
             ExecutorService executorService, SessionManager sessionManager,
@@ -227,8 +237,9 @@ public class AuthPerfLink {
             session.setSequenceNumber(msg.getSequenceNumber());
             System.out.println("Received DATA from: " + addr + " - Content: " + new String(msg.getContent()));
 
-            // TODO: pass data to consensus layer instead of just printing it
-            incomingMessages.add(msg);
+            if (messageListener != null) {
+                messageListener.onMessage(new String(msg.getContent()), addr);
+            }
 
             sendDataAck(session, msg.getSequenceNumber() + 1);
         } catch (Exception e) {
@@ -377,6 +388,10 @@ public class AuthPerfLink {
 
     private MemberInfo[] getMembers() {
         return memberManagement.getMembers();
+    }
+
+    private MemberManager getMemberManager() {
+        return memberManagement;
     }
 
     private String seeActiveSessions() {
