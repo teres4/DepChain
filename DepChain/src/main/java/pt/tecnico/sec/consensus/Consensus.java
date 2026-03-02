@@ -2,6 +2,8 @@ package pt.tecnico.sec.consensus;
 
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -9,6 +11,10 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
@@ -22,6 +28,10 @@ import com.weavechain.sig.ThresholdSigEd25519Params;
 public class Consensus {
     // current viewnumber
     private AtomicInteger viewNumber;
+
+    private AtomicInteger newViewNumber = new AtomicInteger(1); // view number for new view messages,
+    // separate from current view number to allow replicas to send new view messages
+    // for future views
 
     // current leader ID
     private final long leaderID = 0;
@@ -70,7 +80,13 @@ public class Consensus {
 
     ExecutorService executorService = java.util.concurrent.Executors.newFixedThreadPool(10);
 
+    private volatile Instant lastSeen = Instant.now();
+
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+
     ThresholdSigEd25519 thresholdSig;
+
+    private static final Duration TIMEOUT = Duration.ofSeconds(30); // TODO: choose appropriate timeout duration
 
     // Threshold signature keys
     private byte[] privateKeyShare;
@@ -95,6 +111,12 @@ public class Consensus {
             System.err.println("Failed to load threshold keys: " + e.getMessage());
             throw new RuntimeException("Cannot initialize consensus without threshold keys", e);
         }
+
+        scheduler.scheduleAtFixedRate(
+                this::checkLeaderActivity,
+                5,
+                5,
+                TimeUnit.SECONDS);
     }
 
     // ==================== INITIALIZATION ====================
@@ -123,6 +145,10 @@ public class Consensus {
         return replicaID == (viewNumber % totalReplicas);
     }
 
+    public int getLeader(int viewNumber) {
+        return (viewNumber % totalReplicas);
+    }
+
     public synchronized Phase getCurrentPhase() {
         return currentPhase;
     }
@@ -143,9 +169,8 @@ public class Consensus {
     // If ANYONE wants to start a new view, it sends a new view message to the new
     // LEader and ONLY THE LEADER waits for (n-f) responses.
     public void startNewView() throws Exception {
-        // send new view message to all replicas
         NewViewMessage newViewMessage = new NewViewMessage(this.viewNumber.get(), tree.getPrepareQC(), this.replicaID);
-        broadcastMessage(newViewMessage);
+        authPerfLink.sendData(getLeader(this.newViewNumber.incrementAndGet()), newViewMessage);
     }
 
     public void handleMessage(HotStuffMessage msg) {
@@ -183,7 +208,6 @@ public class Consensus {
                         System.err.println("Failed to send message to replica " + replicaIndex + ": " + e.getMessage());
                     }
                 });
-                // TODO: send message to my replica self
             }
         }
         sendToSelf(message);
@@ -278,6 +302,7 @@ public class Consensus {
     }
 
     public String tsign(HotStuffMessageType type, int viewNumber, String nodeHash) {
+        heartbeat();
         try {
             // Create message to sign
             String message = createVoteMessage(type, viewNumber, nodeHash);
@@ -401,9 +426,11 @@ public class Consensus {
                     newViewMessages.remove(senderId);
                 }
             }
+            this.viewNumber.incrementAndGet();
             prepare(highQC);
             return highQC;
         }
+
         return null;
     }
 
@@ -568,7 +595,8 @@ public class Consensus {
 
     // prepare message from leader received
     public void onReceivePrepareMessage(PrepareMessage prepareMessage) {
-        if (prepareMessage.getViewNumber() != this.viewNumber.get()) {
+
+        if (prepareMessage.getViewNumber() < this.viewNumber.get()) {
             System.err.println("Received prepare message for view " + prepareMessage.getViewNumber() +
                     " but current view is " + this.viewNumber);
             return;
@@ -590,6 +618,7 @@ public class Consensus {
 
             // Send vote to leader
             authPerfLink.sendData(this.leaderID, voteMessage);
+
             try {
                 sendToSelf(voteMessage);
             } catch (Exception e) {
@@ -599,7 +628,7 @@ public class Consensus {
     }
 
     public void onReceivePreCommitMessage(PreCommitMessage preCommitMessage) {
-        if (preCommitMessage.getViewNumber() != this.viewNumber.get()) {
+        if (preCommitMessage.getViewNumber() < this.viewNumber.get()) {
             System.err.println("Received pre-commit message for view " + preCommitMessage.getViewNumber() +
                     " but current view is " + this.viewNumber);
             return;
@@ -636,7 +665,7 @@ public class Consensus {
     }
 
     public void onReceiveCommitMessage(CommitMessage commitMessage) {
-        if (commitMessage.getViewNumber() != this.viewNumber.get()) {
+        if (commitMessage.getViewNumber() < this.viewNumber.get()) {
             System.err.println("Received commit message for view " + commitMessage.getViewNumber() +
                     " but current view is " + this.viewNumber);
             return;
@@ -708,5 +737,37 @@ public class Consensus {
         System.out.println("Decided on command: " + decidedNode.getCommand());
         // onDecide(decidedNode);
 
+        heartbeat();
+        this.viewNumber.incrementAndGet();
+        this.newViewNumber.set(this.viewNumber.get()); // Sync new view number with current view
+        this.curProposal = null;
+
     }
+
+    // ==================== TIMEOUT METHODS ====================
+
+    public void heartbeat() {
+        lastSeen = Instant.now();
+        System.out.println("Heartbeat received.");
+    }
+
+    private void checkLeaderActivity() {
+        Duration idleTime = Duration.between(lastSeen, Instant.now());
+
+        if (!(idleTime.compareTo(TIMEOUT) > 0)) {
+            onLeaderInactive();
+        }
+    }
+
+    private void onLeaderInactive() {
+        System.out.println("⚠ Leader is INACTIVE!");
+        if (!amLeader()) {
+            try {
+                startNewView();
+            } catch (Exception e) {
+                System.err.println("Failed to start new view: " + e.getMessage());
+            }
+        }
+    }
+
 }
