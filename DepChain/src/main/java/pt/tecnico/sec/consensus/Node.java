@@ -32,4 +32,7 @@ public class Node {
         return justifyQC;
     }
 
+    public String getCommand() {
+        return command;
+    }
 }
