@@ -251,7 +251,7 @@ public class AuthPerfLink {
             }
 
             // Get the DH public key from the initiator 
-            byte[] initiatorDHPublicKey = msg.getEncryptedSessionKey();
+            byte[] initiatorDHPublicKey = msg.getDhPublicKey();
             
             DHKeyAgreement dhKeyAgreement = new DHKeyAgreement();
             dhKeyAgreement.initializeWithReceivedPublicKey(initiatorDHPublicKey);
@@ -267,8 +267,8 @@ public class AuthPerfLink {
 
             // Handshake: reply with seq 1 (request was seq 0)
             long replySeqNum = 1;
-            ConnectionACKMessage reply = buildConnectionReply(replySeqNum, sessionKey, responderDHPublicKey,
-                                                              msg.getSenderId(), signature);
+            ConnectionACKMessage reply = new ConnectionACKMessage(replySeqNum, responderDHPublicKey, 
+                                                                senderMember.getId(), signature);
             datagramSocket.send(reply.toDatagramPacket(addr));
 
             // After handshake, initialize session for data transfer:
@@ -489,14 +489,6 @@ public class AuthPerfLink {
     }
 
     // build message helpers
-
-    private ConnectionACKMessage buildConnectionReply(long seqNum, SecretKey sessionKey, byte[] dhPublicKey,
-                                                       long senderId, String signature) throws Exception {
-        ConnectionACKMessage msgWithoutHmac = new ConnectionACKMessage(seqNum, null, dhPublicKey, senderId, signature);
-        byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
-        return new ConnectionACKMessage(seqNum, hmac, dhPublicKey, senderId, signature);
-    }
-
 
     private DataMessage buildDataMessage(long seqNum, byte[] content, SecretKey sessionKey) throws Exception {
         DataMessage msg = new DataMessage(seqNum, content, null);
