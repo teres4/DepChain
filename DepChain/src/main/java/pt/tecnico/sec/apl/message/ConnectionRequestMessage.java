@@ -2,10 +2,10 @@ package pt.tecnico.sec.apl.message;
 
 public class ConnectionRequestMessage extends Message {
     private final long senderId;
-    private final String encryptedSessionKey;
+    private final byte[] encryptedSessionKey;
     private final String signature;
 
-    public ConnectionRequestMessage(long senderId, String encryptedSessionKey, String signature) {
+    public ConnectionRequestMessage(long senderId, byte[] encryptedSessionKey, String signature) {
         super(MessageType.CONNECTION_REQUEST, 0);
         this.senderId = senderId;
         this.encryptedSessionKey = encryptedSessionKey;
@@ -13,7 +13,7 @@ public class ConnectionRequestMessage extends Message {
     }
 
     public long getSenderId() { return senderId; }
-    public String getEncryptedSessionKey() { return encryptedSessionKey; }
+    public byte[] getEncryptedSessionKey() { return encryptedSessionKey; }
     public String getSignature() { return signature; }
 
     @Override
@@ -22,7 +22,7 @@ public class ConnectionRequestMessage extends Message {
     }
 
     public String getSignableContent() {
-        return senderId + ":" + encryptedSessionKey;
+        return senderId + ":" + java.util.Base64.getEncoder().encodeToString(encryptedSessionKey);
     }
 
     @Override

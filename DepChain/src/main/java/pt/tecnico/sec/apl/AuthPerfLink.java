@@ -149,16 +149,23 @@ public class AuthPerfLink {
                 return null;
             }
 
-            SecretKey sessionKey = Crypto.generateSecretKey();
-            byte[] encryptedSessionKey = Crypto.encryptWithPublicKey(sessionKey.getEncoded(),
-                    receiverInfo.getPublicKey());
-            String encryptedSessionKeyBase64 = Base64.getEncoder().encodeToString(encryptedSessionKey);
+            // Initialize Diffie-Hellman key agreement 
+            DHKeyAgreement dhKeyAgreement = new DHKeyAgreement();
+            dhKeyAgreement.initialize();
+            
+            // Get public key to send
+            byte[] publicKey = dhKeyAgreement.getEncodedPublicKey();
 
-            String signature = Crypto.signMessage(ownId + ":" + encryptedSessionKeyBase64, this.privateKey);
-            ConnectionRequestMessage connectionRequest = new ConnectionRequestMessage(ownId, encryptedSessionKeyBase64,
+            // Sign the message
+            // TODO take a look at STS protocol and how they sign their messages
+            String publicKeyBase64 = Base64.getEncoder().encodeToString(publicKey);
+            String signature = Crypto.signMessage(this.ownId + ":" + publicKeyBase64, this.privateKey);
+            ConnectionRequestMessage connectionRequest = new ConnectionRequestMessage(this.ownId, publicKey,
                     signature);
 
-            Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), sessionKey);
+            Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), null);
+            session.setDHKeyAgreement(dhKeyAgreement); 
+            
             send(connectionRequest, receiverID);
             return session;
         } catch (Exception e) {
@@ -236,19 +243,32 @@ public class AuthPerfLink {
                 return;
             }
 
+            // TODO STS protocol
             PublicKey senderPublicKey = senderMember.getPublicKey();
             if (!Crypto.verifySignature(msg.getSignableContent().getBytes(), msg.getSignature(), senderPublicKey)) {
                 System.err.println("Failed to verify signature for connection request from: " + addr);
                 return;
             }
 
-            byte[] sessionKeyBytes = Crypto.decryptWithPrivateKey(msg.getEncryptedSessionKey(), this.privateKey);
-            SecretKey sessionKey = Crypto.bytesToSecretKey(sessionKeyBytes);
+            // Get the DH public key from the initiator 
+            byte[] initiatorDHPublicKey = msg.getEncryptedSessionKey();
+            
+            DHKeyAgreement dhKeyAgreement = new DHKeyAgreement();
+            dhKeyAgreement.initializeWithReceivedPublicKey(initiatorDHPublicKey);
+            byte[] responderDHPublicKey = dhKeyAgreement.getEncodedPublicKey();
+
+            SecretKey sessionKey = dhKeyAgreement.computeSharedSecret(initiatorDHPublicKey);
+
+            // TODO STS protocol signatures
+            String responderKeyBase64 = Base64.getEncoder().encodeToString(responderDHPublicKey);
+            String signature = Crypto.signMessage(this.ownId + ":" + responderKeyBase64, this.privateKey);
+            
             Session session = sessionManager.createSession(senderMember.getId(), addr, sessionKey);
 
             // Handshake: reply with seq 1 (request was seq 0)
             long replySeqNum = 1;
-            ConnectionACKMessage reply = buildConnectionReply(replySeqNum, sessionKey);
+            ConnectionACKMessage reply = buildConnectionReply(replySeqNum, sessionKey, responderDHPublicKey,
+                                                              msg.getSenderId(), signature);
             datagramSocket.send(reply.toDatagramPacket(addr));
 
             // After handshake, initialize session for data transfer:
@@ -275,8 +295,26 @@ public class AuthPerfLink {
                 return;
             }
 
-            if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr))
+            // TODO verify if we should still send hmac with handshake messages
+            // if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr))
+            //     return;
+
+            // TODO verify signature 
+
+            // Get the responder's DH public key from the ACK message
+            byte[] responderDHPublicKey = msg.getDHPublicKey();
+            if (responderDHPublicKey == null) {
+                System.err.println("No DH public key in connection reply from: " + addr);
                 return;
+            }
+            // Compute shared secret using stored DH key agreement
+            DHKeyAgreement dhKeyAgreement = session.getDHKeyAgreement();
+            if (dhKeyAgreement == null) {
+                System.err.println("No DH key agreement found for session with: " + addr);
+                return;
+            }
+            SecretKey sessionKey = dhKeyAgreement.computeSharedSecret(responderDHPublicKey);
+            session.setSessionKey(sessionKey);
 
             // After handshake, initialize session for data transfer:
             // - Sender starts at seq 2 for first data packet
@@ -401,7 +439,8 @@ public class AuthPerfLink {
 
                 // Buffer for potential retransmission and start/manage timer
                 // Timer is started automatically for the first packet in window
-                session.bufferPacket(dataMsg.getSequenceNumber(), dataMsg, () -> handleTimeout(session));
+                final Session finalSession = session;
+                session.bufferPacket(dataMsg.getSequenceNumber(), dataMsg, () -> handleTimeout(finalSession));
 
                 System.out.println("Sent packet " + dataMsg.getSequenceNumber() + " to: " + session.getAddr());
             } catch (IOException e) {
@@ -451,11 +490,13 @@ public class AuthPerfLink {
 
     // build message helpers
 
-    private ConnectionACKMessage buildConnectionReply(long seqNum, SecretKey sessionKey) throws Exception {
-        ConnectionACKMessage msgWithoutHmac = new ConnectionACKMessage(seqNum, null);
+    private ConnectionACKMessage buildConnectionReply(long seqNum, SecretKey sessionKey, byte[] dhPublicKey,
+                                                       long senderId, String signature) throws Exception {
+        ConnectionACKMessage msgWithoutHmac = new ConnectionACKMessage(seqNum, null, dhPublicKey, senderId, signature);
         byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
-        return new ConnectionACKMessage(seqNum, hmac);
+        return new ConnectionACKMessage(seqNum, hmac, dhPublicKey, senderId, signature);
     }
+
 
     private DataMessage buildDataMessage(long seqNum, byte[] content, SecretKey sessionKey) throws Exception {
         DataMessage msg = new DataMessage(seqNum, content, null);

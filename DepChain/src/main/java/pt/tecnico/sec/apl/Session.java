@@ -26,6 +26,9 @@ public class Session {
     private long expectedSeqNum; // next expected sequence number
 
     private SecretKey sessionKey;
+
+    private DHKeyAgreement dhKeyAgreement; 
+
     private final InetSocketAddress addr;
 
     Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr) {
@@ -49,36 +52,36 @@ public class Session {
     // Sender methods
 
     public synchronized boolean canSend() {
-        return nextSeqNum < sendBase + windowSize;
+        return this.nextSeqNum < this.sendBase + this.windowSize;
     }
 
     public synchronized long getNextSequenceNumber() {
-        return nextSeqNum;
+        return this.nextSeqNum;
     }
 
     public synchronized void advanceNextSeqNum() {
-        nextSeqNum++;
+        this.nextSeqNum++;
     }
 
     public synchronized void bufferPacket(long seqNum, DataMessage msg, Runnable timeoutHandler) {
         sendBuffer.put(seqNum, msg);
 
         // Start timer only for the first unacknowledged packet (window base)
-        if (seqNum == sendBase && timer == null) {
+        if (seqNum == this.sendBase && this.timer == null) {
             startTimer(timeoutHandler);
         }
     }
 
     public synchronized void handleAck(long ackNum) {
         // Cumulative ACK: ackNum acknowledges all packets up to and including ackNum-1
-        if (ackNum > sendBase) {
+        if (ackNum > this.sendBase) {
             // Remove acknowledged packets from buffer
-            for (long i = sendBase; i < ackNum; i++) {
+            for (long i = this.sendBase; i < ackNum; i++) {
                 sendBuffer.remove(i);
             }
-            sendBase = ackNum;
+            this.sendBase = ackNum;
 
-            if (sendBase == nextSeqNum) {
+            if (this.sendBase == this.nextSeqNum) {
                 // no need to retransmit, stop timer
                 stopTimer();
             } else {
@@ -89,7 +92,7 @@ public class Session {
     }
 
     public synchronized Map<Long, DataMessage> getUnacknowledgedPackets() {
-        return new LinkedHashMap<>(sendBuffer);
+        return new LinkedHashMap<>(this.sendBuffer);
     }
 
     public synchronized boolean hasUnacknowledgedPackets() {
@@ -101,7 +104,7 @@ public class Session {
      * Only works if there are unacknowledged packets and a timeout handler is set.
      */
     public synchronized void restartTimerIfNeeded() {
-        if (hasUnacknowledgedPackets() && currentTimeoutHandler != null) {
+        if (hasUnacknowledgedPackets() && this.currentTimeoutHandler != null) {
             restartTimer();
         }
     }
@@ -109,38 +112,38 @@ public class Session {
     private Runnable currentTimeoutHandler;
 
     private synchronized void startTimer(Runnable timeoutHandler) {
-        if (timer != null) {
+        if (this.timer != null) {
             timer.cancel();
         }
-        timer = new Timer();
+        this.timer = new Timer();
         this.currentTimeoutHandler = timeoutHandler;
         timer.schedule(new TimerTask() {
             @Override
             public void run() {
                 timeoutHandler.run();
             }
-        }, timeout);
+        }, this.timeout);
     }
 
     private synchronized void stopTimer() {
-        if (timer != null) {
+        if (this.timer != null) {
             timer.cancel();
-            timer = null;
-            currentTimeoutHandler = null;
+            this.timer = null;
+            this.currentTimeoutHandler = null;
         }
     }
 
     private synchronized void restartTimer() {
-        if (currentTimeoutHandler != null) {
+        if (this.currentTimeoutHandler != null) {
             stopTimer();
-            startTimer(currentTimeoutHandler);
+            startTimer(this.currentTimeoutHandler);
         }
     }
 
     // Receiver methods
 
     public synchronized long getExpectedSequenceNumber() {
-        return expectedSeqNum;
+        return this.expectedSeqNum;
     }
 
     public synchronized void setExpectedSequenceNumber(long seqNum) {
@@ -154,7 +157,7 @@ public class Session {
      * Used for connection handshake and monitoring.
      */
     public long getSequenceNumber() {
-        return Math.max(sendBase - 1, expectedSeqNum - 1);
+        return Math.max(this.sendBase - 1, this.expectedSeqNum - 1);
     }
 
     /**
@@ -171,29 +174,41 @@ public class Session {
 
     @Deprecated
     public synchronized boolean isWaitingForReply() {
-        return sendBase < nextSeqNum; // have unacknowledged packets
+        return this.sendBase < this.nextSeqNum; // have unacknowledged packets
     }
 
     @Deprecated
     public synchronized void replyReceived() {
         // For backward compatibility - treat as ACK for next packet
-        handleAck(sendBase + 1);
+        handleAck(this.sendBase + 1);
     }
 
     public SecretKey getSessionKey() {
-        return sessionKey;
+        return this.sessionKey;
+    }
+
+    public void setSessionKey(SecretKey sessionKey) {
+        this.sessionKey = sessionKey;
+    }
+
+    public DHKeyAgreement getDHKeyAgreement() {
+        return this.dhKeyAgreement;
+    }
+
+    public void setDHKeyAgreement(DHKeyAgreement dhKeyAgreement) {
+        this.dhKeyAgreement = dhKeyAgreement;
     }
 
     public InetSocketAddress getAddr() {
-        return addr;
+        return this.addr;
     }
 
     public long getSenderID() {
-        return senderID;
+        return this.senderID;
     }
 
     public int getWindowSize() {
-        return windowSize;
+        return this.windowSize;
     }
 
     public synchronized void cleanup() {
