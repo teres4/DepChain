@@ -52,6 +52,10 @@ public class Session {
         return true;
     }
 
+    public synchronized boolean isWaitingForReply() {
+        return !replyReceived;
+    }
+
     public synchronized void replyReceived() {
         this.replyReceived = true;
         notifyAll();

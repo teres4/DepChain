@@ -435,6 +435,7 @@ public class Consensus {
 
         // broadcast prepare message
         PrepareMessage prepareMessage = new PrepareMessage(this.viewNumber.get(), newNode, highQC, this.replicaID);
+        this.prepareVotes.clear();
         broadcastMessage(prepareMessage);
     }
 
@@ -471,7 +472,6 @@ public class Consensus {
             Queue<HotStuffMessage> voteQueue = (Queue<HotStuffMessage>) (Queue<?>) prepareVotes;
             QuorumCertificate preCommitQC = QC(voteMessage.getNode(), voteQueue);
             // move to pre-commit phase
-            this.prepareVotes.clear();
             precommit(preCommitQC);
         }
 
@@ -485,6 +485,7 @@ public class Consensus {
         setCurrentPhase(Phase.PRE_COMMIT);
         // Broadcast prepareQC in pre-commit messages
         PreCommitMessage preCommitMessage = new PreCommitMessage(this.viewNumber.get(), prepareQC, this.replicaID);
+        this.preCommitVotes.clear();
         broadcastMessage(preCommitMessage);
     }
 
@@ -515,7 +516,6 @@ public class Consensus {
             @SuppressWarnings("unchecked")
             Queue<HotStuffMessage> voteQueue = (Queue<HotStuffMessage>) (Queue<?>) preCommitVotes;
             QuorumCertificate preCommitQC = QC(voteMessage.getNode(), voteQueue);
-            this.preCommitVotes.clear();
             commit(preCommitQC);
         }
     }
@@ -527,6 +527,7 @@ public class Consensus {
         }
         setCurrentPhase(Phase.COMMIT);
         CommitMessage commitMessage = new CommitMessage(this.viewNumber.get(), preCommitQC, this.replicaID);
+        this.commitVotes.clear();
         broadcastMessage(commitMessage);
     }
 
@@ -557,7 +558,6 @@ public class Consensus {
             @SuppressWarnings("unchecked")
             Queue<HotStuffMessage> voteQueue = (Queue<HotStuffMessage>) (Queue<?>) commitVotes;
             QuorumCertificate commitQC = QC(voteMessage.getNode(), voteQueue);
-            this.commitVotes.clear();
             decide(commitQC);
         }
     }

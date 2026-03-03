@@ -293,10 +293,29 @@ public class AuthPerfLink {
             session.setSequenceNumber(msg.getSequenceNumber());
             System.out.println("Received DATA from: " + addr + " - Content: " + new String(msg.getContent()));
 
+            // check if sender id is really the one it claims to be
+            try {
+                String contentStr = new String(msg.getContent());
+                // search for senderId in content and verify it matches session senderId
+                if (contentStr.contains("senderId")) {
+                    String[] parts = contentStr.split("senderId\":");
+                    if (parts.length > 1) {
+                        String senderIdStr = parts[1].split(",")[0].trim();
+                        long senderId = Long.parseLong(senderIdStr);
+                        if (senderId != session.getSenderID()) {
+                            System.err.println("Sender ID in content does not match session sender ID for: " + addr);
+                            return;
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("Failed to verify sender ID in content for: " + addr + " - " + e.getMessage());
+                return;
+            }
+
             if (messageListener != null) {
                 messageListener.onMessage(new String(msg.getContent()));
             }
-
             sendDataAck(session, msg.getSequenceNumber() + 1);
         } catch (Exception e) {
             System.err.println("Failed to handle DATA: " + e.getMessage());
@@ -323,13 +342,22 @@ public class AuthPerfLink {
     }
 
     // send helpers
-
     private void send(Message message, long id) throws Exception {
+        executorService.submit(() -> sendPacket(message, id));
+    }
+
+    private void sendPacket(Message message, long id) {
         Session session = sessionManager.getSession(id);
         if (session == null) {
             session = startConnection(id);
         }
         DatagramPacket packet = message.toDatagramPacket(session.getAddr());
+
+        // if waiting for a previous ack, don't send new message until we get it
+        // (stop-and-wait)
+        if (session.isWaitingForReply()) {
+            System.out.println("Waiting for ACK before sending new message to: " + session.getAddr());
+        }
 
         boolean ackReceived = false;
         while (!ackReceived) {
