@@ -1,10 +1,7 @@
 package pt.tecnico.sec.consensus;
 
-import java.security.PrivateKey;
-import java.security.PublicKey;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -13,17 +10,15 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import com.weavechain.sig.ThresholdSigEd25519;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberManager;
-
-import com.weavechain.sig.ThresholdSigEd25519;
-import com.weavechain.sig.ThresholdSigEd25519Params;
 
 public class Consensus {
     // current viewnumber
@@ -32,9 +27,6 @@ public class Consensus {
     private AtomicInteger newViewNumber = new AtomicInteger(1); // view number for new view messages,
     // separate from current view number to allow replicas to send new view messages
     // for future views
-
-    // current leader ID
-    private final long leaderID = 0;
 
     // my ID
     private final long replicaID;
@@ -98,7 +90,7 @@ public class Consensus {
         this.quorumSize = totalReplicas - (totalReplicas - 1) / 3; // n-f where f = (n-1)/3
         this.memberManager = memberManager;
         this.authPerfLink = authPerfLink;
-        this.thresholdSig = new ThresholdSigEd25519(totalReplicas, quorumSize);
+        this.thresholdSig = new ThresholdSigEd25519(totalReplicas, this.quorumSize);
         this.tree = new Tree();
         this.viewNumber = new AtomicInteger(1);
 
@@ -137,20 +129,16 @@ public class Consensus {
 
     // ==================== COMMON UTILITY METHODS ====================
 
-    public boolean amLeader() {
-        return replicaID == leaderID;
-    }
-
     public boolean amLeader(int viewNumber) {
-        return replicaID == (viewNumber % totalReplicas);
+        return this.replicaID == (viewNumber % this.totalReplicas);
     }
 
     public int getLeader(int viewNumber) {
-        return (viewNumber % totalReplicas);
+        return (viewNumber % this.totalReplicas);
     }
 
     public synchronized Phase getCurrentPhase() {
-        return currentPhase;
+        return this.currentPhase;
     }
 
     public synchronized void setCurrentPhase(Phase phase) {
@@ -174,12 +162,6 @@ public class Consensus {
     }
 
     public void handleMessage(HotStuffMessage msg) {
-        if (msg.getViewNumber() != this.viewNumber.get()) {
-            System.err.println("Ignoring message from view " + msg.getViewNumber() +
-                    " (current view: " + this.viewNumber + ")");
-            return;
-        }
-
         try {
             switch (msg.getHotStuffType()) {
                 case NEW_VIEW -> onReceiveNewViewMessage((NewViewMessage) msg);
@@ -198,8 +180,8 @@ public class Consensus {
     }
 
     public void broadcastMessage(HotStuffMessage message) throws Exception {
-        for (int i = 0; i < totalReplicas; i++) {
-            if (i != replicaID) {
+        for (int i = 0; i < this.totalReplicas; i++) {
+            if (i != this.replicaID) {
                 final int replicaIndex = i;
                 executorService.submit(() -> {
                     try {
@@ -224,7 +206,7 @@ public class Consensus {
      * @throws Exception
      */
     public void sendToSelf(HotStuffMessage message) throws Exception {
-        if (amLeader()) {
+        if (amLeader(message.getViewNumber())) {
             executorService.submit(() -> {
                 try {
                     handleMessage(message);
@@ -310,9 +292,9 @@ public class Consensus {
 
             // Sign with this replica's private key share (1-based indexing)
             byte[] signatureShare = Crypto.thresholdSign(
-                    thresholdSig,
-                    (int) (replicaID + 1),
-                    privateKeyShare,
+                    this.thresholdSig,
+                    (int) (this.replicaID + 1),
+                    this.privateKeyShare,
                     messageBytes);
 
             // Return base64-encoded signature
@@ -437,7 +419,7 @@ public class Consensus {
     // prepare phase - leader creates new leaf, broadcasts prepare message with new
     // leaf and highQC
     public void prepare(QuorumCertificate highQC) throws Exception {
-        if (!amLeader()) {
+        if (!amLeader(highQC.getViewNumber())) {
             return;
         }
 
@@ -458,7 +440,7 @@ public class Consensus {
 
     // prepare vote message from replica received by leader
     public synchronized void onReceivePrepareVoteMessage(PrepareVoteMessage voteMessage) throws Exception {
-        if (!amLeader() || !checkPhase(Phase.PREPARE)) {
+        if (!amLeader(voteMessage.getViewNumber()) || !checkPhase(Phase.PREPARE)) {
             return;
         }
 
@@ -497,7 +479,7 @@ public class Consensus {
 
     // pre-commit phase
     public void precommit(QuorumCertificate prepareQC) throws Exception {
-        if (!amLeader()) {
+        if (!amLeader(prepareQC.getViewNumber())) {
             return;
         }
         setCurrentPhase(Phase.PRE_COMMIT);
@@ -507,7 +489,7 @@ public class Consensus {
     }
 
     public synchronized void onReceivePreCommitVoteMessage(PreCommitVoteMessage voteMessage) throws Exception {
-        if (!amLeader() || !checkPhase(Phase.PRE_COMMIT)) {
+        if (!amLeader(voteMessage.getViewNumber()) || !checkPhase(Phase.PRE_COMMIT)) {
             return;
         }
 
@@ -540,7 +522,7 @@ public class Consensus {
 
     // commit phase
     public void commit(QuorumCertificate preCommitQC) throws Exception {
-        if (!amLeader()) {
+        if (!amLeader(preCommitQC.getViewNumber())) {
             return;
         }
         setCurrentPhase(Phase.COMMIT);
@@ -549,7 +531,7 @@ public class Consensus {
     }
 
     public synchronized void onReceiveCommitVoteMessage(CommitVoteMessage voteMessage) throws Exception {
-        if (!amLeader() || !checkPhase(Phase.COMMIT)) {
+        if (!amLeader(voteMessage.getViewNumber()) || !checkPhase(Phase.COMMIT)) {
             return;
         }
 
@@ -582,7 +564,7 @@ public class Consensus {
 
     // decide phase
     public void decide(QuorumCertificate commitQC) throws Exception {
-        if (!amLeader()) {
+        if (!amLeader(commitQC.getViewNumber())) {
             return;
         }
         setCurrentPhase(Phase.DECIDE);
@@ -616,7 +598,7 @@ public class Consensus {
                     this.replicaID, partialSig);
 
             // Send vote to leader
-            authPerfLink.sendData(this.leaderID, voteMessage);
+            authPerfLink.sendData(getLeader(prepareMessage.getViewNumber()), voteMessage);
 
             try {
                 sendToSelf(voteMessage);
@@ -655,7 +637,7 @@ public class Consensus {
         PreCommitVoteMessage voteMessage = new PreCommitVoteMessage(this.viewNumber.get(), node, this.replicaID,
                 partialSig);
 
-        authPerfLink.sendData(this.leaderID, voteMessage);
+        authPerfLink.sendData(getLeader(preCommitMessage.getViewNumber()), voteMessage);
         try {
             sendToSelf(voteMessage);
         } catch (Exception e) {
@@ -698,7 +680,7 @@ public class Consensus {
         String partialSig = tsign(HotStuffMessageType.COMMIT_VOTE, this.viewNumber.get(), preCommitQC.getNodeHash());
         CommitVoteMessage voteMessage = new CommitVoteMessage(this.viewNumber.get(), node, this.replicaID, partialSig);
 
-        authPerfLink.sendData(this.leaderID, voteMessage);
+        authPerfLink.sendData(getLeader(commitMessage.getViewNumber()), voteMessage);
         try {
             sendToSelf(voteMessage);
         } catch (Exception e) {
@@ -746,12 +728,12 @@ public class Consensus {
     // ==================== TIMEOUT METHODS ====================
 
     public void heartbeat() {
-        lastSeen = Instant.now();
+        this.lastSeen = Instant.now();
         System.out.println("Heartbeat received.");
     }
 
     private void checkLeaderActivity() {
-        Duration idleTime = Duration.between(lastSeen, Instant.now());
+        Duration idleTime = Duration.between(this.lastSeen, Instant.now());
 
         if (!(idleTime.compareTo(TIMEOUT) > 0)) {
             onLeaderInactive();
@@ -760,7 +742,7 @@ public class Consensus {
 
     private void onLeaderInactive() {
         System.out.println("⚠ Leader is INACTIVE!");
-        if (!amLeader()) {
+        if (!amLeader(this.viewNumber.get())) {
             try {
                 startNewView();
             } catch (Exception e) {
