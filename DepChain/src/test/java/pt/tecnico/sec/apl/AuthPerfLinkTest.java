@@ -71,7 +71,7 @@ class AuthPerfLinkTest {
     @Test
     void testValidateConnectionRequest_ValidMessage() {
         // Arrange
-        ConnectionRequestMessage msg = new ConnectionRequestMessage(PEER_ID, "encryptedKey", "signature");
+        ConnectionRequestMessage msg = new ConnectionRequestMessage(PEER_ID, "encryptedKey".getBytes(), "signature");
 
         // Act: Validate that it has sequence number 0
         boolean result = (msg.getSequenceNumber() == 0);
@@ -95,7 +95,7 @@ class AuthPerfLinkTest {
     @Test
     void testValidateConnectionRequest_InvalidSequenceNumber() {
         // Arrange: ConnectionRequestMessage always has sequence number 0
-        ConnectionRequestMessage msg = new ConnectionRequestMessage(PEER_ID, "encryptedKey", "signature");
+        ConnectionRequestMessage msg = new ConnectionRequestMessage(PEER_ID, "encryptedKey".getBytes(), "signature");
 
         // Act: Test that a wrong sequence number would fail (simulated as always
         // starting from 0)

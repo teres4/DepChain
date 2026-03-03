@@ -4,13 +4,13 @@ import com.google.gson.Gson;
 import pt.tecnico.sec.apl.message.DataMessage;
 
 public abstract class HotStuffMessage extends DataMessage {
-    private final HotStuffMessageType type;
+    private final HotStuffMessageType hotStuffType;
     private final int viewNumber;
     private final long senderId;
 
     protected HotStuffMessage(HotStuffMessageType type, int viewNumber, long senderId) {
         super(new byte[0]); // Temporary empty content
-        this.type = type;
+        this.hotStuffType = type;
         this.viewNumber = viewNumber;
         this.senderId = senderId;
         // Set actual content after construction (now that all fields are initialized)
@@ -18,7 +18,7 @@ public abstract class HotStuffMessage extends DataMessage {
     }
 
     public HotStuffMessageType getHotStuffType() {
-        return type;
+        return hotStuffType;
     }
 
     public int getViewNumber() {
@@ -30,7 +30,7 @@ public abstract class HotStuffMessage extends DataMessage {
     }
 
     public boolean matches(HotStuffMessageType type, int viewNumber) {
-        return this.type == type && this.viewNumber == viewNumber;
+        return this.hotStuffType == type && this.viewNumber == viewNumber;
     }
 
     public String toJson() {
@@ -38,7 +38,7 @@ public abstract class HotStuffMessage extends DataMessage {
     }
 
     private static class TypeOnly {
-        HotStuffMessageType type;
+        HotStuffMessageType hotStuffType;
     }
 
     // Parse HotStuffMessage from DataMessage content
@@ -49,7 +49,7 @@ public abstract class HotStuffMessage extends DataMessage {
 
     public static HotStuffMessage fromJson(String json) {
         Gson gson = new Gson();
-        HotStuffMessageType type = gson.fromJson(json, TypeOnly.class).type;
+        HotStuffMessageType type = gson.fromJson(json, TypeOnly.class).hotStuffType;
 
         return switch (type) {
             case NEW_VIEW -> gson.fromJson(json, NewViewMessage.class);
@@ -66,6 +66,6 @@ public abstract class HotStuffMessage extends DataMessage {
 
     @Override
     public String toString() {
-        return "HotStuffMessage{type=" + type + ", view=" + viewNumber + ", sender=" + senderId + "}";
+        return "HotStuffMessage{type=" + hotStuffType + ", view=" + viewNumber + ", sender=" + senderId + "}";
     }
 }
