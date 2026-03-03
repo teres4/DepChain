@@ -1,7 +1,10 @@
 package pt.tecnico.sec.consensus;
 
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 
 public class Tree {
 
@@ -68,6 +71,40 @@ public class Tree {
             current = current.getParent();
         }
         return false;
+    }
+    
+    public void pruneConflictingBranches(Node decidedNode) {
+        if (decidedNode == null) {
+            return;
+        }
+        
+        // build the committed chain
+        Set<String> committedChain = new HashSet<>();
+        Node current = decidedNode;
+        while (current != null) {
+            committedChain.add(current.getHash());
+            current = current.getParent();
+        }
+        
+        Iterator<Map.Entry<String, Node>> iterator = treeMap.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, Node> entry = iterator.next();
+            Node node = entry.getValue();
+            
+            // keep if on committed chain
+            if (committedChain.contains(node.getHash())) {
+                continue;
+            }
+            
+            // keep if extends decided node
+            if (extendsFrom(node, decidedNode)) {
+                continue;
+            }
+            
+            // remove conflicting node
+            System.out.println("Pruning conflicting node: " + node.getHash() + " (command: " + node.getCommand() + ")");
+            iterator.remove();
+        }
     }
     
 }

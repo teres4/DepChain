@@ -718,6 +718,8 @@ public class Consensus {
         System.out.println("Decided on command: " + decidedNode.getCommand());
         // onDecide(decidedNode);
 
+        tree.pruneConflictingBranches(decidedNode);
+
         heartbeat();
         this.viewNumber.incrementAndGet();
         this.newViewNumber.set(this.viewNumber.get()); // Sync new view number with current view
