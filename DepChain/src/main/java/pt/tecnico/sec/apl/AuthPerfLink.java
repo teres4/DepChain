@@ -8,6 +8,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.Base64;
 import java.util.Collection;
+import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
@@ -92,6 +93,12 @@ public class AuthPerfLink {
 
     public void shutdown() {
         running.set(false);
+
+        // Cleanup all sessions
+        for (Session session : sessionManager.getAllSessions()) {
+            session.cleanup();
+        }
+
         datagramSocket.close();
         executorService.shutdown();
         try {
@@ -106,9 +113,9 @@ public class AuthPerfLink {
 
     public void sendData(Session session, String content) {
         try {
-            long seqNum = session.getSequenceNumber() + 1;
+            long seqNum = session.getNextSequenceNumber() + 1;
             DataMessage msg = buildDataMessage(seqNum, content.getBytes(), session.getSessionKey());
-            session.setSequenceNumber(seqNum);
+            session.advanceNextSeqNum();
             send(msg, session.getSenderID());
             System.out.println("DATA sent to: " + session.getAddr());
         } catch (Exception e) {
@@ -123,8 +130,10 @@ public class AuthPerfLink {
             if (session == null) {
                 session = startConnection(receiverID);
             }
-            DataMessage signedDataMessage = buildDataMessage(session.getSequenceNumber() + 1, DataMessage.getContent(),
+            DataMessage signedDataMessage = buildDataMessage(session.getNextSequenceNumber() + 1,
+                    DataMessage.getContent(),
                     session.getSessionKey());
+            session.advanceNextSeqNum();
             send(signedDataMessage, receiverID);
             System.out.println("DATA sent to ID: " + receiverID);
         } catch (Exception e) {
@@ -180,7 +189,10 @@ public class AuthPerfLink {
         for (Session session : sessions) {
             activeSessions.append("Session with ID: ").append(session.getSenderID())
                     .append(", Address: ").append(session.getAddr())
-                    .append(", Sequence Number: ").append(session.getSequenceNumber())
+                    .append(", Next Seq: ").append(session.getNextSequenceNumber())
+                    .append(", Expected Seq: ").append(session.getExpectedSequenceNumber())
+                    .append(", Window: ").append(session.getWindowSize())
+                    .append(", Unacked: ").append(session.getUnacknowledgedPackets().size())
                     .append("\n");
         }
         return activeSessions.toString();
@@ -234,10 +246,16 @@ public class AuthPerfLink {
             SecretKey sessionKey = Crypto.bytesToSecretKey(sessionKeyBytes);
             Session session = sessionManager.createSession(senderMember.getId(), addr, sessionKey);
 
-            long replySeqNum = msg.getSequenceNumber() + 1;
+            // Handshake: reply with seq 1 (request was seq 0)
+            long replySeqNum = 1;
             ConnectionACKMessage reply = buildConnectionReply(replySeqNum, sessionKey);
-            session.setSequenceNumber(replySeqNum);
             datagramSocket.send(reply.toDatagramPacket(addr));
+
+            // After handshake, initialize session for data transfer:
+            // - Receiver expects first data packet at seq 2
+            // - Sender can start sending from seq 2 (set via setSequenceNumber which
+            // updates both sides)
+            session.setExpectedSequenceNumber(2);
 
             System.out.println("Connection reply sent to: " + addr);
         } catch (Exception e) {
@@ -251,19 +269,20 @@ public class AuthPerfLink {
             if (session == null)
                 return;
 
-            // if it's a retransmission, ignore (connection already established)
-            if (msg.getSequenceNumber() == session.getSequenceNumber()) {
-                System.out.println("Received duplicate connection reply from: " + addr + ", ignoring");
+            // Verify it's the expected handshake ACK (seq 1)
+            if (msg.getSequenceNumber() != 1) {
+                System.err.println("Invalid connection reply sequence from: " + addr);
                 return;
             }
 
-            if (!verifySequenceNumber(msg, session, addr))
-                return;
             if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr))
                 return;
 
-            session.setSequenceNumber(msg.getSequenceNumber());
-            session.replyReceived();
+            // After handshake, initialize session for data transfer:
+            // - Sender starts at seq 2 for first data packet
+            // - Receiver expects seq 2 as well
+            session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=1, expectedSeqNum=2
+
             System.out.println("Connection reply verified and session established with: " + addr);
         } catch (Exception e) {
             System.err.println("Failed to handle connection reply: " + e.getMessage());
@@ -276,47 +295,57 @@ public class AuthPerfLink {
             if (session == null)
                 return;
 
-            // if it's a retransmission, resend ACK
-            if (msg.getSequenceNumber() == session.getSequenceNumber()) {
-                System.out.println("Received retransmission of data from: " + addr + ", resending ACK");
-                sendDataAck(session, msg.getSequenceNumber() + 1);
-                return;
-            }
+            long expectedSeq = session.getExpectedSequenceNumber();
 
-            if (!verifySequenceNumber(msg, session, addr))
-                return;
-            String jsonWithoutHmac = msg.withoutHmac().toJsonString();
-            if (!verifyHmac(jsonWithoutHmac, msg.getHmac(), session, addr))
-                return;
+            // go back n only accept packets in order
+            if (msg.getSequenceNumber() == expectedSeq) { // accept only expected sequence number
+                String jsonWithoutHmac = msg.withoutHmac().toJsonString();
+                if (!verifyHmac(jsonWithoutHmac, msg.getHmac(), session, addr))
+                    return;
 
-            // this data will later be used by consensus layer, for now we just print it
-            session.setSequenceNumber(msg.getSequenceNumber());
-            System.out.println("Received DATA from: " + addr + " - Content: " + new String(msg.getContent()));
+                // Deliver to upper layer
+                System.out.println("Received DATA " + msg.getSequenceNumber() + " from: " + addr + " - Content: "
+                        + new String(msg.getContent()));
 
-            // check if sender id is really the one it claims to be
-            try {
-                String contentStr = new String(msg.getContent());
-                // search for senderId in content and verify it matches session senderId
-                if (contentStr.contains("senderId")) {
-                    String[] parts = contentStr.split("senderId\":");
-                    if (parts.length > 1) {
-                        String senderIdStr = parts[1].split(",")[0].trim();
-                        long senderId = Long.parseLong(senderIdStr);
-                        if (senderId != session.getSenderID()) {
-                            System.err.println("Sender ID in content does not match session sender ID for: " + addr);
-                            return;
+                // check if sender id is really the one it claims to be
+                try {
+                    String contentStr = new String(msg.getContent());
+                    // search for senderId in content and verify it matches session senderId
+                    if (contentStr.contains("senderId")) {
+                        String[] parts = contentStr.split("senderId\":");
+                        if (parts.length > 1) {
+                            String senderIdStr = parts[1].split(",")[0].trim();
+                            long senderId = Long.parseLong(senderIdStr);
+                            if (senderId != session.getSenderID()) {
+                                System.err
+                                        .println("Sender ID in content does not match session sender ID for: " + addr);
+                                return;
+                            }
                         }
                     }
+                } catch (Exception e) {
+                    System.err.println("Failed to verify sender ID in content for: " + addr + " - " + e.getMessage());
+                    return;
                 }
-            } catch (Exception e) {
-                System.err.println("Failed to verify sender ID in content for: " + addr + " - " + e.getMessage());
-                return;
-            }
 
-            if (messageListener != null) {
-                messageListener.onMessage(new String(msg.getContent()));
+                if (messageListener != null) {
+                    messageListener.onMessage(new String(msg.getContent()));
+                }
+
+                // Update expected sequence number and send cumulative ACK
+                session.setExpectedSequenceNumber(expectedSeq + 1);
+                sendDataAck(session, expectedSeq + 1);
+
+            } else {
+                // Out-of-order packet - discard and resend ACK for last in-order packet
+                System.out.println("Received out-of-order packet " + msg.getSequenceNumber() +
+                        " (expected " + expectedSeq + ") from: " + addr + ", discarding");
+
+                // Send cumulative ACK for last correctly received packet
+                if (expectedSeq > 0) {
+                    sendDataAck(session, expectedSeq);
+                }
             }
-            sendDataAck(session, msg.getSequenceNumber() + 1);
         } catch (Exception e) {
             System.err.println("Failed to handle DATA: " + e.getMessage());
         }
@@ -328,14 +357,13 @@ public class AuthPerfLink {
             if (session == null)
                 return;
 
-            if (!verifySequenceNumber(msg, session, addr))
-                return;
             if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr))
                 return;
 
-            session.setSequenceNumber(msg.getSequenceNumber());
-            session.replyReceived();
-            System.out.println("Message acknowledged by: " + addr);
+            // Cumulative ACK: acknowledges all packets up to seqNum - 1
+            long ackNum = msg.getSequenceNumber();
+            session.handleAck(ackNum);
+            System.out.println("Cumulative ACK " + ackNum + " received from: " + addr);
         } catch (Exception e) {
             System.err.println("Failed to handle ACK: " + e.getMessage());
         }
@@ -351,34 +379,71 @@ public class AuthPerfLink {
         if (session == null) {
             session = startConnection(id);
         }
-        DatagramPacket packet = message.toDatagramPacket(session.getAddr());
 
-        // if waiting for a previous ack, don't send new message until we get it
-        // (stop-and-wait)
-        if (session.isWaitingForReply()) {
-            System.out.println("Waiting for ACK before sending new message to: " + session.getAddr());
-        }
+        // Go-Back-N: only send if within window
+        if (message instanceof DataMessage) {
+            DataMessage dataMsg = (DataMessage) message;
 
-        boolean ackReceived = false;
-        while (!ackReceived) {
+            // Wait if window is full
+            while (!session.canSend()) {
+                try {
+                    Thread.sleep(5); // brief wait before checking again
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+
+            // Send the packet
             try {
+                DatagramPacket packet = message.toDatagramPacket(session.getAddr());
                 datagramSocket.send(packet);
-                ackReceived = session.waitForReply();
+
+                // Buffer for potential retransmission and start/manage timer
+                // Timer is started automatically for the first packet in window
+                session.bufferPacket(dataMsg.getSequenceNumber(), dataMsg, () -> handleTimeout(session));
+
+                System.out.println("Sent packet " + dataMsg.getSequenceNumber() + " to: " + session.getAddr());
             } catch (IOException e) {
                 System.err.println("Failed to send message: " + e.getMessage());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                System.err.println("Interrupted while waiting for ACK: " + e.getMessage());
+            }
+        } else {
+            // Non-data messages (CONNECTION_REQUEST, CONNECTION_ACK etc.) - send
+            // immediately
+            try {
+                DatagramPacket packet = message.toDatagramPacket(session.getAddr());
+                datagramSocket.send(packet);
+            } catch (IOException e) {
+                System.err.println("Failed to send message: " + e.getMessage());
             }
         }
+    }
+
+    private void handleTimeout(Session session) {
+        System.out.println("Timeout! Retransmitting all unacknowledged packets to: " + session.getAddr());
+
+        // Retransmit all packets in the window
+        Map<Long, DataMessage> unacked = session.getUnacknowledgedPackets();
+        for (DataMessage msg : unacked.values()) {
+            try {
+                DatagramPacket packet = msg.toDatagramPacket(session.getAddr());
+                datagramSocket.send(packet);
+                System.out.println("Retransmitted packet " + msg.getSequenceNumber());
+            } catch (IOException e) {
+                System.err.println("Failed to retransmit packet: " + e.getMessage());
+            }
+        }
+
+        // Restart timer for the retransmitted packets
+        // The timer handler is preserved from when the window was first created
+        session.restartTimerIfNeeded();
     }
 
     private void sendDataAck(Session session, long seqNum) {
         try {
             DataACKMessage ack = buildDataAck(seqNum, session.getSessionKey());
-            session.setSequenceNumber(seqNum);
             datagramSocket.send(ack.toDatagramPacket(session.getAddr()));
-            System.out.println("ACK sent to: " + session.getAddr());
+            System.out.println("ACK " + seqNum + " sent to: " + session.getAddr());
         } catch (Exception e) {
             System.err.println("Failed to send ACK: " + e.getMessage());
         }

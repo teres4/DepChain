@@ -193,7 +193,6 @@ class AuthPerfLinkTest {
         // Arrange
         SecretKey sessionKey = Crypto.generateSecretKey();
         Session mockSession = mock(Session.class);
-        when(mockSession.getSequenceNumber()).thenReturn(0L);
         when(mockSession.getSessionKey()).thenReturn(sessionKey);
 
         MemberInfo mockMember = mock(MemberInfo.class);
@@ -211,8 +210,8 @@ class AuthPerfLinkTest {
         // Act
         authPerfLink.handleAck(msg, TEST_ADDR);
 
-        // Assert
-        verify(mockSession).replyReceived();
+        // Assert - now expects handleAck(1) for cumulative ACK
+        verify(mockSession).handleAck(1L);
     }
 
     @Test
@@ -233,7 +232,7 @@ class AuthPerfLinkTest {
         // Arrange
         SecretKey sessionKey = Crypto.generateSecretKey();
         Session mockSession = mock(Session.class);
-        when(mockSession.getSequenceNumber()).thenReturn(0L);
+        when(mockSession.getExpectedSequenceNumber()).thenReturn(1L); // Expecting sequence 1
         when(mockSession.getSessionKey()).thenReturn(sessionKey);
         when(mockSession.getAddr()).thenReturn(TEST_ADDR);
 
@@ -243,7 +242,7 @@ class AuthPerfLinkTest {
         when(mockMemberManagement.getMemberByAddress(TEST_ADDR)).thenReturn(mockMember);
         when(mockSessionManager.getSession(PEER_ID)).thenReturn(mockSession);
 
-        // Create valid DATA message
+        // Create valid DATA message with expected sequence number
         byte[] payload = "some data".getBytes();
         long sequenceNumber = 1;
         DataMessage msgWithoutHmac = new DataMessage(sequenceNumber, payload, null);
@@ -253,8 +252,8 @@ class AuthPerfLinkTest {
         // Act
         authPerfLink.handleData(msg, TEST_ADDR);
 
-        // Assert
-        verify(mockSession).setSequenceNumber(sequenceNumber);
+        // Assert - Go-Back-N receiver updates expected sequence number
+        verify(mockSession).setExpectedSequenceNumber(2L);
     }
 
     @Test
