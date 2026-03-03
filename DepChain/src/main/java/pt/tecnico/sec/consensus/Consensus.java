@@ -489,7 +489,6 @@ public class Consensus {
             Queue<HotStuffMessage> voteQueue = (Queue<HotStuffMessage>) (Queue<?>) prepareVotes;
             QuorumCertificate preCommitQC = QC(voteMessage.getNode(), voteQueue);
             // move to pre-commit phase
-            this.viewNumber.incrementAndGet();
             this.prepareVotes.clear();
             precommit(preCommitQC);
         }
