@@ -583,9 +583,14 @@ public class Consensus {
                     " but current view is " + this.viewNumber);
             return;
         }
-
-        String ancestorNodeHash = prepareMessage.getHighQC().getNodeHash();
-        Node ancestorNode = tree.getNode(ancestorNodeHash);
+        
+        QuorumCertificate highQC = prepareMessage.getHighQC();
+        Node ancestorNode;
+        if (highQC == null) {
+            ancestorNode = tree.getRoot();
+        } else {
+            ancestorNode = tree.getNode(highQC.getNodeHash());
+        }
 
         if (tree.extendsFrom(prepareMessage.getNode(), ancestorNode)
                 && safeNode(prepareMessage.getNode(), prepareMessage.getHighQC())) {
