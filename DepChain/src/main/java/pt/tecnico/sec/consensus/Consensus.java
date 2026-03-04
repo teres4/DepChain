@@ -420,7 +420,7 @@ public class Consensus {
     // prepare phase - leader creates new leaf, broadcasts prepare message with new
     // leaf and highQC
     public void prepare(QuorumCertificate highQC) throws Exception {
-        if (!amLeader(highQC.getViewNumber())) {
+        if (!amLeader(this.viewNumber.get())) {
             return;
         }
 
