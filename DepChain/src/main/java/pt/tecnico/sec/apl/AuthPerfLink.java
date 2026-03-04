@@ -279,7 +279,7 @@ public class AuthPerfLink {
             // Handshake: reply with seq 1 (request was seq 0)
             long replySeqNum = 1;
             ConnectionACKMessage reply = new ConnectionACKMessage(replySeqNum, responderDHPublicKey, 
-                                                                senderMember.getId(), signature);
+                                                                this.ownId, signature);
             datagramSocket.send(reply.toDatagramPacket(addr));
 
             // After handshake, initialize session for data transfer:
