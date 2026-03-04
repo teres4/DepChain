@@ -19,7 +19,7 @@ public class Tree {
 
     public Tree() {
         this.root = new Node("genesis", "genesis", null, null);
-        this.lockedQC = null;
+        this.lockedQC = new QuorumCertificate(0, root.getHash(), "prepare", "");
         this.prepareQC = null;
         this.executedNode = root;
     }
