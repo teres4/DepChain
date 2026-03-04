@@ -7,6 +7,7 @@ import pt.tecnico.sec.utils.MemberInfo;
 
 import java.util.Scanner;
 
+import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.DHKeyAgreement;
 
 public class App {
@@ -30,7 +31,7 @@ public class App {
 
         final AuthPerfLink apl;
         try {
-            apl = new AuthPerfLink(ownId);
+            apl = new AuthPerfLink(ownId, Crypto.getReplicaPrivateKey(ownId));
         } catch (Exception e) {
             System.err.println("Failed to initialize AuthPerfLink: " + e.getMessage());
             e.printStackTrace();

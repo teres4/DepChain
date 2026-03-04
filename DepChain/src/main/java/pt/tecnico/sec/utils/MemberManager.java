@@ -43,7 +43,7 @@ public class MemberManager {
                 int port = server.get("port").getAsInt();
                 String keyFile = server.get("keyfile").getAsString();
 
-                PublicKey publicSignatureKey = Crypto.getPublicKey(id);
+                PublicKey publicSignatureKey = Crypto.getReplicaPublicKey(id);
 
                 InetSocketAddress addr = new InetSocketAddress(host, port);
 

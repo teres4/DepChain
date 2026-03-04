@@ -69,11 +69,11 @@ public interface Crypto {
         return kf.generatePrivate(spec);
     }
 
-    public static PublicKey getPublicKey(long replicaId) throws Exception {
+    public static PublicKey getReplicaPublicKey(long replicaId) throws Exception {
         return loadPublicKey(replicaId, KeyType.REPLICA);
     }
 
-    public static PrivateKey getPrivateKey(long replicaId) throws Exception {
+    public static PrivateKey getReplicaPrivateKey(long replicaId) throws Exception {
         return loadPrivateKey(replicaId, KeyType.REPLICA);
     }
     
