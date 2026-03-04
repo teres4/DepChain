@@ -756,7 +756,7 @@ public class Consensus {
     private void checkLeaderActivity() {
         Duration idleTime = Duration.between(this.lastSeen, Instant.now());
 
-        if (!(idleTime.compareTo(TIMEOUT) > 0)) {
+        if (idleTime.compareTo(TIMEOUT) > 0) { // trigger when idle > timeout
             onLeaderInactive();
         }
     }
