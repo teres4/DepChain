@@ -26,8 +26,7 @@ public class SessionManager {
     public Session createSession(long senderID, InetSocketAddress addr, SecretKey sessionKey) throws Exception {
         // create a new session and add it to the session manager
         // get socket adress from config
-        long sequenceNumber = 0;
-        Session session = new Session(senderID, sequenceNumber, sessionKey, addr);
+        Session session = new Session(senderID, 1, sessionKey, addr);
         addSession(senderID, session);
         return session;
     }

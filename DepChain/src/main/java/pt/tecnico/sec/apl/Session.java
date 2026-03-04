@@ -163,7 +163,7 @@ public class Session {
      * Sets both sender and receiver to be ready for data transfer.
      * Use this only during connection establishment.
      */
-    public void setSequenceNumber(long sequenceNumber) {
+    public synchronized void setSequenceNumber(long sequenceNumber) {
         // Update both sender and receiver state
         this.sendBase = sequenceNumber;
         this.nextSeqNum = sequenceNumber;
