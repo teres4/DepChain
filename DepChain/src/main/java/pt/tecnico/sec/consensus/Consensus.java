@@ -102,7 +102,7 @@ public class Consensus {
         try {
             this.privateKeyShare = Crypto.loadThresholdPrivateKeyShare(
                     "config/keys/threshold_privateShare_" + replicaID + ".bin");
-            this.publicKey = Crypto.loadThresholdPublicKey("config/keys/threshold_groupkey.bin");
+            this.publicKey = Crypto.loadThresholdPublicKey("config/keys/groupkey.bin");
         } catch (Exception e) {
             System.err.println("Failed to load threshold keys: " + e.getMessage());
             throw new RuntimeException("Cannot initialize consensus without threshold keys", e);
