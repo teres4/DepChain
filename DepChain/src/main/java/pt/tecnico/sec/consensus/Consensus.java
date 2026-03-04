@@ -19,6 +19,8 @@ import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberManager;
+import pt.tecnico.sec.utils.threshsig.GroupKey;
+import pt.tecnico.sec.utils.threshsig.KeyShare;
 
 public class Consensus {
     // current viewnumber
@@ -81,8 +83,8 @@ public class Consensus {
     private static final Duration TIMEOUT = Duration.ofSeconds(30); // TODO: choose appropriate timeout duration
 
     // Threshold signature keys
-    private byte[] privateKeyShare;
-    private byte[] publicKey;
+    private KeyShare privateKeyShare;
+    private GroupKey publicKey;
 
     public Consensus(long replicaID, int totalReplicas, MemberManager memberManager, AuthPerfLink authPerfLink) {
         this.replicaID = replicaID;
@@ -97,8 +99,8 @@ public class Consensus {
         // Load threshold signature keys
         try {
             this.privateKeyShare = Crypto.loadThresholdPrivateKeyShare(
-                    "config/threshold-keys/private_share_" + (replicaID + 1) + ".bin");
-            this.publicKey = Crypto.loadThresholdPublicKey("config/threshold-keys/public_key.bin");
+                    "config/keys/threshold_privateShare_" + replicaID + ".bin");
+            this.publicKey = Crypto.loadThresholdPublicKey("config/keys/threshold_groupkey.bin");
         } catch (Exception e) {
             System.err.println("Failed to load threshold keys: " + e.getMessage());
             throw new RuntimeException("Cannot initialize consensus without threshold keys", e);
