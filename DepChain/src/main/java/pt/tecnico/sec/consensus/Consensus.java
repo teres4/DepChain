@@ -190,7 +190,7 @@ public class Consensus {
     }
 
     public void broadcastMessage(HotStuffMessage message) throws Exception {
-        for (int i = 0; i < this.totalReplicas; i++) {
+        for (int i = 1; i < this.totalReplicas+1; i++) {
             if (i != this.replicaID) {
                 final int replicaIndex = i;
                 executorService.submit(() -> {
