@@ -1,7 +1,5 @@
 package pt.tecnico.sec.consensus;
 
-import java.util.List;
-
 public class Node {
 
     private final String hash;

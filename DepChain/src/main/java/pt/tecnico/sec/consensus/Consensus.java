@@ -1,7 +1,13 @@
 package pt.tecnico.sec.consensus;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -13,12 +19,13 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import com.weavechain.sig.ThresholdSigEd25519;
-
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberManager;
+import pt.tecnico.sec.utils.threshsig.GroupKey;
+import pt.tecnico.sec.utils.threshsig.KeyShare;
+import pt.tecnico.sec.utils.threshsig.SigShare;
 
 public class Consensus {
     // current viewnumber
@@ -76,13 +83,11 @@ public class Consensus {
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
-    ThresholdSigEd25519 thresholdSig;
-
     private static final Duration TIMEOUT = Duration.ofSeconds(30); // TODO: choose appropriate timeout duration
 
     // Threshold signature keys
-    private byte[] privateKeyShare;
-    private byte[] publicKey;
+    private KeyShare privateKeyShare;
+    private GroupKey publicKey;
 
     public Consensus(long replicaID, int totalReplicas, MemberManager memberManager, AuthPerfLink authPerfLink) {
         this.replicaID = replicaID;
@@ -90,15 +95,14 @@ public class Consensus {
         this.quorumSize = totalReplicas - (totalReplicas - 1) / 3; // n-f where f = (n-1)/3
         this.memberManager = memberManager;
         this.authPerfLink = authPerfLink;
-        this.thresholdSig = new ThresholdSigEd25519(totalReplicas, this.quorumSize);
         this.tree = new Tree();
         this.viewNumber = new AtomicInteger(1);
 
         // Load threshold signature keys
         try {
             this.privateKeyShare = Crypto.loadThresholdPrivateKeyShare(
-                    "config/threshold-keys/private_share_" + (replicaID + 1) + ".bin");
-            this.publicKey = Crypto.loadThresholdPublicKey("config/threshold-keys/public_key.bin");
+                    "config/keys/threshold_privateShare_" + replicaID + ".bin");
+            this.publicKey = Crypto.loadThresholdPublicKey("config/keys/threshold_groupkey.bin");
         } catch (Exception e) {
             System.err.println("Failed to load threshold keys: " + e.getMessage());
             throw new RuntimeException("Cannot initialize consensus without threshold keys", e);
@@ -248,35 +252,29 @@ public class Consensus {
 
     public String tcombine(Queue<HotStuffMessage> votes) {
         try {
-            // Extract partial signatures and indices from votes
-            int voteCount = votes.size();
-            byte[][] signatureShares = new byte[voteCount][];
-            int[] indices = new int[voteCount];
-
+            SigShare[] sigShares = new SigShare[votes.size()];
             int i = 0;
             for (HotStuffMessage vote : votes) {
-                String partialSig = null;
-                long senderId = vote.getSenderId();
+                String partialSigBase64 = extractPartialSig(vote);
+                if (partialSigBase64 == null) continue;
 
-                // Extract partial signature based on message type
-                if (vote instanceof PrepareVoteMessage) {
-                    partialSig = ((PrepareVoteMessage) vote).getPartialSig();
-                } else if (vote instanceof PreCommitVoteMessage) {
-                    partialSig = ((PreCommitVoteMessage) vote).getPartialSig();
-                } else if (vote instanceof CommitVoteMessage) {
-                    partialSig = ((CommitVoteMessage) vote).getPartialSig();
-                }
-
-                if (partialSig != null) {
-                    signatureShares[i] = java.util.Base64.getDecoder().decode(partialSig);
-                    indices[i] = (int) (senderId + 1); // Convert to 1-based indexing
-                    i++;
-                }
+                byte[] sigBytes = Base64.getDecoder().decode(partialSigBase64);
+                ObjectInputStream ois = new ObjectInputStream(
+                        new ByteArrayInputStream(sigBytes));
+                sigShares[i++] = (SigShare) ois.readObject();
             }
 
-            // Combine signature shares
-            byte[] combinedSig = Crypto.combineThresholdSignatures(thresholdSig, indices, signatureShares);
-            return java.util.Base64.getEncoder().encodeToString(combinedSig);
+            // store full serialized SigShares as comma-separated base64
+            // tverify() will reconstruct them and verify later
+            StringBuilder sb = new StringBuilder();
+            for (int j = 0; j < sigShares.length; j++) {
+                if (j > 0) sb.append(",");
+                ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                new ObjectOutputStream(bos).writeObject(sigShares[j]);
+                sb.append(Base64.getEncoder().encodeToString(bos.toByteArray()));
+            }
+            return sb.toString();
+
         } catch (Exception e) {
             System.err.println("Failed to combine signatures: " + e.getMessage());
             return null;
@@ -286,46 +284,43 @@ public class Consensus {
     public String tsign(HotStuffMessageType type, int viewNumber, String nodeHash) {
         heartbeat();
         try {
-            // Create message to sign
             String message = createVoteMessage(type, viewNumber, nodeHash);
-            byte[] messageBytes = message.getBytes();
+            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
 
-            // Sign with this replica's private key share (1-based indexing)
-            byte[] signatureShare = Crypto.thresholdSign(
-                    this.thresholdSig,
-                    (int) (this.replicaID + 1),
-                    this.privateKeyShare,
-                    messageBytes);
+            SigShare sigShare = Crypto.thresholdSign(this.privateKeyShare, messageBytes);
 
-            // Return base64-encoded signature
-            return java.util.Base64.getEncoder().encodeToString(signatureShare);
+            // serialize SigShare to bytes then base64 for transport
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            ObjectOutputStream oos = new ObjectOutputStream(bos);
+            oos.writeObject(sigShare);
+            return Base64.getEncoder().encodeToString(bos.toByteArray());
         } catch (Exception e) {
             System.err.println("Failed to create threshold signature: " + e.getMessage());
             return null;
         }
     }
 
-    /**
-     * Verify a threshold signature (typically a combined signature from a QC)
-     * 
-     * @param signatureBase64 Base64-encoded threshold signature (can be partial or
-     *                        combined)
-     * @param message         The message that was signed
-     * @param senderId        The sender ID (used for context, not for verification)
-     * @return true if signature is valid, false otherwise
-     */
-    public boolean tverify(String signatureBase64, String message, long senderId) {
+    public boolean tverify(String signaturesField, String message, long senderId) {
         try {
-            if (signatureBase64 == null || signatureBase64.isEmpty()) {
-                return false;
+            if (signaturesField == null || signaturesField.isEmpty()) return false;
+
+            // reconstruct SigShare[] from stored "base64:id,base64:id,..." format
+            String[] parts = signaturesField.split(",");
+            SigShare[] sigShares = new SigShare[parts.length];
+            for (int i = 0; i < parts.length; i++) {
+                String[] tokens = parts[i].split(":");
+                byte[] sigBytes = Base64.getDecoder().decode(tokens[0]);
+                int id = Integer.parseInt(tokens[1]);
+                sigShares[i] = new SigShare(id, sigBytes);
             }
 
-            // Decode the signature
-            byte[] signature = java.util.Base64.getDecoder().decode(signatureBase64);
-            byte[] messageBytes = message.getBytes();
-
-            // Verify using the threshold public key
-            return Crypto.verifyThresholdSignature(publicKey, messageBytes, signature);
+            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
+            return Crypto.combineAndVerify(
+                    sigShares,
+                    this.quorumSize,
+                    this.totalReplicas,
+                    this.publicKey,
+                    messageBytes);
         } catch (Exception e) {
             System.err.println("Failed to verify threshold signature: " + e.getMessage());
             return false;
@@ -376,6 +371,13 @@ public class Consensus {
         nodeHash = Crypto.hash(nodeData);
 
         return new Node(nodeHash, command, parent, null);
+    }
+
+    private String extractPartialSig(HotStuffMessage vote) {
+        if (vote instanceof PrepareVoteMessage v)    return v.getPartialSig();
+        if (vote instanceof PreCommitVoteMessage v)  return v.getPartialSig();
+        if (vote instanceof CommitVoteMessage v)     return v.getPartialSig();
+        return null;
     }
 
     // ==================== LEADER METHODS ====================
