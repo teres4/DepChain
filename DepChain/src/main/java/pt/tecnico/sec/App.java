@@ -6,6 +6,8 @@ import pt.tecnico.sec.utils.MemberInfo;
 
 import java.util.Scanner;
 
+import pt.tecnico.sec.utils.DHKeyAgreement;
+
 public class App {
     public static void main(String[] args) {
         if (args.length < 1) {
@@ -24,6 +26,10 @@ public class App {
 
         Scanner scanner = new Scanner(System.in);
         boolean running = true;
+
+        // when app starts, generate public values for DH key agreement if not already generated
+        // This will create a config/dhparams.json file with the generated parameters
+        DHKeyAgreement.generateDhParams(2048);
 
         final AuthPerfLink apl;
         try {

@@ -27,8 +27,6 @@ public class Session {
 
     private SecretKey sessionKey;
 
-    private DHKeyAgreement dhKeyAgreement; 
-
     private final InetSocketAddress addr;
 
     Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr) {
@@ -189,14 +187,6 @@ public class Session {
 
     public void setSessionKey(SecretKey sessionKey) {
         this.sessionKey = sessionKey;
-    }
-
-    public DHKeyAgreement getDHKeyAgreement() {
-        return this.dhKeyAgreement;
-    }
-
-    public void setDHKeyAgreement(DHKeyAgreement dhKeyAgreement) {
-        this.dhKeyAgreement = dhKeyAgreement;
     }
 
     public InetSocketAddress getAddr() {

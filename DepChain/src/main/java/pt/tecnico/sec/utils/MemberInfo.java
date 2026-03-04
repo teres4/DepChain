@@ -5,13 +5,14 @@ import java.security.PublicKey;
 
 public class MemberInfo {
     private final long id;
-    private final PublicKey publicKey;
+    private final PublicKey publicSignatureKey;
     private final String keyFile;
     private final InetSocketAddress addr;
 
-    public MemberInfo(long id, PublicKey publicKey, String keyFile, InetSocketAddress addr) {
+    public MemberInfo(long id, PublicKey publicSignatureKey, String keyFile, 
+                        InetSocketAddress addr) {
         this.id = id;
-        this.publicKey = publicKey;
+        this.publicSignatureKey = publicSignatureKey;
         this.keyFile = keyFile;
         this.addr = addr;
     }
@@ -20,8 +21,8 @@ public class MemberInfo {
         return id;
     }
 
-    public PublicKey getPublicKey() {
-        return publicKey;
+    public PublicKey getPublicSignatureKey() {
+        return publicSignatureKey;
     }
 
     public String getKeyFile() {
@@ -36,6 +37,7 @@ public class MemberInfo {
     public String toString() {
         return "MemberInfo{" +
                 "id=" + id +
+                ", publicSignatureKey=" + publicSignatureKey +
                 ", keyFile='" + keyFile + '\'' +
                 ", addr=" + addr +
                 '}';

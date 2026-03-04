@@ -24,6 +24,7 @@ import pt.tecnico.sec.apl.message.DataACKMessage;
 import pt.tecnico.sec.apl.message.DataMessage;
 import pt.tecnico.sec.apl.message.Message;
 import pt.tecnico.sec.utils.Crypto;
+import pt.tecnico.sec.utils.DHKeyAgreement;
 import pt.tecnico.sec.utils.MemberInfo;
 import pt.tecnico.sec.utils.MemberManager;
 
@@ -43,6 +44,8 @@ public class AuthPerfLink {
     private final ExecutorService executorService;
     private final SessionManager sessionManager;
     private final MemberManager memberManagement;
+    
+    private final DHKeyAgreement dhKeyAgreement; // persistent DH key pair for this member
 
     private final AtomicBoolean running = new AtomicBoolean(true);
 
@@ -55,19 +58,26 @@ public class AuthPerfLink {
     // Default constructor for production use
     public AuthPerfLink(long ownId) throws IOException, Exception {
         this(ownId, Crypto.getPrivateKey(ownId), new DatagramSocket(8080), Executors.newFixedThreadPool(100),
-                new SessionManager(), new MemberManager(ownId));
+                new SessionManager(), new MemberManager(ownId), initializeDHKeyAgreement());
     }
 
     // Constructor with dependency injection for testing
     public AuthPerfLink(long ownId, PrivateKey privateKey, DatagramSocket socket,
             ExecutorService executorService, SessionManager sessionManager,
-            MemberManager memberManagement) {
+            MemberManager memberManagement, DHKeyAgreement dhKeyAgreement) {
         this.ownId = ownId;
         this.privateKey = privateKey;
         this.datagramSocket = socket;
         this.executorService = executorService;
         this.sessionManager = sessionManager;
         this.memberManagement = memberManagement;
+        this.dhKeyAgreement = dhKeyAgreement;
+    }
+
+    private static DHKeyAgreement initializeDHKeyAgreement() throws Exception {
+        DHKeyAgreement dh = new DHKeyAgreement();
+        dh.initialize();
+        return dh;
     }
 
     // public methods
@@ -149,12 +159,7 @@ public class AuthPerfLink {
                 return null;
             }
 
-            // Initialize Diffie-Hellman key agreement 
-            DHKeyAgreement dhKeyAgreement = new DHKeyAgreement();
-            dhKeyAgreement.initialize();
-            
-            // Get public key to send
-            byte[] publicKey = dhKeyAgreement.getEncodedPublicKey();
+            byte[] publicKey = this.dhKeyAgreement.getEncodedPublicKey();
 
             // Sign the message
             // TODO take a look at STS protocol and how they sign their messages
@@ -164,7 +169,6 @@ public class AuthPerfLink {
                     signature);
 
             Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), null);
-            session.setDHKeyAgreement(dhKeyAgreement); 
             
             send(connectionRequest, receiverID);
             return session;
@@ -244,7 +248,7 @@ public class AuthPerfLink {
             }
 
             // TODO STS protocol
-            PublicKey senderPublicKey = senderMember.getPublicKey();
+            PublicKey senderPublicKey = senderMember.getPublicSignatureKey();
             if (!Crypto.verifySignature(msg.getSignableContent().getBytes(), msg.getSignature(), senderPublicKey)) {
                 System.err.println("Failed to verify signature for connection request from: " + addr);
                 return;
@@ -253,11 +257,9 @@ public class AuthPerfLink {
             // Get the DH public key from the initiator 
             byte[] initiatorDHPublicKey = msg.getDhPublicKey();
             
-            DHKeyAgreement dhKeyAgreement = new DHKeyAgreement();
-            dhKeyAgreement.initializeWithReceivedPublicKey(initiatorDHPublicKey);
-            byte[] responderDHPublicKey = dhKeyAgreement.getEncodedPublicKey();
-
-            SecretKey sessionKey = dhKeyAgreement.computeSharedSecret(initiatorDHPublicKey);
+            // compute shared secret
+            byte[] responderDHPublicKey = this.dhKeyAgreement.getEncodedPublicKey();
+            SecretKey sessionKey = this.dhKeyAgreement.computeSharedSecret(initiatorDHPublicKey);
 
             // TODO STS protocol signatures
             String responderKeyBase64 = Base64.getEncoder().encodeToString(responderDHPublicKey);
@@ -295,25 +297,25 @@ public class AuthPerfLink {
                 return;
             }
 
-            // TODO verify if we should still send hmac with handshake messages
-            // if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr))
-            //     return;
+            // TODO Verify signature
+            MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
+            if (senderMember == null) {
+                System.err.println("Unknown sender address for connection reply: " + addr);
+                return;
+            }
 
-            // TODO verify signature 
+            // TODO STS protocol
+            PublicKey senderPublicKey = senderMember.getPublicSignatureKey();
+            if (!Crypto.verifySignature(msg.getSignableContent().getBytes(), msg.getSignature(), senderPublicKey)) {
+                System.err.println("Failed to verify signature for connection request from: " + addr);
+                return;
+            }
 
             // Get the responder's DH public key from the ACK message
             byte[] responderDHPublicKey = msg.getDHPublicKey();
-            if (responderDHPublicKey == null) {
-                System.err.println("No DH public key in connection reply from: " + addr);
-                return;
-            }
-            // Compute shared secret using stored DH key agreement
-            DHKeyAgreement dhKeyAgreement = session.getDHKeyAgreement();
-            if (dhKeyAgreement == null) {
-                System.err.println("No DH key agreement found for session with: " + addr);
-                return;
-            }
-            SecretKey sessionKey = dhKeyAgreement.computeSharedSecret(responderDHPublicKey);
+
+            // Compute shared secret
+            SecretKey sessionKey = this.dhKeyAgreement.computeSharedSecret(responderDHPublicKey);
             session.setSessionKey(sessionKey);
 
             // After handshake, initialize session for data transfer:

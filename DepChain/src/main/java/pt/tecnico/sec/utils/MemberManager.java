@@ -43,11 +43,11 @@ public class MemberManager {
                 int port = server.get("port").getAsInt();
                 String keyFile = server.get("keyfile").getAsString();
 
-                PublicKey publicKey = Crypto.getPublicKey(id);
+                PublicKey publicSignatureKey = Crypto.getPublicKey(id);
 
                 InetSocketAddress addr = new InetSocketAddress(host, port);
 
-                members[index++] = new MemberInfo(id, publicKey, keyFile, addr);
+                members[index++] = new MemberInfo(id, publicSignatureKey, keyFile, addr);
             }
         } catch (Exception e) {
             System.err.println("Error loading member configuration:");
