@@ -25,48 +25,6 @@ public class DHKeyAgreement {
     private static String dhConfigFile = "config/dhparams.json";
 
     public DHKeyAgreement() {}
-
-    public static void generateDhParams(int keySize) {
-        // Initialize DH parameters 
-        // Try to load from config, if not found, generate new ones
-        try {
-            File dhConfig = new File(dhConfigFile);
-            if (!dhConfig.exists()) {
-                // Generate new parameters (first time setup)
-                System.out.println("No DH parameters found. Generating new parameters...");
-                initializeWithGeneratedParameters(keySize);
-                saveParametersToConfig(dhConfigFile);
-            }
-        } catch (Exception e) {
-            System.err.println("Failed to initialize DH parameters: " + e.getMessage());
-        }
-    }
-    
-    public static void initializeWithGeneratedParameters(int keySize) {
-        try {
-            AlgorithmParameterGenerator paramGen = AlgorithmParameterGenerator.getInstance("DH");
-            paramGen.init(keySize);
-            AlgorithmParameters params = paramGen.generateParameters();
-            DHParameterSpec dhSpec = params.getParameterSpec(DHParameterSpec.class);
-
-            P = dhSpec.getP();
-            G = dhSpec.getG();
-            
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to generate DH parameters", e);
-        }
-    }
-
-    public static void saveParametersToConfig(String filename) throws Exception {
-        JsonObject config = new JsonObject();
-        config.addProperty("prime", P.toString(16).toUpperCase());
-        config.addProperty("generator", G.toString());
-        
-        try (FileWriter writer = new FileWriter(new File(filename))) {
-            Gson gson = new GsonBuilder().setPrettyPrinting().create();
-            gson.toJson(config, writer);
-        }
-    }
     
     public static void loadParametersFromConfig() throws Exception {
         if (initialized) {

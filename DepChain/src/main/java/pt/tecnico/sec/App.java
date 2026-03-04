@@ -27,10 +27,6 @@ public class App {
         Scanner scanner = new Scanner(System.in);
         boolean running = true;
 
-        // when app starts, generate public values for DH key agreement if not already generated
-        // This will create a config/dhparams.json file with the generated parameters
-        DHKeyAgreement.generateDhParams(2048);
-
         final AuthPerfLink apl;
         try {
             apl = new AuthPerfLink(ownId);
