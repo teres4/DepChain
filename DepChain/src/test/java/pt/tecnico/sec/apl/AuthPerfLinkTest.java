@@ -3,12 +3,10 @@ package pt.tecnico.sec.apl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import pt.tecnico.sec.apl.message.ConnectionRequestMessage;
 import pt.tecnico.sec.apl.message.DataACKMessage;
 import pt.tecnico.sec.apl.message.DataMessage;
-import pt.tecnico.sec.apl.message.Message;
 import pt.tecnico.sec.apl.message.MessageType;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
@@ -16,18 +14,14 @@ import pt.tecnico.sec.utils.MemberManager;
 import pt.tecnico.sec.utils.TestCryptoUtils;
 
 import javax.crypto.SecretKey;
-import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.security.KeyPair;
 import java.security.PrivateKey;
-import java.security.PublicKey;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.*;
 
@@ -39,7 +33,6 @@ class AuthPerfLinkTest {
     private SessionManager mockSessionManager;
     private MemberManager mockMemberManagement;
     private PrivateKey privateKey;
-    private PublicKey publicKey;
 
     private static final long OWN_ID = 1L;
     private static final long PEER_ID = 2L;
@@ -50,7 +43,6 @@ class AuthPerfLinkTest {
         // Generate test keys
         KeyPair keyPair = TestCryptoUtils.generateKeyPair();
         privateKey = keyPair.getPrivate();
-        publicKey = keyPair.getPublic();
 
         // Create mocks
         mockSocket = mock(DatagramSocket.class);
@@ -60,7 +52,7 @@ class AuthPerfLinkTest {
 
         // Create AuthPerfLink with mocked dependencies
         authPerfLink = new AuthPerfLink(OWN_ID, privateKey, mockSocket, mockExecutor,
-                mockSessionManager, mockMemberManagement);
+            mockSessionManager, mockMemberManagement, mock(pt.tecnico.sec.utils.DHKeyAgreement.class));
     }
 
     @AfterEach
