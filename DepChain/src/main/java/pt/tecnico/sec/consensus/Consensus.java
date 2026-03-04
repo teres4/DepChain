@@ -134,7 +134,9 @@ public class Consensus {
     // ==================== COMMON UTILITY METHODS ====================
 
     public boolean amLeader(int viewNumber) {
-        // return this.replicaID == (viewNumber % this.totalReplicas) + 1;
+        System.out.println("Checking if am leader for view " + viewNumber + ": replicaID=" + replicaID
+                + " totalReplicas=" + totalReplicas
+                + " leader=" + getLeader(viewNumber));
         return (viewNumber % this.totalReplicas) + 1 == this.replicaID;
     }
 

@@ -114,7 +114,7 @@ public class App {
                 case "5":
                     System.out.print("Enter command to send to consensus leader: ");
                     String command = scanner.nextLine();
-                    NewCommandMessage newCommandMessage = new NewCommandMessage(0, 1, command);
+                    NewCommandMessage newCommandMessage = new NewCommandMessage(1, 0, command);
                     try {
                         consensus.sendToSelf(newCommandMessage);
                     } catch (Exception e) {

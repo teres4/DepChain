@@ -351,10 +351,6 @@ public class AuthPerfLink {
                 if (!verifyHmac(jsonWithoutHmac, msg.getHmac(), session, addr))
                     return;
 
-                // Deliver to upper layer
-                System.out.println("Received DATA " + msg.getSequenceNumber() + " from: " + addr + " - Content: "
-                        + new String(msg.getContent()));
-
                 // check if sender id is really the one it claims to be
                 try {
                     String contentStr = new String(msg.getContent());
