@@ -297,7 +297,6 @@ public class AuthPerfLink {
                 return;
             }
 
-            // TODO Verify signature
             MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
             if (senderMember == null) {
                 System.err.println("Unknown sender address for connection reply: " + addr);

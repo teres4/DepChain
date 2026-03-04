@@ -14,7 +14,7 @@ public class ClientRequestMessage extends Message {
 
     @Override
     public ClientRequestMessage withoutHmac() {
-        return new ClientRequestMessage(getSequenceNumber(), null);
+        return this;
     }
     
     @Override

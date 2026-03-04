@@ -2,7 +2,7 @@ package pt.tecnico.sec.client;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.apl.message.DataACKMessage;
-import pt.tecnico.sec.client.message.ClientRequestMessage;
+import pt.tecnico.sec.client.message.*;
 
 
 public class ClientOperations {

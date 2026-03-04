@@ -18,7 +18,6 @@ public class Client {
         // TODO load client keys and addresses 
         this.authPerfLink = new AuthPerfLink(this.clientId);
         this.clientOps = new ClientOperations(this.clientId, this.authPerfLink);
-
     }
 
     public static void main(String[] args) throws Exception {
