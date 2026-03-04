@@ -141,6 +141,10 @@ public class Consensus {
         return (viewNumber % this.totalReplicas);
     }
 
+    public boolean isLeader(int viewNumber, long senderId) {
+        return senderId == getLeader(viewNumber);
+    }
+
     public synchronized Phase getCurrentPhase() {
         return this.currentPhase;
     }
@@ -256,7 +260,8 @@ public class Consensus {
             int i = 0;
             for (HotStuffMessage vote : votes) {
                 String partialSigBase64 = extractPartialSig(vote);
-                if (partialSigBase64 == null) continue;
+                if (partialSigBase64 == null)
+                    continue;
 
                 byte[] sigBytes = Base64.getDecoder().decode(partialSigBase64);
                 ObjectInputStream ois = new ObjectInputStream(
@@ -268,7 +273,8 @@ public class Consensus {
             // tverify() will reconstruct them and verify later
             StringBuilder sb = new StringBuilder();
             for (int j = 0; j < sigShares.length; j++) {
-                if (j > 0) sb.append(",");
+                if (j > 0)
+                    sb.append(",");
                 ByteArrayOutputStream bos = new ByteArrayOutputStream();
                 new ObjectOutputStream(bos).writeObject(sigShares[j]);
                 sb.append(Base64.getEncoder().encodeToString(bos.toByteArray()));
@@ -302,7 +308,8 @@ public class Consensus {
 
     public boolean tverify(String signaturesField, String message, long senderId) {
         try {
-            if (signaturesField == null || signaturesField.isEmpty()) return false;
+            if (signaturesField == null || signaturesField.isEmpty())
+                return false;
 
             String[] parts = signaturesField.split(",");
             SigShare[] sigShares = new SigShare[parts.length];
@@ -373,10 +380,43 @@ public class Consensus {
     }
 
     private String extractPartialSig(HotStuffMessage vote) {
-        if (vote instanceof PrepareVoteMessage v)    return v.getPartialSig();
-        if (vote instanceof PreCommitVoteMessage v)  return v.getPartialSig();
-        if (vote instanceof CommitVoteMessage v)     return v.getPartialSig();
+        if (vote instanceof PrepareVoteMessage v)
+            return v.getPartialSig();
+        if (vote instanceof PreCommitVoteMessage v)
+            return v.getPartialSig();
+        if (vote instanceof CommitVoteMessage v)
+            return v.getPartialSig();
         return null;
+    }
+
+    /**
+     * @param message
+     * @param viewNumber
+     * @return true if message view number is less than current view number (i.e.
+     *         outdated message), false otherwise
+     */
+    private boolean checkView(HotStuffMessage message, int viewNumber) {
+        if (message.getViewNumber() < viewNumber) {
+            System.out.println("Received message for view " + message.getViewNumber() +
+                    " but current view is " + viewNumber);
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * @param message
+     * @param viewNumber
+     * @return true if message is from the expected leader for the view, false
+     *         otherwise
+     */
+    private boolean checkisLeaderMessage(HotStuffMessage message, int viewNumber) {
+        if (!isLeader(message.getViewNumber(), message.getSenderId())) {
+            System.out.println("Received message from sender " + message.getSenderId() +
+                    " but current leader for view " + message.getViewNumber() + " is "
+                    + getLeader(message.getViewNumber()));
+        }
+        return true;
     }
 
     // ==================== LEADER METHODS ====================
@@ -578,12 +618,11 @@ public class Consensus {
     // prepare message from leader received
     public void onReceivePrepareMessage(PrepareMessage prepareMessage) {
 
-        if (prepareMessage.getViewNumber() < this.viewNumber.get()) {
-            System.err.println("Received prepare message for view " + prepareMessage.getViewNumber() +
-                    " but current view is " + this.viewNumber);
+        if (!checkView(prepareMessage, this.viewNumber.get())
+                || !checkisLeaderMessage(prepareMessage, this.viewNumber.get())) {
             return;
         }
-        
+
         QuorumCertificate highQC = prepareMessage.getHighQC();
         Node ancestorNode;
         if (highQC == null) {
@@ -596,7 +635,8 @@ public class Consensus {
                 && safeNode(prepareMessage.getNode(), prepareMessage.getHighQC())) {
 
             tree.addNode(prepareMessage.getNode());
-            String partialSig = tsign(HotStuffMessageType.PREPARE_VOTE, this.viewNumber.get(), prepareMessage.getNode().getHash());
+            String partialSig = tsign(HotStuffMessageType.PREPARE_VOTE, this.viewNumber.get(),
+                    prepareMessage.getNode().getHash());
 
             // send prepare vote with partial signature to leader
             PrepareVoteMessage voteMessage = new PrepareVoteMessage(this.viewNumber.get(), prepareMessage.getNode(),
@@ -604,6 +644,9 @@ public class Consensus {
 
             // Send vote to leader
             authPerfLink.sendData(getLeader(prepareMessage.getViewNumber()), voteMessage);
+
+            // update view
+            this.viewNumber.set(prepareMessage.getViewNumber());
 
             try {
                 sendToSelf(voteMessage);
@@ -614,9 +657,8 @@ public class Consensus {
     }
 
     public void onReceivePreCommitMessage(PreCommitMessage preCommitMessage) {
-        if (preCommitMessage.getViewNumber() < this.viewNumber.get()) {
-            System.err.println("Received pre-commit message for view " + preCommitMessage.getViewNumber() +
-                    " but current view is " + this.viewNumber);
+        if (!checkView(preCommitMessage, this.viewNumber.get())
+                || !checkisLeaderMessage(preCommitMessage, this.viewNumber.get())) {
             return;
         }
 
@@ -657,9 +699,8 @@ public class Consensus {
     }
 
     public void onReceiveCommitMessage(CommitMessage commitMessage) {
-        if (commitMessage.getViewNumber() < this.viewNumber.get()) {
-            System.err.println("Received commit message for view " + commitMessage.getViewNumber() +
-                    " but current view is " + this.viewNumber);
+        if (!checkView(commitMessage, this.viewNumber.get())
+                || !checkisLeaderMessage(commitMessage, this.viewNumber.get())) {
             return;
         }
 
@@ -706,9 +747,8 @@ public class Consensus {
     }
 
     public void onReceiveDecideMessage(DecideMessage decideMessage) {
-        if (decideMessage.getViewNumber() != this.viewNumber.get()) {
-            System.err.println("Received decide message for view " + decideMessage.getViewNumber() +
-                    " but current view is " + this.viewNumber);
+        if (!checkView(decideMessage, this.viewNumber.get())
+                || !checkisLeaderMessage(decideMessage, this.viewNumber.get())) {
             return;
         }
 
@@ -766,7 +806,7 @@ public class Consensus {
     }
 
     private void onLeaderInactive() {
-        System.out.println("⚠ Leader is INACTIVE!");
+        System.out.println("⚠ Leader is INACTIVE/FAULTY!");
         if (!amLeader(this.viewNumber.get())) {
             try {
                 startNewView();
