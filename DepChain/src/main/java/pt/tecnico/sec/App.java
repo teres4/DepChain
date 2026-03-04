@@ -2,6 +2,7 @@ package pt.tecnico.sec;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.consensus.Consensus;
+import pt.tecnico.sec.consensus.message.NewCommandMessage;
 import pt.tecnico.sec.utils.MemberInfo;
 
 import java.util.Scanner;
@@ -43,6 +44,8 @@ public class App {
                 apl.getMembers() != null ? apl.getMembers().length + 1 : 1,
                 apl.getMemberManager(),
                 apl);
+        
+        consensus.consensusLoop();
 
         System.out.println("\n\u001B[32m" +
                 "███████╗███████╗ ██████╗\n" +
@@ -59,8 +62,9 @@ public class App {
             System.out.println("1. View all members info");
             System.out.println("2. Start a new session");
             System.out.println("3. View active sessions");
-            System.out.println("4. Send data to a session");
-            System.out.println("5. Exit");
+            System.out.println("4. Start session with all members");
+            System.out.println("5. Send command to consensus leader");
+            System.out.println("6. Exit");
             System.out.print("Your choice: ");
 
             String choice = scanner.nextLine();
@@ -103,23 +107,22 @@ public class App {
                     break;
 
                 case "4":
-                    System.out.println("Choose a session to send data to. Active Sessions:");
-                    System.out.println(apl.seeActiveSessions());
-                    System.out.print("Enter receiver ID: ");
-                    String receiverIdStr = scanner.nextLine();
+                    System.out.println("Starting session with all members.");
+                    apl.startConnectionWithAllMembers();
+                    break;
+                
+                case "5":
+                    System.out.print("Enter command to send to consensus leader: ");
+                    String command = scanner.nextLine();
+                    NewCommandMessage newCommandMessage = new NewCommandMessage(0, 1, command);
                     try {
-                        long receiverID = Long.parseLong(receiverIdStr);
-                        System.out.print("Enter the data to send: ");
-                        String data = scanner.nextLine();
-                        apl.sendData(apl.getSession(receiverID), data);
-                    } catch (NumberFormatException e) {
-                        System.out.println("Invalid receiver ID. Please enter a valid number.");
+                        consensus.sendToSelf(newCommandMessage);
                     } catch (Exception e) {
-                        System.out.println("Failed to send data: " + e.getMessage());
+                        System.out.println("Failed to send command to self: " + e.getMessage());
                     }
                     break;
 
-                case "5":
+                case "6":
                     System.out.println("Exiting the application. Goodbye!");
                     running = false;
                     apl.shutdown();

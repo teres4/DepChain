@@ -134,7 +134,8 @@ public class Consensus {
     // ==================== COMMON UTILITY METHODS ====================
 
     public boolean amLeader(int viewNumber) {
-        return this.replicaID == (viewNumber % this.totalReplicas);
+        //return this.replicaID == (viewNumber % this.totalReplicas) + 1;
+        return this.replicaID == 1; // for testing purposes, make replica 1 the leader for all views
     }
 
     public int getLeader(int viewNumber) {
@@ -172,6 +173,7 @@ public class Consensus {
     public void handleMessage(HotStuffMessage msg) {
         try {
             switch (msg.getHotStuffType()) {
+                case NEW_COMMAND -> onReceiveNewCommandMessage((NewCommandMessage) msg);
                 case NEW_VIEW -> onReceiveNewViewMessage((NewViewMessage) msg);
                 case PREPARE -> onReceivePrepareMessage((PrepareMessage) msg);
                 case PREPARE_VOTE -> onReceivePrepareVoteMessage((PrepareVoteMessage) msg);
@@ -214,7 +216,13 @@ public class Consensus {
      * @throws Exception
      */
     public void sendToSelf(HotStuffMessage message) throws Exception {
+        System.out.println("sendToSelf called: replicaID=" + replicaID 
+            + " viewNumber=" + viewNumber.get()
+            + " message.viewNumber=" + message.getViewNumber()
+            + " totalReplicas=" + totalReplicas
+            + " amLeader=" + amLeader(message.getViewNumber()));
         if (amLeader(message.getViewNumber())) {
+            System.out.println("Message is for self, processing directly");
             executorService.submit(() -> {
                 try {
                     handleMessage(message);
@@ -451,7 +459,7 @@ public class Consensus {
                 }
             }
             this.viewNumber.incrementAndGet();
-            prepare(highQC);
+            prepare(highQC, "COMMAND"); // TODO: define command
             return highQC;
         }
 
@@ -460,10 +468,14 @@ public class Consensus {
 
     // prepare phase - leader creates new leaf, broadcasts prepare message with new
     // leaf and highQC
-    public void prepare(QuorumCertificate highQC) throws Exception {
+    public void prepare(QuorumCertificate highQC, String command) throws Exception {
+        System.out.println("Starting prepare phase for view " + this.viewNumber.get());
+
         if (!amLeader(this.viewNumber.get())) {
             return;
         }
+
+        System.out.println("Creating proposal for view " + this.viewNumber.get() + " with command: " + command);
 
         setCurrentPhase(Phase.PREPARE);
 
@@ -478,6 +490,7 @@ public class Consensus {
         // broadcast prepare message
         PrepareMessage prepareMessage = new PrepareMessage(this.viewNumber.get(), newNode, highQC, this.replicaID);
         this.prepareVotes.clear();
+        System.out.println("BROADCASTING PREPARE MESSAGE");
         broadcastMessage(prepareMessage);
     }
 
@@ -615,6 +628,21 @@ public class Consensus {
     }
 
     // ==================== REPLICA METHODS ====================
+
+    public void onReceiveNewCommandMessage(NewCommandMessage newCommandMessage) {
+        // Only leader can receive new command messages from clients
+        if (!amLeader(newCommandMessage.getViewNumber())) {
+            System.err.println("Received new command message but am not leader, ignoring");
+            return;
+        }
+
+        // for now we assume that just the leader will receive client commands
+        try {
+            prepare(null, newCommandMessage.getCommand());
+        } catch (Exception e) {
+            System.err.println("Failed to start prepare phase for new command: " + e.getMessage());
+        }
+    }
 
     // prepare message from leader received
     public void onReceivePrepareMessage(PrepareMessage prepareMessage) {

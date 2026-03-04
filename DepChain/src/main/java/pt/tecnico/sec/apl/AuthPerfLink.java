@@ -151,6 +151,15 @@ public class AuthPerfLink {
         }
     }
 
+    public void startConnectionWithAllMembers() {
+        MemberInfo[] members = memberManagement.getMembers();
+        for (MemberInfo member : members) {
+            if (member.getId() == this.ownId) continue; // skip self
+            if (sessionManager.getSession(member.getId()) != null) continue; // already connected
+            startConnection(member.getId());
+        }
+    }
+
     public Session startConnection(long receiverID) {
         try {
             MemberInfo receiverInfo = memberManagement.getMember(receiverID);

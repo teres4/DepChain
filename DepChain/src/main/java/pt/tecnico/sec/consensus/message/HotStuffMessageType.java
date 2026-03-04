@@ -1,6 +1,7 @@
 package pt.tecnico.sec.consensus.message;
 
 public enum HotStuffMessageType {
+    NEW_COMMAND,
     NEW_VIEW,
     PREPARE,
     PREPARE_VOTE,
