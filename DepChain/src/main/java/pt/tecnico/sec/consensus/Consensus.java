@@ -619,6 +619,12 @@ public class Consensus {
 
         QuorumCertificate prepareQC = preCommitMessage.getPrepareQC();
 
+        // verify QC is of the correct type for this phase
+        if (!prepareQC.getType().equals("prepare")) {
+            System.err.println("Pre-commit message has QC of wrong type: " + prepareQC.getType());
+            return;
+        }
+
         // verify the QC signature is legitimate
         String expectedMsg = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, prepareQC.getViewNumber(),
                 prepareQC.getNodeHash());
@@ -655,6 +661,12 @@ public class Consensus {
         }
 
         QuorumCertificate preCommitQC = commitMessage.getPrecommitQC();
+
+        // verify QC is of the correct type for this phase
+        if (!preCommitQC.getType().equals("pre-commit")) {
+            System.err.println("Commit message has QC of wrong type: " + preCommitQC.getType());
+            return;
+        }
 
         // verify the QC signature is legitimate
         String expectedMsg = createVoteMessage(HotStuffMessageType.PRE_COMMIT_VOTE, preCommitQC.getViewNumber(),
@@ -698,6 +710,12 @@ public class Consensus {
         }
 
         QuorumCertificate commitQC = decideMessage.getCommitQC();
+
+        // verify QC is of the correct type for this phase
+        if (!commitQC.getType().equals("commit")) {
+            System.err.println("Decide message has QC of wrong type: " + commitQC.getType());
+            return;
+        }
 
         // verify the QC signature is legitimate
         String expectedMsg = createVoteMessage(HotStuffMessageType.COMMIT_VOTE, commitQC.getViewNumber(),
