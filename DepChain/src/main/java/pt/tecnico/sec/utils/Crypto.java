@@ -5,7 +5,6 @@ import java.security.PublicKey;
 import java.security.Signature;
 import java.security.MessageDigest;
 import java.util.Base64;
-import java.util.Queue;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -22,9 +21,6 @@ import java.security.KeyFactory;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 
-import com.weavechain.sig.*;
-
-import pt.tecnico.sec.consensus.message.HotStuffMessage;
 import pt.tecnico.sec.utils.threshsig.GroupKey;
 import pt.tecnico.sec.utils.threshsig.KeyShare;
 import pt.tecnico.sec.utils.threshsig.SigShare;
