@@ -134,12 +134,12 @@ public class Consensus {
     // ==================== COMMON UTILITY METHODS ====================
 
     public boolean amLeader(int viewNumber) {
-        //return this.replicaID == (viewNumber % this.totalReplicas) + 1;
-        return this.replicaID == 1; // for testing purposes, make replica 1 the leader for all views
+        // return this.replicaID == (viewNumber % this.totalReplicas) + 1;
+        return (viewNumber % this.totalReplicas) + 1 == this.replicaID;
     }
 
     public int getLeader(int viewNumber) {
-        return (viewNumber % this.totalReplicas);
+        return (viewNumber % this.totalReplicas) + 1;
     }
 
     public boolean isLeader(int viewNumber, long senderId) {
@@ -190,7 +190,7 @@ public class Consensus {
     }
 
     public void broadcastMessage(HotStuffMessage message) throws Exception {
-        for (int i = 1; i < this.totalReplicas+1; i++) {
+        for (int i = 1; i < this.totalReplicas + 1; i++) {
             if (i != this.replicaID) {
                 final int replicaIndex = i;
                 executorService.submit(() -> {
@@ -216,11 +216,11 @@ public class Consensus {
      * @throws Exception
      */
     public void sendToSelf(HotStuffMessage message) throws Exception {
-        System.out.println("sendToSelf called: replicaID=" + replicaID 
-            + " viewNumber=" + viewNumber.get()
-            + " message.viewNumber=" + message.getViewNumber()
-            + " totalReplicas=" + totalReplicas
-            + " amLeader=" + amLeader(message.getViewNumber()));
+        System.out.println("sendToSelf called: replicaID=" + replicaID
+                + " viewNumber=" + viewNumber.get()
+                + " message.viewNumber=" + message.getViewNumber()
+                + " totalReplicas=" + totalReplicas
+                + " amLeader=" + amLeader(message.getViewNumber()));
         if (amLeader(message.getViewNumber())) {
             System.out.println("Message is for self, processing directly");
             executorService.submit(() -> {
