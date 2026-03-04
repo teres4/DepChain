@@ -331,14 +331,14 @@ public class Consensus {
     private boolean safeNode(Node node, QuorumCertificate justify) {
         QuorumCertificate lockedQC = tree.getLockedQC();
 
-        // liveness rule = accept if justify has higher view than lockedQC
+        // genesis QC - always safe to extend from
+        if (lockedQC.getViewNumber() == 0) return true;
+
         if (justify != null && justify.getViewNumber() > lockedQC.getViewNumber()) {
             return true;
         }
 
-        // safety rule: if node extends from lockedQC.node
         Node lockedNode = tree.getNode(lockedQC.getNodeHash());
-
         return tree.extendsFrom(node, lockedNode);
     }
 
@@ -583,7 +583,7 @@ public class Consensus {
                     " but current view is " + this.viewNumber);
             return;
         }
-        
+
         QuorumCertificate highQC = prepareMessage.getHighQC();
         Node ancestorNode;
         if (highQC == null) {
