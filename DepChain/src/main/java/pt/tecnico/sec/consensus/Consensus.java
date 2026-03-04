@@ -121,6 +121,7 @@ public class Consensus {
         executorService.submit(() -> authPerfLink.receive());
 
         authPerfLink.setMessageListener((content) -> {
+            System.out.println("Received message: " + new String(content));
             try {
                 HotStuffMessage msg = HotStuffMessage.fromJson(content);
                 executorService.submit(() -> handleMessage(msg));

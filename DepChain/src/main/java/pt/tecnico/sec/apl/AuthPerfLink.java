@@ -361,7 +361,7 @@ public class AuthPerfLink {
                     if (contentStr.contains("senderId")) {
                         String[] parts = contentStr.split("senderId\":");
                         if (parts.length > 1) {
-                            String senderIdStr = parts[1].split(",")[0].trim();
+                            String senderIdStr = parts[1].split("[,}]")[0].trim();
                             long senderId = Long.parseLong(senderIdStr);
                             if (senderId != session.getSenderID()) {
                                 System.err

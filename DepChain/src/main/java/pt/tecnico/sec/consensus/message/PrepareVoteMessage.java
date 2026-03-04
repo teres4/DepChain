@@ -24,6 +24,6 @@ public class PrepareVoteMessage extends HotStuffMessage {
     @Override
     public String toString() {
         return "PrepareVoteMessage{view=" + getViewNumber() + ", sender=" + getSenderId() +
-                ", node=" + node + ", partialSig=" + partialSig + "}";
+                ", node=" + node + "}";
     }
 }

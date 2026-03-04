@@ -51,6 +51,7 @@ public abstract class HotStuffMessage {
 
         return switch (type) {
             case NEW_VIEW -> gson.fromJson(json, NewViewMessage.class);
+            case NEW_COMMAND -> gson.fromJson(json, NewCommandMessage.class);
             case PREPARE -> gson.fromJson(json, PrepareMessage.class);
             case PREPARE_VOTE -> gson.fromJson(json, PrepareVoteMessage.class);
             case PRE_COMMIT -> gson.fromJson(json, PreCommitMessage.class);
