@@ -3,18 +3,16 @@ package pt.tecnico.sec.consensus.message;
 import com.google.gson.Gson;
 import pt.tecnico.sec.apl.message.DataMessage;
 
-public abstract class HotStuffMessage extends DataMessage {
+public abstract class HotStuffMessage {
     private final HotStuffMessageType hotStuffType;
     private final int viewNumber;
     private final long senderId;
 
     protected HotStuffMessage(HotStuffMessageType type, int viewNumber, long senderId) {
-        super(new byte[0]); // Temporary empty content
         this.hotStuffType = type;
         this.viewNumber = viewNumber;
         this.senderId = senderId;
         // Set actual content after construction (now that all fields are initialized)
-        setContent(toJson().getBytes());
     }
 
     public HotStuffMessageType getHotStuffType() {

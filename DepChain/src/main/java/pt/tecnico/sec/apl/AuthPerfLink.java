@@ -44,7 +44,7 @@ public class AuthPerfLink {
     private final ExecutorService executorService;
     private final SessionManager sessionManager;
     private final MemberManager memberManagement;
-    
+
     private final DHKeyAgreement dhKeyAgreement; // persistent DH key pair for this member
 
     private final AtomicBoolean running = new AtomicBoolean(true);
@@ -121,19 +121,20 @@ public class AuthPerfLink {
         }
     }
 
-    public void sendData(Session session, String content) {
-        try {
-            long seqNum = session.getNextSequenceNumber() + 1;
-            DataMessage msg = buildDataMessage(seqNum, content.getBytes(), session.getSessionKey());
-            session.advanceNextSeqNum();
-            send(msg, session.getSenderID());
-            System.out.println("DATA sent to: " + session.getAddr());
-        } catch (Exception e) {
-            System.err.println("Failed to send DATA: " + e.getMessage());
-        }
-    }
+    // public void sendData(Session session, String content) {
+    // try {
+    // long seqNum = session.getNextSequenceNumber() + 1;
+    // DataMessage msg = buildDataMessage(seqNum, content.getBytes(),
+    // session.getSessionKey());
+    // session.advanceNextSeqNum();
+    // send(msg, session.getSenderID());
+    // System.out.println("DATA sent to: " + session.getAddr());
+    // } catch (Exception e) {
+    // System.err.println("Failed to send DATA: " + e.getMessage());
+    // }
+    // }
 
-    public void sendData(long receiverID, DataMessage DataMessage) {
+    public void sendData(long receiverID, String content) {
         try {
             // sign the message with the session key and then send it
             Session session = sessionManager.getSession(receiverID);
@@ -141,7 +142,7 @@ public class AuthPerfLink {
                 session = startConnection(receiverID);
             }
             DataMessage signedDataMessage = buildDataMessage(session.getNextSequenceNumber() + 1,
-                    DataMessage.getContent(),
+                    content.getBytes(),
                     session.getSessionKey());
             session.advanceNextSeqNum();
             send(signedDataMessage, receiverID);
@@ -154,8 +155,10 @@ public class AuthPerfLink {
     public void startConnectionWithAllMembers() {
         MemberInfo[] members = memberManagement.getMembers();
         for (MemberInfo member : members) {
-            if (member.getId() == this.ownId) continue; // skip self
-            if (sessionManager.getSession(member.getId()) != null) continue; // already connected
+            if (member.getId() == this.ownId)
+                continue; // skip self
+            if (sessionManager.getSession(member.getId()) != null)
+                continue; // already connected
             startConnection(member.getId());
         }
     }
@@ -178,7 +181,7 @@ public class AuthPerfLink {
                     signature);
 
             Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), null);
-            
+
             send(connectionRequest, receiverID);
             return session;
         } catch (Exception e) {
@@ -263,9 +266,9 @@ public class AuthPerfLink {
                 return;
             }
 
-            // Get the DH public key from the initiator 
+            // Get the DH public key from the initiator
             byte[] initiatorDHPublicKey = msg.getDhPublicKey();
-            
+
             // compute shared secret
             byte[] responderDHPublicKey = this.dhKeyAgreement.getEncodedPublicKey();
             SecretKey sessionKey = this.dhKeyAgreement.computeSharedSecret(initiatorDHPublicKey);
@@ -273,13 +276,13 @@ public class AuthPerfLink {
             // TODO STS protocol signatures
             String responderKeyBase64 = Base64.getEncoder().encodeToString(responderDHPublicKey);
             String signature = Crypto.signMessage(this.ownId + ":" + responderKeyBase64, this.privateKey);
-            
+
             Session session = sessionManager.createSession(senderMember.getId(), addr, sessionKey);
 
             // Handshake: reply with seq 1 (request was seq 0)
             long replySeqNum = 1;
-            ConnectionACKMessage reply = new ConnectionACKMessage(replySeqNum, responderDHPublicKey, 
-                                                                this.ownId, signature);
+            ConnectionACKMessage reply = new ConnectionACKMessage(replySeqNum, responderDHPublicKey,
+                    this.ownId, signature);
             datagramSocket.send(reply.toDatagramPacket(addr));
 
             // After handshake, initialize session for data transfer:

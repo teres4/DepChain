@@ -1,5 +1,7 @@
 package pt.tecnico.sec.consensus.message;
 
+import com.google.gson.Gson;
+
 import pt.tecnico.sec.consensus.QuorumCertificate;
 
 // sent by a replica as it transitions into a newView viewNumber
@@ -20,5 +22,9 @@ public class NewViewMessage extends HotStuffMessage {
     public String toString() {
         return "NewViewMessage{view=" + getViewNumber() + ", sender=" + getSenderId() +
                 ", prepareQC=" + prepareQC + "}";
+    }
+
+    public static NewViewMessage fromJson(String json) {
+        return new Gson().fromJson(json, NewViewMessage.class);
     }
 }

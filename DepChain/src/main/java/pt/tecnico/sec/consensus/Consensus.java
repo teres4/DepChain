@@ -169,7 +169,7 @@ public class Consensus {
     // LEader and ONLY THE LEADER waits for (n-f) responses.
     public void startNewView() throws Exception {
         NewViewMessage newViewMessage = new NewViewMessage(this.viewNumber.get(), tree.getPrepareQC(), this.replicaID);
-        authPerfLink.sendData(getLeader(this.newViewNumber.incrementAndGet()), newViewMessage);
+        authPerfLink.sendData(getLeader(this.newViewNumber.incrementAndGet()), newViewMessage.toJson());
     }
 
     public void handleMessage(HotStuffMessage msg) {
@@ -197,7 +197,7 @@ public class Consensus {
                 final int replicaIndex = i;
                 executorService.submit(() -> {
                     try {
-                        authPerfLink.sendData(replicaIndex, message);
+                        authPerfLink.sendData(replicaIndex, message.toJson());
                     } catch (Exception e) {
                         System.err.println("Failed to send message to replica " + replicaIndex + ": " + e.getMessage());
                     }
@@ -673,16 +673,18 @@ public class Consensus {
             PrepareVoteMessage voteMessage = new PrepareVoteMessage(this.viewNumber.get(), prepareMessage.getNode(),
                     this.replicaID, partialSig);
 
-            // Send vote to leader
-            authPerfLink.sendData(getLeader(prepareMessage.getViewNumber()), voteMessage);
-
             // update view
             this.viewNumber.set(prepareMessage.getViewNumber());
 
-            try {
-                sendToSelf(voteMessage);
-            } catch (Exception e) {
-                System.err.println("Failed to handle own prepare vote message: " + e.getMessage());
+            if (amLeader(prepareMessage.getViewNumber())) {
+                try {
+                    sendToSelf(voteMessage);
+                } catch (Exception e) {
+                    System.err.println("Failed to handle own prepare vote message: " + e.getMessage());
+                }
+            } else {
+                // Send vote to leader
+                authPerfLink.sendData(getLeader(prepareMessage.getViewNumber()), voteMessage.toJson());
             }
         }
     }
@@ -721,11 +723,14 @@ public class Consensus {
         PreCommitVoteMessage voteMessage = new PreCommitVoteMessage(this.viewNumber.get(), node, this.replicaID,
                 partialSig);
 
-        authPerfLink.sendData(getLeader(preCommitMessage.getViewNumber()), voteMessage);
-        try {
-            sendToSelf(voteMessage);
-        } catch (Exception e) {
-            System.err.println("Failed to handle own pre-commit vote message: " + e.getMessage());
+        if (amLeader(preCommitMessage.getViewNumber())) {
+            try {
+                sendToSelf(voteMessage);
+            } catch (Exception e) {
+                System.err.println("Failed to handle own pre-commit vote message: " + e.getMessage());
+            }
+        } else {
+            authPerfLink.sendData(getLeader(preCommitMessage.getViewNumber()), voteMessage.toJson());
         }
     }
 
@@ -769,11 +774,14 @@ public class Consensus {
         String partialSig = tsign(HotStuffMessageType.COMMIT_VOTE, this.viewNumber.get(), preCommitQC.getNodeHash());
         CommitVoteMessage voteMessage = new CommitVoteMessage(this.viewNumber.get(), node, this.replicaID, partialSig);
 
-        authPerfLink.sendData(getLeader(commitMessage.getViewNumber()), voteMessage);
-        try {
-            sendToSelf(voteMessage);
-        } catch (Exception e) {
-            System.err.println("Failed to handle own commit vote message: " + e.getMessage());
+        if (amLeader(commitMessage.getViewNumber())) {
+            try {
+                sendToSelf(voteMessage);
+            } catch (Exception e) {
+                System.err.println("Failed to handle own commit vote message: " + e.getMessage());
+            }
+        } else {
+            authPerfLink.sendData(getLeader(commitMessage.getViewNumber()), voteMessage.toJson());
         }
     }
 
