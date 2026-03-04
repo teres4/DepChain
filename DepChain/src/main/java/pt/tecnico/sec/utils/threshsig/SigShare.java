@@ -1,5 +1,6 @@
 package pt.tecnico.sec.utils.threshsig;
 
+import java.io.Serializable;
 import java.math.BigInteger;
 import java.security.MessageDigest;
 
@@ -12,7 +13,7 @@ import java.security.MessageDigest;
  * 
  * @author Steve Weis <sweis@mit.edu>
  */
-public class SigShare {
+public class SigShare implements Serializable{
 
   // Constants and variables
   //............................................................................

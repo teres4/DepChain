@@ -1,8 +1,9 @@
 package pt.tecnico.sec.utils.threshsig;
 
+import java.io.Serializable;
 import java.math.BigInteger;
 
-class Verifier {
+class Verifier implements Serializable {
   private BigInteger z;
 
   private BigInteger c;
