@@ -28,8 +28,23 @@ import pt.tecnico.sec.utils.threshsig.ThresholdSigException;
 
 public interface Crypto {
 
-    public static PublicKey getPublicKey(long replicaId) throws Exception {
-        String keyFilePath = "config/keys/public_key" + replicaId + ".pem";
+    enum KeyType {
+        REPLICA("config/keys/replicas"),
+        CLIENT("config/keys/clients");
+        
+        private final String directory;
+        
+        KeyType(String directory) {
+            this.directory = directory;
+        }
+        
+        public String getDirectory() {
+            return directory;
+        }
+    }
+
+    public static PublicKey loadPublicKey(long id, KeyType keyType) throws Exception {
+        String keyFilePath = keyType.getDirectory() + "/public_key" + id + ".pem";
         Path path = Paths.get(keyFilePath);
         String keyString = new String(Files.readAllBytes(path));
         keyString = keyString.replaceAll("-----BEGIN PUBLIC KEY-----", "")
@@ -41,8 +56,8 @@ public interface Crypto {
         return kf.generatePublic(spec);
     }
 
-    public static PrivateKey getPrivateKey(long replicaId) throws Exception {
-        String keyFilePath = "config/keys/private_key" + replicaId + ".pem";
+    public static PrivateKey loadPrivateKey(long id, KeyType keyType) throws Exception {
+        String keyFilePath = keyType.getDirectory() + "/private_key" + id + ".pem";
         Path path = Paths.get(keyFilePath);
         String keyString = new String(Files.readAllBytes(path));
         keyString = keyString.replaceAll("-----BEGIN PRIVATE KEY-----", "")
@@ -52,6 +67,22 @@ public interface Crypto {
         PKCS8EncodedKeySpec spec = new PKCS8EncodedKeySpec(keyBytes);
         KeyFactory kf = KeyFactory.getInstance("RSA");
         return kf.generatePrivate(spec);
+    }
+
+    public static PublicKey getPublicKey(long replicaId) throws Exception {
+        return loadPublicKey(replicaId, KeyType.REPLICA);
+    }
+
+    public static PrivateKey getPrivateKey(long replicaId) throws Exception {
+        return loadPrivateKey(replicaId, KeyType.REPLICA);
+    }
+    
+    public static PublicKey getClientPublicKey(long clientId) throws Exception {
+        return loadPublicKey(clientId, KeyType.CLIENT);
+    }
+    
+    public static PrivateKey getClientPrivateKey(long clientId) throws Exception {
+        return loadPrivateKey(clientId, KeyType.CLIENT);
     }
 
     public static SecretKey generateSecretKey() throws Exception {
