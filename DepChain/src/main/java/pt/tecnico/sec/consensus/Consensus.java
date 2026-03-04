@@ -36,7 +36,7 @@ public class Consensus {
     // for future views
 
     // my ID
-    private final long replicaID;
+    protected final long replicaID;
 
     // Quorum size
     private final int quorumSize;
@@ -48,7 +48,7 @@ public class Consensus {
     private final MemberManager memberManager;
 
     // message handling
-    private final AuthPerfLink authPerfLink;
+    protected final AuthPerfLink authPerfLink;
 
     // tree structure
     private final Tree tree;
