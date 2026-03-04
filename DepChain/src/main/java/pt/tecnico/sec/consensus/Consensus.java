@@ -339,7 +339,8 @@ public class Consensus {
         QuorumCertificate lockedQC = tree.getLockedQC();
 
         // genesis QC - always safe to extend from
-        if (lockedQC.getViewNumber() == 0) return true;
+        if (lockedQC.getViewNumber() == 0)
+            return true;
 
         if (justify != null && justify.getViewNumber() > lockedQC.getViewNumber()) {
             return true;
@@ -424,7 +425,7 @@ public class Consensus {
     // Leader collects new-view messages and moves to prepare phase
     public synchronized QuorumCertificate onReceiveNewViewMessage(NewViewMessage newViewMessage) throws Exception {
 
-        if (newViewMessage.getViewNumber() <= this.viewNumber.get()) {
+        if (newViewMessage.getViewNumber() < this.viewNumber.get()) {
             System.err.println("Received new-view message for view " + newViewMessage.getViewNumber() +
                     " but current view is " + this.viewNumber);
             return null;
