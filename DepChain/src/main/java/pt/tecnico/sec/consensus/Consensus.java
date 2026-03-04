@@ -584,15 +584,14 @@ public class Consensus {
             return;
         }
 
-        String prepareNodeHash = prepareMessage.getHighQC().getNodeHash();
-        Node prepareNode = tree.getNode(prepareNodeHash);
+        String ancestorNodeHash = prepareMessage.getHighQC().getNodeHash();
+        Node ancestorNode = tree.getNode(ancestorNodeHash);
 
-        if (tree.extendsFrom(prepareMessage.getNode(), prepareNode)
+        if (tree.extendsFrom(prepareMessage.getNode(), ancestorNode)
                 && safeNode(prepareMessage.getNode(), prepareMessage.getHighQC())) {
-            // if replica accepts the prepare message, it adds the new node to its tree
-            tree.addNode(prepareMessage.getNode());
 
-            String partialSig = tsign(HotStuffMessageType.PREPARE_VOTE, this.viewNumber.get(), prepareNodeHash);
+            tree.addNode(prepareMessage.getNode());
+            String partialSig = tsign(HotStuffMessageType.PREPARE_VOTE, this.viewNumber.get(), prepareMessage.getNode().getHash());
 
             // send prepare vote with partial signature to leader
             PrepareVoteMessage voteMessage = new PrepareVoteMessage(this.viewNumber.get(), prepareMessage.getNode(),
