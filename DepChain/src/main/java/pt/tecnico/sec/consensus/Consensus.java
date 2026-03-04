@@ -304,14 +304,13 @@ public class Consensus {
         try {
             if (signaturesField == null || signaturesField.isEmpty()) return false;
 
-            // reconstruct SigShare[] from stored "base64:id,base64:id,..." format
             String[] parts = signaturesField.split(",");
             SigShare[] sigShares = new SigShare[parts.length];
             for (int i = 0; i < parts.length; i++) {
-                String[] tokens = parts[i].split(":");
-                byte[] sigBytes = Base64.getDecoder().decode(tokens[0]);
-                int id = Integer.parseInt(tokens[1]);
-                sigShares[i] = new SigShare(id, sigBytes);
+                byte[] sigBytes = Base64.getDecoder().decode(parts[i]);
+                ObjectInputStream ois = new ObjectInputStream(
+                        new ByteArrayInputStream(sigBytes));
+                sigShares[i] = (SigShare) ois.readObject();
             }
 
             byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
