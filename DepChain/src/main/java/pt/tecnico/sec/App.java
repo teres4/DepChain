@@ -8,17 +8,15 @@ import java.util.Scanner;
 
 public class App {
     public static void main(String[] args) {
-        if (args.length < 2) {
-            System.err.println("Usage: mvn exec:java -Dexec.args=\"<ownId> <privateKeyPath>\"");
+        if (args.length < 1) {
+            System.err.println("Usage: mvn exec:java -Dexec.args=\"<ownId>\"");
             return;
         }
 
         long ownId;
-        String privateKeyPath;
 
         try {
             ownId = Long.parseLong(args[0]);
-            privateKeyPath = args[1];
         } catch (NumberFormatException e) {
             System.err.println("Invalid ownId. It must be a number.");
             return;
@@ -29,7 +27,7 @@ public class App {
 
         final AuthPerfLink apl;
         try {
-            apl = new AuthPerfLink(ownId, privateKeyPath);
+            apl = new AuthPerfLink(ownId);
         } catch (Exception e) {
             System.err.println("Failed to initialize AuthPerfLink: " + e.getMessage());
             e.printStackTrace();

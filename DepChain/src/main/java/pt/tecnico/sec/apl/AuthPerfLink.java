@@ -53,8 +53,8 @@ public class AuthPerfLink {
     // constructors
 
     // Default constructor for production use
-    public AuthPerfLink(long ownId, String privateKeyString) throws IOException, Exception {
-        this(ownId, Crypto.getPrivateKey(privateKeyString), new DatagramSocket(8080), Executors.newFixedThreadPool(100),
+    public AuthPerfLink(long ownId) throws IOException, Exception {
+        this(ownId, Crypto.getPrivateKey(ownId), new DatagramSocket(8080), Executors.newFixedThreadPool(100),
                 new SessionManager(), new MemberManager(ownId));
     }
 

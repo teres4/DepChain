@@ -28,7 +28,8 @@ import pt.tecnico.sec.utils.threshsig.ThresholdSigException;
 
 public interface Crypto {
 
-    public static PublicKey getPublicKey(String keyFilePath) throws Exception {
+    public static PublicKey getPublicKey(long replicaId) throws Exception {
+        String keyFilePath = "config/keys/public_key" + replicaId + ".pem";
         Path path = Paths.get(keyFilePath);
         String keyString = new String(Files.readAllBytes(path));
         keyString = keyString.replaceAll("-----BEGIN PUBLIC KEY-----", "")
@@ -40,7 +41,8 @@ public interface Crypto {
         return kf.generatePublic(spec);
     }
 
-    public static PrivateKey getPrivateKey(String keyFilePath) throws Exception {
+    public static PrivateKey getPrivateKey(long replicaId) throws Exception {
+        String keyFilePath = "config/keys/private_key" + replicaId + ".pem";
         Path path = Paths.get(keyFilePath);
         String keyString = new String(Files.readAllBytes(path));
         keyString = keyString.replaceAll("-----BEGIN PRIVATE KEY-----", "")
