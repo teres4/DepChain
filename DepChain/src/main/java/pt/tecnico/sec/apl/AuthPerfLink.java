@@ -289,7 +289,7 @@ public class AuthPerfLink {
             // - Receiver expects first data packet at seq 2
             // - Sender can start sending from seq 2 (set via setSequenceNumber which
             // updates both sides)
-            session.setExpectedSequenceNumber(2);
+            session.setSequenceNumber(1);
 
             System.out.println("Connection reply sent to: " + addr);
         } catch (Exception e) {

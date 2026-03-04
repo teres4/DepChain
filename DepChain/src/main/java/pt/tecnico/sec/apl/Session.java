@@ -66,7 +66,11 @@ public class Session {
 
         // Start timer only for the first unacknowledged packet (window base)
         if (seqNum == this.sendBase && this.timer == null) {
-            startTimer(timeoutHandler);
+            if (timeoutHandler != null) {
+                startTimer(timeoutHandler);
+            } else {
+                System.err.println("Warning: Cannot start timer, timeout handler is null");
+            }
         }
     }
 
@@ -80,11 +84,14 @@ public class Session {
             this.sendBase = ackNum;
 
             if (this.sendBase == this.nextSeqNum) {
-                // no need to retransmit, stop timer
+                // All packets acknowledged, stop timer
                 stopTimer();
             } else {
-                // need to retransmit, restart timer for the new window base
-                restartTimer();
+                // Still have unacknowledged packets, restart timer
+                // Only restart if we have a handler (timer was previously started)
+                if (this.currentTimeoutHandler != null) {
+                    restartTimer();
+                }
             }
         }
     }
@@ -110,6 +117,11 @@ public class Session {
     private Runnable currentTimeoutHandler;
 
     private synchronized void startTimer(Runnable timeoutHandler) {
+        if (timeoutHandler == null) {
+            System.err.println("Warning: Attempted to start timer with null handler");
+            return;
+        }
+
         if (this.timer != null) {
             timer.cancel();
         }
@@ -118,7 +130,10 @@ public class Session {
         timer.schedule(new TimerTask() {
             @Override
             public void run() {
-                timeoutHandler.run();
+                // Defensive check in case handler was cleared between schedule and fire
+                if (timeoutHandler != null) {
+                    timeoutHandler.run();
+                }
             }
         }, this.timeout);
     }
@@ -133,8 +148,9 @@ public class Session {
 
     private synchronized void restartTimer() {
         if (this.currentTimeoutHandler != null) {
+            Runnable handler = this.currentTimeoutHandler; // Save handler before stopping
             stopTimer();
-            startTimer(this.currentTimeoutHandler);
+            startTimer(handler); // Use saved handler
         }
     }
 

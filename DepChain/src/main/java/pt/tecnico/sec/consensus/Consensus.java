@@ -169,8 +169,10 @@ public class Consensus {
     // If ANYONE wants to start a new view, it sends a new view message to the new
     // LEader and ONLY THE LEADER waits for (n-f) responses.
     public void startNewView() throws Exception {
-        NewViewMessage newViewMessage = new NewViewMessage(this.viewNumber.get(), tree.getPrepareQC(), this.replicaID);
+        NewViewMessage newViewMessage = new NewViewMessage(this.newViewNumber.get(), tree.getPrepareQC(),
+                this.replicaID);
         authPerfLink.sendData(getLeader(this.newViewNumber.incrementAndGet()), newViewMessage.toJson());
+        heartbeat(); // Update last seen time when starting a new view
     }
 
     public void handleMessage(HotStuffMessage msg) {
@@ -462,6 +464,7 @@ public class Consensus {
                 }
             }
             this.viewNumber.incrementAndGet();
+            this.newViewNumber.set(this.viewNumber.get());
             prepare(highQC, "COMMAND"); // TODO: define command
             return highQC;
         }
@@ -676,6 +679,7 @@ public class Consensus {
 
             // update view
             this.viewNumber.set(prepareMessage.getViewNumber());
+            this.newViewNumber.set(prepareMessage.getViewNumber());
 
             if (amLeader(prepareMessage.getViewNumber())) {
                 try {
@@ -846,9 +850,29 @@ public class Consensus {
     }
 
     private void onLeaderInactive() {
-        System.out.println("⚠ Leader is INACTIVE/FAULTY!");
-        if (!amLeader(this.viewNumber.get())) {
+        if (amLeader(this.newViewNumber.get() + 1)) {
             try {
+                System.out.println("⚠ Leader is INACTIVE/FAULTY!");
+                System.out.println("Im the next active leader");
+                this.newViewMessages.put(this.replicaID,
+                        new NewViewMessage(this.newViewNumber.get(), tree.getPrepareQC(), this.replicaID));
+                heartbeat();
+            } catch (Exception e) {
+                System.err.println("Failed to start new view: " + e.getMessage());
+            }
+        } else if (!amLeader(this.newViewNumber.get())) {
+            try {
+                System.out.println("⚠ Leader is INACTIVE/FAULTY!");
+                System.out.println("Starting new view");
+                startNewView();
+            } catch (Exception e) {
+                System.err.println("Failed to start new view: " + e.getMessage());
+            }
+        } else {
+            // testing porpuses
+            try {
+                System.out.println("⚠ Leader is INACTIVE/FAULTY!");
+                System.out.println("Starting new view");
                 startNewView();
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
