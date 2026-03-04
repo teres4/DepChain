@@ -4,5 +4,7 @@ public enum MessageType {
     CONNECTION_REQUEST,
     CONNECTION_ACK,
     DATA,
-    ACK
+    ACK,
+    CLIENT_REQUEST,
+    CLIENT_RESPONSE
 }
