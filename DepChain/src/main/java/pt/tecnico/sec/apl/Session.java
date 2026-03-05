@@ -185,8 +185,23 @@ public class Session {
     public synchronized void setSequenceNumber(long sequenceNumber) {
         // Update both sender and receiver state
         this.sendBase = sequenceNumber;
-        this.nextSeqNum = sequenceNumber;
-        this.expectedSeqNum = sequenceNumber + 1;
+        this.nextSeqNum = sequenceNumber + 1; // Next packet to send starts at sequenceNumber + 1
+        this.expectedSeqNum = sequenceNumber + 1; // Expected to receive starts at sequenceNumber + 1
+        System.out.println("\u001B[36m[Session " + senderID + "] setSequenceNumber(" + sequenceNumber + ") -> sendBase="
+                + sendBase + ", nextSeqNum=" + nextSeqNum + ", expectedSeqNum=" + expectedSeqNum + "\u001B[0m");
+    }
+
+    /**
+     * Atomically get the current sequence number and advance to the next one.
+     * This prevents race conditions where two threads could get the same sequence
+     * number.
+     * 
+     * @return the sequence number to use for the next packet
+     */
+    public synchronized long getAndAdvanceSequenceNumber() {
+        long seqNum = this.nextSeqNum;
+        this.nextSeqNum++;
+        return seqNum;
     }
 
     @Deprecated
@@ -246,6 +261,6 @@ public class Session {
     public synchronized void markConnectionEstablished() {
         System.out.println("Connection established with senderID=" + senderID);
         this.connectionEstablished = true;
-        notifyAll(); // Notify any threads waiting for connection to be established
+        notifyAll();
     }
 }

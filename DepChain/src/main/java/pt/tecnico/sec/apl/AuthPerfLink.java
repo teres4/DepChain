@@ -141,10 +141,13 @@ public class AuthPerfLink {
             if (session == null) {
                 session = startConnection(receiverID);
             }
-            DataMessage signedDataMessage = buildDataMessage(session.getNextSequenceNumber() + 1,
+            // Atomically get sequence number and advance to prevent race conditions
+            long seqNum = session.getAndAdvanceSequenceNumber();
+            System.out.println("\u001B[35mSENDING DATA with seqNum=" + seqNum + " to ID: " + receiverID
+                    + " (nextSeqNum was " + seqNum + ", now " + (seqNum + 1) + ")\u001B[0m");
+            DataMessage signedDataMessage = buildDataMessage(seqNum,
                     content.getBytes(),
                     session.getSessionKey());
-            session.advanceNextSeqNum();
             send(signedDataMessage, receiverID);
             System.out.println("DATA sent to ID: " + receiverID);
         } catch (Exception e) {
@@ -385,7 +388,7 @@ public class AuthPerfLink {
             // After handshake, initialize session for data transfer:
             // - Sender starts at seq 2 for first data packet
             // - Receiver expects seq 2 as well
-            session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=1, expectedSeqNum=2
+            session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=2, expectedSeqNum=2
 
             // Mark session as established
             session.markConnectionEstablished();
@@ -497,15 +500,15 @@ public class AuthPerfLink {
                 }
             }
 
-            // Send the packet
+            // Buffer for potential retransmission BEFORE sending
+            // This prevents race condition where ACK arrives before buffering
             try {
-                DatagramPacket packet = message.toDatagramPacket(session.getAddr());
-                datagramSocket.send(packet);
-
-                // Buffer for potential retransmission and start/manage timer
-                // Timer is started automatically for the first packet in window
                 final Session finalSession = session;
                 session.bufferPacket(dataMsg.getSequenceNumber(), dataMsg, () -> handleTimeout(finalSession));
+
+                // Send the packet after buffering
+                DatagramPacket packet = message.toDatagramPacket(session.getAddr());
+                datagramSocket.send(packet);
 
                 System.out.println("Sent packet " + dataMsg.getSequenceNumber() + " to: " + session.getAddr());
             } catch (IOException e) {
@@ -525,7 +528,7 @@ public class AuthPerfLink {
     }
 
     private void handleTimeout(Session session) {
-        System.out.println("Timeout! Retransmitting all unacknowledged packets to: " + session.getAddr());
+        System.out.println("Timeout! Retransmitting all unacknowledged packets to: " + session.getSenderID());
 
         // Retransmit all packets in the window
         Map<Long, DataMessage> unacked = session.getUnacknowledgedPackets();
@@ -558,7 +561,8 @@ public class AuthPerfLink {
 
     private DataMessage buildDataMessage(long seqNum, byte[] content, SecretKey sessionKey) throws Exception {
         DataMessage msg = new DataMessage(seqNum, content, null, this.ownId);
-        return new DataMessage(seqNum, content, Crypto.generateHMAC(sessionKey, msg.toJsonString().getBytes()), this.ownId);
+        return new DataMessage(seqNum, content, Crypto.generateHMAC(sessionKey, msg.toJsonString().getBytes()),
+                this.ownId);
     }
 
     private DataACKMessage buildDataAck(long seqNum, SecretKey sessionKey) throws Exception {
