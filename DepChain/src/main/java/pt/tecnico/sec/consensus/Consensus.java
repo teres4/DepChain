@@ -887,8 +887,8 @@ public class Consensus {
     }
 
     private void onLeaderInactive() {
-        this.viewNumber.incrementAndGet(); // Move to next view
-        if (amLeader(this.viewNumber.get())) {
+        if (amLeader(this.viewNumber.get() + 1)) {
+            this.viewNumber.incrementAndGet(); // Move to next view
             try {
                 System.out.println("⚠ Leader is INACTIVE/FAULTY!");
                 System.out.println("Im the next active leader");
@@ -898,20 +898,11 @@ public class Consensus {
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
             }
-        } else if (!amLeader(this.viewNumber.get())) {
+        } else if (!amLeader(this.viewNumber.get() + 1)) {
+            this.viewNumber.incrementAndGet(); // Move to next view
             try {
                 System.out.println("⚠ Leader is INACTIVE/FAULTY!");
                 System.out.println("Starting new view");
-                startNewView();
-            } catch (Exception e) {
-                System.err.println("Failed to start new view: " + e.getMessage());
-            }
-        } else {
-            // testing porpuses
-            try {
-                System.out.println("⚠ Leader is INACTIVE/FAULTY!");
-                System.out.println("Starting new view");
-                // increment view
                 startNewView();
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
