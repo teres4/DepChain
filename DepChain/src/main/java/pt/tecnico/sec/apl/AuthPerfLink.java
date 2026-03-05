@@ -121,19 +121,6 @@ public class AuthPerfLink {
         }
     }
 
-    // public void sendData(Session session, String content) {
-    // try {
-    // long seqNum = session.getNextSequenceNumber() + 1;
-    // DataMessage msg = buildDataMessage(seqNum, content.getBytes(),
-    // session.getSessionKey());
-    // session.advanceNextSeqNum();
-    // send(msg, session.getSenderID());
-    // System.out.println("DATA sent to: " + session.getAddr());
-    // } catch (Exception e) {
-    // System.err.println("Failed to send DATA: " + e.getMessage());
-    // }
-    // }
-
     public void sendData(long receiverID, byte[] content) {
         try {
             // sign the message with the session key and then send it
@@ -189,7 +176,6 @@ public class AuthPerfLink {
             byte[] publicKey = this.dhKeyAgreement.getEncodedPublicKey();
 
             // Sign the message
-            // TODO take a look at STS protocol and how they sign their messages
             String publicKeyBase64 = Base64.getEncoder().encodeToString(publicKey);
             String signature = Crypto.signMessage(this.ownId + ":" + publicKeyBase64, this.privateKey);
             ConnectionRequestMessage connectionRequest = new ConnectionRequestMessage(this.ownId, publicKey,
@@ -310,7 +296,6 @@ public class AuthPerfLink {
                 return;
             }
 
-            // TODO STS protocol
             PublicKey senderPublicKey = senderMember.getPublicSignatureKey();
             if (!Crypto.verifySignature(msg.getSignableContent().getBytes(), msg.getSignature(), senderPublicKey)) {
                 System.err.println("Failed to verify signature for connection request from: " + addr);
@@ -324,7 +309,6 @@ public class AuthPerfLink {
             byte[] responderDHPublicKey = this.dhKeyAgreement.getEncodedPublicKey();
             SecretKey sessionKey = this.dhKeyAgreement.computeSharedSecret(initiatorDHPublicKey);
 
-            // TODO STS protocol signatures
             String responderKeyBase64 = Base64.getEncoder().encodeToString(responderDHPublicKey);
             String signature = Crypto.signMessage(this.ownId + ":" + responderKeyBase64, this.privateKey);
 
@@ -370,7 +354,6 @@ public class AuthPerfLink {
                 return;
             }
 
-            // TODO STS protocol
             PublicKey senderPublicKey = senderMember.getPublicSignatureKey();
             if (!Crypto.verifySignature(msg.getSignableContent().getBytes(), msg.getSignature(), senderPublicKey)) {
                 System.err.println("Failed to verify signature for connection request from: " + addr);
