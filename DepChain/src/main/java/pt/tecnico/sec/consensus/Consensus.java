@@ -391,7 +391,7 @@ public class Consensus {
         String nodeHash;
         nodeHash = Crypto.hash(nodeData);
 
-        return new Node(nodeHash, command, parent, null);
+        return new Node(nodeHash, command, parent.getHash(), null);
     }
 
     private String extractPartialSig(HotStuffMessage vote) {

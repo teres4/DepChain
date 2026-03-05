@@ -18,7 +18,7 @@ public class Tree {
     private final Map<String, Node> treeMap = new HashMap<>();
 
     public Tree() {
-        this.root = new Node("genesis", "genesis", null, null);
+        this.root = new Node("genesis", "genesis", "genesis", null);
         this.lockedQC = new QuorumCertificate(0, root.getHash(), "prepare", "");
         this.prepareQC = null;
         this.executedNode = root;
@@ -58,51 +58,49 @@ public class Tree {
 
     // check if node extends from ancestor
     public boolean extendsFrom(Node node, Node ancestor) {
-        if (node == null || ancestor == null) {
-            return false;
-        }
-        
-        Node current = node;
-        while (current != null) {
-            if (current.equals(ancestor) || 
-                (current.getHash() != null && current.getHash().equals(ancestor.getHash()))) {
-                return true;
-            }
-            current = current.getParent();
+        if (node == null || ancestor == null) return false;
+
+        String currentHash = node.getHash();
+        String ancestorHash = ancestor.getHash();
+
+        if (currentHash.equals(ancestorHash)) return true;
+
+        String parentHash = node.getParentHash();
+        while (parentHash != null) {
+            if (parentHash.equals(ancestorHash)) return true;
+
+            Node parent = treeMap.get(parentHash);
+            if (parent == null) break;
+
+            parentHash = parent.getParentHash();
         }
         return false;
     }
     
     public void pruneConflictingBranches(Node decidedNode) {
-        if (decidedNode == null) {
-            return;
-        }
-        
-        // build the committed chain
+        if (decidedNode == null) return;
+
+        // build the committed chain hashes
         Set<String> committedChain = new HashSet<>();
-        Node current = decidedNode;
-        while (current != null) {
-            committedChain.add(current.getHash());
-            current = current.getParent();
+        String currentHash = decidedNode.getHash();
+        while (currentHash != null) {
+            committedChain.add(currentHash);
+            Node current = treeMap.get(currentHash);
+            if (current == null) break;
+            currentHash = current.getParentHash();
         }
-        
+
+        // remove anything not on committed chain and not extending decided node
         Iterator<Map.Entry<String, Node>> iterator = treeMap.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<String, Node> entry = iterator.next();
             Node node = entry.getValue();
-            
-            // keep if on committed chain
-            if (committedChain.contains(node.getHash())) {
-                continue;
-            }
-            
-            // keep if extends decided node
-            if (extendsFrom(node, decidedNode)) {
-                continue;
-            }
-            
-            // remove conflicting node
-            System.out.println("Pruning conflicting node: " + node.getHash() + " (command: " + node.getCommand() + ")");
+
+            if (committedChain.contains(node.getHash())) continue;
+            if (extendsFrom(node, decidedNode)) continue;
+
+            System.out.println("Pruning conflicting node: " + node.getHash() 
+                + " (command: " + node.getCommand() + ")");
             iterator.remove();
         }
     }

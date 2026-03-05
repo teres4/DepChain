@@ -6,15 +6,14 @@ public class Node {
 
     private final String command; // TODO: define command structure step 6
 
-    private final Node parent;
-    // children?
+    private final String parentHash;
 
     private QuorumCertificate justifyQC; // QC that justifies this block
 
-    public Node(String hash, String command, Node parent, QuorumCertificate justifyQC) {
+    public Node(String hash, String command, String parentHash, QuorumCertificate justifyQC) {
         this.hash = hash;
         this.command = command;
-        this.parent = parent;
+        this.parentHash = parentHash;
         this.justifyQC = justifyQC;
     }
 
@@ -26,12 +25,17 @@ public class Node {
         return command;
     }
 
-    public Node getParent() {
-        return parent;
+    public String getParentHash() {
+        return parentHash;
     }
 
     public QuorumCertificate getJustifyQC() {
         return justifyQC;
+    }
+
+    @Override
+    public String toString() {
+        return "Node{hash='" + hash + "', command='" + command + "', parentHash='" + parentHash + "'}";
     }
 
 }
