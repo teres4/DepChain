@@ -744,6 +744,8 @@ public class Consensus {
             return;
         }
 
+        tree.setPrepareQC(prepareQC);
+
         // sign and send pre-commit vote to leader, sign over the hash of the proposal
         String partialSig = tsign(HotStuffMessageType.PRE_COMMIT_VOTE, this.viewNumber.get(), prepareQC.getNodeHash());
         PreCommitVoteMessage voteMessage = new PreCommitVoteMessage(this.viewNumber.get(), node, this.replicaID,
