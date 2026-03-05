@@ -232,7 +232,6 @@ public class AuthPerfLink {
 
         try {
             Message msg = Message.fromPacket(packet);
-            System.out.println("Received: " + msg);
 
             switch (msg.getType()) {
                 case CONNECTION_REQUEST -> handleConnectionRequest((ConnectionRequestMessage) msg, addr);

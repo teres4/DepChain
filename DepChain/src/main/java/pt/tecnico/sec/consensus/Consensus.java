@@ -171,7 +171,7 @@ public class Consensus {
     public void startNewView() throws Exception {
         NewViewMessage newViewMessage = new NewViewMessage(this.newViewNumber.get(), tree.getPrepareQC(),
                 this.replicaID);
-        authPerfLink.sendData(getLeader(this.newViewNumber.incrementAndGet()), newViewMessage.toJson());
+        authPerfLink.sendData(getLeader(this.newViewNumber.get()), newViewMessage.toJson());
         heartbeat(); // Update last seen time when starting a new view
     }
 
@@ -444,7 +444,7 @@ public class Consensus {
             return null;
         }
 
-        if (!amLeader(newViewMessage.getViewNumber() + 1)) {
+        if (!amLeader(newViewMessage.getViewNumber())) {
             System.err.println("Received new-view message for view " + newViewMessage.getViewNumber() +
                     " but am not Leader for next view");
             return null;
@@ -463,8 +463,6 @@ public class Consensus {
                     newViewMessages.remove(senderId);
                 }
             }
-            this.viewNumber.incrementAndGet();
-            this.newViewNumber.set(this.viewNumber.get());
             prepare(highQC, "COMMAND"); // TODO: define command
             return highQC;
         }
@@ -489,7 +487,7 @@ public class Consensus {
         // should extend from the root
         Node parentNode = (highQC != null) ? tree.getNode(highQC.getNodeHash()) : tree.getRoot();
 
-        Node newNode = createLeaf(parentNode, "COMMAND"); // TODO: define command
+        Node newNode = createLeaf(parentNode, command); // TODO: define command
         this.curProposal = newNode;
         tree.addNode(newNode);
 
@@ -832,6 +830,13 @@ public class Consensus {
         this.newViewNumber.set(this.viewNumber.get()); // Sync new view number with current view
         this.curProposal = null;
 
+        // send newview message to leader of next view to trigger next view
+        try {
+            startNewView();
+        } catch (Exception e) {
+            System.err.println("Failed to start new view after decide: " + e.getMessage());
+        }
+
     }
 
     // ==================== TIMEOUT METHODS ====================
@@ -864,6 +869,7 @@ public class Consensus {
             try {
                 System.out.println("⚠ Leader is INACTIVE/FAULTY!");
                 System.out.println("Starting new view");
+                // increment vew
                 startNewView();
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
@@ -873,6 +879,7 @@ public class Consensus {
             try {
                 System.out.println("⚠ Leader is INACTIVE/FAULTY!");
                 System.out.println("Starting new view");
+                // increment view
                 startNewView();
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
