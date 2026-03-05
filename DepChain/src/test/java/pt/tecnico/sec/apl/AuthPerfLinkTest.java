@@ -260,4 +260,53 @@ public class AuthPerfLinkTest {
     //                  "All messages should be delivered exactly once");
     // }
 
+    // Tests that duplicate packets are no delivered twice
+    @Test
+    @Timeout(10)
+    public void testNoDuplication_DuplicatePackets() throws Exception {
+        CompletableFuture<Void> messageDelivered = new CompletableFuture<>();
+        List<String> deliveredMessages = Collections.synchronizedList(new ArrayList<>());
+
+        receiver.setMessageListener(content -> {
+            deliveredMessages.add(content);
+            if (deliveredMessages.size() == 1) {
+                messageDelivered.complete(null);
+            }
+        });
+
+        // Establish connection
+        Session senderSession = sender.startConnection(RECEIVER_ID);
+        assertNotNull(senderSession);
+        Thread.sleep(500);
+
+        Session receiverSession = receiver.getSession(SENDER_ID);
+        assertNotNull(receiverSession);
+
+        // Send message normally
+        String message = "Test message";
+        sender.sendData(RECEIVER_ID, message.getBytes());
+
+        // Wait for delivery
+        assertDoesNotThrow(() -> messageDelivered.get(5, TimeUnit.SECONDS), 
+                           "Message should be delivered");
+        assertEquals(1, deliveredMessages.size(), "First message should be delivered");
+
+        // send a duplicate packet with the SAME sequence number
+        long usedSeqNum = senderSession.getNextSequenceNumber() - 1;
+
+        // Build duplicate data message with same sequence number
+        DataMessage duplicateMsg = new DataMessage(usedSeqNum, message.getBytes(), null, SENDER_ID);
+        byte[] hmac = Crypto.generateHMAC(receiverSession.getSessionKey(), duplicateMsg.toJsonString().getBytes());
+        DataMessage duplicateWithHmac = new DataMessage(usedSeqNum, message.getBytes(), hmac, SENDER_ID);
+
+        // Send duplicate directly via socket (bypassing normal send flow)
+        senderSocket.send(duplicateWithHmac.toDatagramPacket(receiverSession.getAddr()));
+
+        // Wait to see if duplicate gets delivered
+        Thread.sleep(2000);
+
+        assertEquals(1, deliveredMessages.size(), 
+                     "Duplicate packet should NOT be delivered (APL2: No duplication)");
+    }
+
 }
