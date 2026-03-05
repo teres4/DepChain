@@ -88,7 +88,8 @@ public class Consensus {
 
     private final ReplicaState replicaState;
 
-    public Consensus(long replicaID, int totalReplicas, MemberManager memberManager, AuthPerfLink authPerfLink, ReplicaState replicaState) {
+    public Consensus(long replicaID, int totalReplicas, MemberManager memberManager, AuthPerfLink authPerfLink,
+            ReplicaState replicaState) {
         this.replicaID = replicaID;
         this.totalReplicas = totalReplicas;
         this.quorumSize = totalReplicas - (totalReplicas - 1) / 3; // n-f where f = (n-1)/3
@@ -634,7 +635,7 @@ public class Consensus {
 
     // ==================== REPLICA METHODS ====================
 
-    // TODO ADD QUEUE OF COMMANDS OF CLIENT ? 
+    // TODO ADD QUEUE OF COMMANDS OF CLIENT ?
     public void onReceiveNewCommandMessage(NewCommandMessage newCommandMessage) throws Exception {
         // Only leader can receive new command messages from clients
         if (!amLeader(newCommandMessage.getViewNumber())) {
@@ -642,22 +643,26 @@ public class Consensus {
             return;
         }
 
-        // TODO uncomment for command processing by various replicas? and verification of signature 
+        // TODO uncomment for command processing by various replicas? and verification
+        // of signature
         // we also have to verify the command format and etc
         // Command command = Command.fromJson(newCommandMessage.getCommand());
         // if (command == null) {
-        //     System.err.println("Failed to parse command, ignoring");
-        //     return;
+        // System.err.println("Failed to parse command, ignoring");
+        // return;
         // }
 
         // long clientId = command.getSenderId();
         // PublicKey clientPublicKey = Crypto.getClientPublicKey(clientId);
 
-        // String signableContent = command.getType() + ":" + command.getSenderId() + ":" + command.getContent() + ":" + command.getNonce();
+        // String signableContent = command.getType() + ":" + command.getSenderId() +
+        // ":" + command.getContent() + ":" + command.getNonce();
 
-        // if(!Crypto.verifySignature(signableContent.getBytes(), command.getSignature(), clientPublicKey)) {
-        //     System.err.println("Invalid command signature from client " + clientId + ", ignoring");
-        //     return;
+        // if(!Crypto.verifySignature(signableContent.getBytes(),
+        // command.getSignature(), clientPublicKey)) {
+        // System.err.println("Invalid command signature from client " + clientId + ",
+        // ignoring");
+        // return;
         // }
 
         // for now we assume that just the leader will receive client commands
@@ -907,7 +912,6 @@ public class Consensus {
                 System.out.println("⚠ Leader is INACTIVE/FAULTY!");
                 System.out.println("Starting new view");
                 // increment view
-                this.viewNumber.incrementAndGet();
                 startNewView();
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
