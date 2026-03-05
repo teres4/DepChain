@@ -9,6 +9,7 @@ import java.util.TimerTask;
 import javax.crypto.SecretKey;
 
 import pt.tecnico.sec.apl.message.DataMessage;
+import pt.tecnico.sec.apl.message.Message;
 
 public class Session {
 
@@ -26,6 +27,8 @@ public class Session {
     private long expectedSeqNum; // next expected sequence number
 
     private SecretKey sessionKey;
+
+    private boolean connectionEstablished = false; // track if handshake is complete
 
     private final InetSocketAddress addr;
 
@@ -220,5 +223,29 @@ public class Session {
     public synchronized void cleanup() {
         stopTimer();
         sendBuffer.clear();
+    }
+
+    public synchronized boolean waitForConnectionEstablished() {
+        long startTime = System.currentTimeMillis();
+        while (!connectionEstablished) {
+            try {
+                wait(100); // Wait with timeout to allow periodic checks
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false; // Interrupted while waiting
+            }
+
+            if (System.currentTimeMillis() - startTime > 30000) { // 30 seconds timeout
+                System.err.println("Timeout waiting for connection to be established");
+                return false;
+            }
+        }
+        return true; // Connection established
+    }
+
+    public synchronized void markConnectionEstablished() {
+        System.out.println("Connection established with senderID=" + senderID);
+        this.connectionEstablished = true;
+        notifyAll(); // Notify any threads waiting for connection to be established
     }
 }

@@ -192,10 +192,30 @@ public class AuthPerfLink {
             ConnectionRequestMessage connectionRequest = new ConnectionRequestMessage(this.ownId, publicKey,
                     signature);
 
-            Session session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), null);
+            Session session = sessionManager.getSession(receiverID);
+            if (session == null) {
+                session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), null);
+            }
 
-            send(connectionRequest, receiverID);
-            return session;
+            // Retry handshake with timeout
+            int maxRetries = 3;
+            for (int attempt = 1; attempt <= maxRetries; attempt++) {
+                send(connectionRequest, receiverID);
+                System.out.println(
+                        "Sent CONNECTION_REQUEST to " + receiverID + " (attempt " + attempt + "/" + maxRetries + ")");
+
+                // Wait for connection to be established
+                if (session.waitForConnectionEstablished()) {
+                    logger("Connection established with: " + receiverID);
+                    return session;
+                }
+
+                System.out.println("Connection timeout with " + receiverID + ", retrying...");
+            }
+
+            System.err.println(
+                    "Failed to establish connection with " + receiverID + " after " + maxRetries + " attempts");
+            return null;
         } catch (Exception e) {
             System.err.println("Failed to start connection: " + e.getMessage());
             return null;
@@ -270,6 +290,23 @@ public class AuthPerfLink {
                 return;
             }
 
+            // Check if session already exists
+            Session existingSession = sessionManager.getSession(senderMember.getId());
+            if (existingSession != null) {
+                // Duplicate request - resend ACK (original ACK was probably lost)
+                System.out.println(
+                        "Received duplicate CONNECTION_REQUEST from " + senderMember.getId() + ", resending ACK");
+
+                // Recreate and resend the ACK
+                byte[] responderDHPublicKey = this.dhKeyAgreement.getEncodedPublicKey();
+                String responderKeyBase64 = Base64.getEncoder().encodeToString(responderDHPublicKey);
+                String signature = Crypto.signMessage(this.ownId + ":" + responderKeyBase64, this.privateKey);
+
+                ConnectionACKMessage reply = new ConnectionACKMessage(1, responderDHPublicKey, this.ownId, signature);
+                datagramSocket.send(reply.toDatagramPacket(addr));
+                return;
+            }
+
             // TODO STS protocol
             PublicKey senderPublicKey = senderMember.getPublicSignatureKey();
             if (!Crypto.verifySignature(msg.getSignableContent().getBytes(), msg.getSignature(), senderPublicKey)) {
@@ -294,6 +331,8 @@ public class AuthPerfLink {
             long replySeqNum = 1;
             ConnectionACKMessage reply = new ConnectionACKMessage(replySeqNum, responderDHPublicKey,
                     this.ownId, signature);
+
+            // Send reply directly (no buffering for handshake)
             datagramSocket.send(reply.toDatagramPacket(addr));
 
             // After handshake, initialize session for data transfer:
@@ -301,6 +340,9 @@ public class AuthPerfLink {
             // - Sender can start sending from seq 2 (set via setSequenceNumber which
             // updates both sides)
             session.setExpectedSequenceNumber(2);
+
+            // Mark session as established after sending reply
+            session.markConnectionEstablished();
 
             System.out.println("Connection reply sent to: " + addr);
         } catch (Exception e) {
@@ -344,6 +386,9 @@ public class AuthPerfLink {
             // - Sender starts at seq 2 for first data packet
             // - Receiver expects seq 2 as well
             session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=1, expectedSeqNum=2
+
+            // Mark session as established
+            session.markConnectionEstablished();
 
             System.out.println("Connection reply verified and session established with: " + addr);
         } catch (Exception e) {
@@ -438,7 +483,7 @@ public class AuthPerfLink {
             session = startConnection(id);
         }
 
-        // Go-Back-N: only send if within window
+        // Go-Back-N: buffer data messages for retransmission
         if (message instanceof DataMessage) {
             DataMessage dataMsg = (DataMessage) message;
 
@@ -467,11 +512,12 @@ public class AuthPerfLink {
                 System.err.println("Failed to send message: " + e.getMessage());
             }
         } else {
-            // Non-data messages (CONNECTION_REQUEST, CONNECTION_ACK etc.) - send
-            // immediately
+            // Handshake and other messages - send immediately without buffering
+            // Use waitForConnectionEstablished() to handle handshake timeouts
             try {
                 DatagramPacket packet = message.toDatagramPacket(session.getAddr());
                 datagramSocket.send(packet);
+                System.out.println("Sent message seq " + message.getSequenceNumber() + " to: " + session.getAddr());
             } catch (IOException e) {
                 System.err.println("Failed to send message: " + e.getMessage());
             }
@@ -557,5 +603,11 @@ public class AuthPerfLink {
             return null;
         }
         return session;
+    }
+
+    private void logger(String message) {
+        String red = "\u001B[31m";
+        String reset = "\u001B[0m";
+        System.out.println(red + "[AuthPerfLink] " + message + reset);
     }
 }

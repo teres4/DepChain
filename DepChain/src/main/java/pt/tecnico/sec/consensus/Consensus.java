@@ -32,10 +32,6 @@ public class Consensus {
     // current viewnumber
     private AtomicInteger viewNumber;
 
-    private AtomicInteger newViewNumber = new AtomicInteger(1); // view number for new view messages,
-    // separate from current view number to allow replicas to send new view messages
-    // for future views
-
     // my ID
     protected final long replicaID;
 
@@ -173,9 +169,9 @@ public class Consensus {
     // If ANYONE wants to start a new view, it sends a new view message to the new
     // LEader and ONLY THE LEADER waits for (n-f) responses.
     public void startNewView() throws Exception {
-        NewViewMessage newViewMessage = new NewViewMessage(this.newViewNumber.get(), tree.getPrepareQC(),
+        NewViewMessage newViewMessage = new NewViewMessage(this.viewNumber.get(), tree.getPrepareQC(),
                 this.replicaID);
-        authPerfLink.sendData(getLeader(this.newViewNumber.get()), newViewMessage.toJson());
+        authPerfLink.sendData(getLeader(this.viewNumber.get()), newViewMessage.toJson());
         heartbeat(); // Update last seen time when starting a new view
     }
 
@@ -468,6 +464,7 @@ public class Consensus {
                 }
             }
             prepare(highQC, "COMMAND"); // TODO: define command
+            this.viewNumber.set(newViewMessage.getViewNumber());
             return highQC;
         }
 
@@ -700,8 +697,6 @@ public class Consensus {
 
             // update view
             this.viewNumber.set(prepareMessage.getViewNumber());
-            this.newViewNumber.set(prepareMessage.getViewNumber());
-
             if (amLeader(prepareMessage.getViewNumber())) {
                 try {
                     sendToSelf(voteMessage);
@@ -850,7 +845,6 @@ public class Consensus {
 
         heartbeat();
         this.viewNumber.incrementAndGet();
-        this.newViewNumber.set(this.viewNumber.get()); // Sync new view number with current view
         this.curProposal = null;
 
         // send newview message to leader of next view to trigger next view
@@ -888,21 +882,21 @@ public class Consensus {
     }
 
     private void onLeaderInactive() {
-        if (amLeader(this.newViewNumber.get() + 1)) {
+        this.viewNumber.incrementAndGet(); // Move to next view
+        if (amLeader(this.viewNumber.get())) {
             try {
                 System.out.println("⚠ Leader is INACTIVE/FAULTY!");
                 System.out.println("Im the next active leader");
                 this.newViewMessages.put(this.replicaID,
-                        new NewViewMessage(this.newViewNumber.get(), tree.getPrepareQC(), this.replicaID));
+                        new NewViewMessage(this.viewNumber.get(), tree.getPrepareQC(), this.replicaID));
                 heartbeat();
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
             }
-        } else if (!amLeader(this.newViewNumber.get())) {
+        } else if (!amLeader(this.viewNumber.get())) {
             try {
                 System.out.println("⚠ Leader is INACTIVE/FAULTY!");
                 System.out.println("Starting new view");
-                // increment vew
                 startNewView();
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
@@ -913,6 +907,7 @@ public class Consensus {
                 System.out.println("⚠ Leader is INACTIVE/FAULTY!");
                 System.out.println("Starting new view");
                 // increment view
+                this.viewNumber.incrementAndGet();
                 startNewView();
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
