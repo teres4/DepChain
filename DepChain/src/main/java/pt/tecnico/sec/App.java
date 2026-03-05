@@ -3,6 +3,7 @@ package pt.tecnico.sec;
 import java.util.Scanner;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
+import pt.tecnico.sec.application.Application;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.message.NewCommandMessage;
 import pt.tecnico.sec.replica.ReplicaState;
@@ -45,10 +46,16 @@ public class App {
                 ownId,
                 apl.getMembers() != null ? apl.getMembers().length + 1 : 1,
                 apl.getMemberManager(),
-                apl,
                 replicaState);
-        
-        consensus.consensusLoop();
+
+        // Create application instance
+        Application application = new Application(apl, consensus);
+
+        // Set application in consensus to enable message sending
+        consensus.setApplication(application);
+
+        // Start the application main loop instead of consensus loop
+        application.mainLoop();
 
         System.out.println("\n\u001B[32m" +
                 "███████╗███████╗ ██████╗\n" +
@@ -114,7 +121,7 @@ public class App {
                     System.out.println("Starting session with all members.");
                     apl.startConnectionWithAllMembers();
                     break;
-                
+
                 case "5":
                     System.out.print("Enter command to send to consensus leader: ");
                     String command = scanner.nextLine();

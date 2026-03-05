@@ -57,7 +57,8 @@ public class Command {
         CommandType type = gson.fromJson(json, TypeOnly.class).type;
 
         return switch (type) {
-            // TODO when add more command types, we need to add cases here to deserialize them properly
+            // TODO when add more command types, we need to add cases here to deserialize
+            // them properly
             case APPEND -> gson.fromJson(json, Command.class);
             default -> throw new IllegalArgumentException("Unknown type: " + type);
         };
@@ -65,8 +66,7 @@ public class Command {
 
     @Override
     public String toString() {
-        return "Command{type=" + type + ", content='" + content + "', senderId=" + senderId + ", signature='" + signature + "', nonce=" + nonce + "}";
+        return "Command{type=" + type + ", content='" + content + "', senderId=" + senderId + ", signature='"
+                + signature + "', nonce=" + nonce + "}";
     }
 }
-
-

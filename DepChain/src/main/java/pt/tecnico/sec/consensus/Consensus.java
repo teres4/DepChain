@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
+import pt.tecnico.sec.application.Application;
 import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.replica.ReplicaState;
 import pt.tecnico.sec.utils.Crypto;
@@ -44,8 +45,10 @@ public class Consensus {
     // member management
     private final MemberManager memberManager;
 
+    // application layer for message sending
+    private Application application;
+
     // message handling
-    protected final AuthPerfLink authPerfLink;
 
     // tree structure
     private final Tree tree;
@@ -88,13 +91,13 @@ public class Consensus {
 
     private final ReplicaState replicaState;
 
-    public Consensus(long replicaID, int totalReplicas, MemberManager memberManager, AuthPerfLink authPerfLink,
+    public Consensus(long replicaID, int totalReplicas, MemberManager memberManager,
             ReplicaState replicaState) {
         this.replicaID = replicaID;
         this.totalReplicas = totalReplicas;
         this.quorumSize = totalReplicas - (totalReplicas - 1) / 3; // n-f where f = (n-1)/3
         this.memberManager = memberManager;
-        this.authPerfLink = authPerfLink;
+        // this.authPerfLink = authPerfLink;
         this.tree = new Tree();
         this.viewNumber = new AtomicInteger(1);
         this.replicaState = replicaState;
@@ -116,22 +119,26 @@ public class Consensus {
                 TimeUnit.SECONDS);
     }
 
+    public void setApplication(Application application) {
+        this.application = application;
+    }
+
     // ==================== INITIALIZATION ====================
 
-    public void consensusLoop() {
-        executorService.submit(() -> authPerfLink.receive());
+    // public void consensusLoop() {
+    // executorService.submit(() -> authPerfLink.receive());
 
-        authPerfLink.setMessageListener((content) -> {
-            System.out.println("Received message: " + new String(content));
-            try {
-                HotStuffMessage msg = HotStuffMessage.fromJson(content);
-                executorService.submit(() -> handleMessage(msg));
-            } catch (Exception e) {
-                System.err.println("Failed to handle consensus message: " + e.getMessage());
-            }
-        });
+    // authPerfLink.setMessageListener((content) -> {
+    // System.out.println("Received message: " + new String(content));
+    // try {
+    // HotStuffMessage msg = HotStuffMessage.fromJson(content);
+    // executorService.submit(() -> handleMessage(msg));
+    // } catch (Exception e) {
+    // System.err.println("Failed to handle consensus message: " + e.getMessage());
+    // }
+    // });
 
-    }
+    // }
 
     // ==================== COMMON UTILITY METHODS ====================
 
@@ -172,7 +179,12 @@ public class Consensus {
     public void startNewView() throws Exception {
         NewViewMessage newViewMessage = new NewViewMessage(this.viewNumber.get(), tree.getPrepareQC(),
                 this.replicaID);
-        authPerfLink.sendData(getLeader(this.viewNumber.get()), newViewMessage.toJson());
+        if (application != null) {
+            application.sendConsensusMessage(newViewMessage, getLeader(this.viewNumber.get()));
+        } else {
+            // Fallback for tests - use AuthPerfLink directly
+            System.out.println("No application set, cannot send new-view message to leader");
+        }
         heartbeat(); // Update last seen time when starting a new view
     }
 
@@ -201,7 +213,13 @@ public class Consensus {
                 final int replicaIndex = i;
                 executorService.submit(() -> {
                     try {
-                        authPerfLink.sendData(replicaIndex, message.toJson());
+                        if (application != null) {
+                            application.sendConsensusMessage(message, replicaIndex);
+                        } else {
+                            // Fallback for tests - use AuthPerfLink directly
+                            application.sendConsensusMessage(message, replicaIndex);
+                        }
+
                     } catch (Exception e) {
                         System.err.println("Failed to send message to replica " + replicaIndex + ": " + e.getMessage());
                     }
@@ -229,13 +247,8 @@ public class Consensus {
                 + " amLeader=" + amLeader(message.getViewNumber()));
         if (amLeader(message.getViewNumber())) {
             System.out.println("Message is for self, processing directly");
-            executorService.submit(() -> {
-                try {
-                    handleMessage(message);
-                } catch (Exception e) {
-                    System.err.println("Failed to send message to self: " + e.getMessage());
-                }
-            });
+            // Process the message synchronously to maintain correct ordering
+            handleMessage(message);
         }
     }
 
@@ -464,7 +477,11 @@ public class Consensus {
                     newViewMessages.remove(senderId);
                 }
             }
-            prepare(highQC, "COMMAND"); // TODO: define command
+            String command = application.getCommandtoPropose();
+            if (command == null) {
+                command = "NO-OP";
+            }
+            prepare(highQC, command);
             this.viewNumber.set(newViewMessage.getViewNumber());
             return highQC;
         }
@@ -710,7 +727,9 @@ public class Consensus {
                 }
             } else {
                 // Send vote to leader
-                authPerfLink.sendData(getLeader(prepareMessage.getViewNumber()), voteMessage.toJson());
+                if (application != null) {
+                    application.sendConsensusMessage(voteMessage, getLeader(prepareMessage.getViewNumber()));
+                }
             }
         }
     }
@@ -758,7 +777,9 @@ public class Consensus {
                 System.err.println("Failed to handle own pre-commit vote message: " + e.getMessage());
             }
         } else {
-            authPerfLink.sendData(getLeader(preCommitMessage.getViewNumber()), voteMessage.toJson());
+            if (application != null) {
+                application.sendConsensusMessage(voteMessage, getLeader(preCommitMessage.getViewNumber()));
+            }
         }
     }
 
@@ -809,7 +830,9 @@ public class Consensus {
                 System.err.println("Failed to handle own commit vote message: " + e.getMessage());
             }
         } else {
-            authPerfLink.sendData(getLeader(commitMessage.getViewNumber()), voteMessage.toJson());
+            if (application != null) {
+                application.sendConsensusMessage(voteMessage, getLeader(commitMessage.getViewNumber()));
+            }
         }
     }
 
@@ -853,6 +876,7 @@ public class Consensus {
         heartbeat();
         this.viewNumber.incrementAndGet();
         this.curProposal = null;
+        application.commandDecided(decidedNode.getCommand());
 
         // send newview message to leader of next view to trigger next view
         try {

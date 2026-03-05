@@ -134,7 +134,7 @@ public class AuthPerfLink {
     // }
     // }
 
-    public void sendData(long receiverID, String content) {
+    public void sendData(long receiverID, byte[] content) {
         try {
             // sign the message with the session key and then send it
             Session session = sessionManager.getSession(receiverID);
@@ -146,7 +146,7 @@ public class AuthPerfLink {
             System.out.println("\u001B[35mSENDING DATA with seqNum=" + seqNum + " to ID: " + receiverID
                     + " (nextSeqNum was " + seqNum + ", now " + (seqNum + 1) + ")\u001B[0m");
             DataMessage signedDataMessage = buildDataMessage(seqNum,
-                    content.getBytes(),
+                    content,
                     session.getSessionKey());
             send(signedDataMessage, receiverID);
             System.out.println("DATA sent to ID: " + receiverID);
@@ -339,10 +339,9 @@ public class AuthPerfLink {
             datagramSocket.send(reply.toDatagramPacket(addr));
 
             // After handshake, initialize session for data transfer:
-            // - Receiver expects first data packet at seq 2
-            // - Sender can start sending from seq 2 (set via setSequenceNumber which
-            // updates both sides)
-            session.setExpectedSequenceNumber(2);
+            // - Both sender and receiver start at seq 2 for first data packet
+            // - Both expect seq 2 as well
+            session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=2, expectedSeqNum=2
 
             // Mark session as established after sending reply
             session.markConnectionEstablished();
@@ -435,6 +434,8 @@ public class AuthPerfLink {
                 }
 
                 if (messageListener != null) {
+                    System.out.println(
+                            "Received DATA: " + new String(msg.getContent()) + " from: " + session.getSenderID());
                     messageListener.onMessage(new String(msg.getContent()));
                 }
 
