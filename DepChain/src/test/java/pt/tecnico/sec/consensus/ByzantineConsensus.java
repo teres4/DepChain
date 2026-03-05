@@ -1,9 +1,9 @@
 package pt.tecnico.sec.consensus;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
-import pt.tecnico.sec.consensus.message.HotStuffMessageType;
 import pt.tecnico.sec.consensus.message.PrepareMessage;
 import pt.tecnico.sec.consensus.message.PrepareVoteMessage;
+import pt.tecnico.sec.replica.ReplicaState;
 import pt.tecnico.sec.utils.MemberManager;
 
 public class ByzantineConsensus extends Consensus {
@@ -22,8 +22,8 @@ public class ByzantineConsensus extends Consensus {
 
     public ByzantineConsensus(long replicaID, int totalReplicas,
                                MemberManager mm, AuthPerfLink link,
-                               ByzantineType type) {
-        super(replicaID, totalReplicas, mm, link);
+                               ReplicaState replicaState, ByzantineType type) {
+        super(replicaID, totalReplicas, mm, link, replicaState);
         this.type = type;
     }
 

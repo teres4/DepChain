@@ -75,7 +75,7 @@ class AuthPerfLinkTest {
     @Test
     void testValidateConnectionRequest_InvalidMessageType() {
         // Arrange
-        DataMessage msg = new DataMessage(0, "test".getBytes(), null);
+        DataMessage msg = new DataMessage(0, "test".getBytes(), OWN_ID);
 
         // Act: Validate that it's not a connection request
         boolean result = (msg.getType() == MessageType.CONNECTION_REQUEST);
@@ -102,7 +102,7 @@ class AuthPerfLinkTest {
         // Arrange
         SecretKey sessionKey = Crypto.generateSecretKey();
         Session mockSession = new Session(PEER_ID, 0, sessionKey, TEST_ADDR);
-        DataMessage msg = new DataMessage(1, "test".getBytes(), null);
+        DataMessage msg = new DataMessage(1, "test".getBytes(), OWN_ID);
 
         // Act
         boolean result = authPerfLink.verifySequenceNumber(msg, mockSession, TEST_ADDR);
@@ -116,7 +116,7 @@ class AuthPerfLinkTest {
         // Arrange
         SecretKey sessionKey = Crypto.generateSecretKey();
         Session mockSession = new Session(PEER_ID, 0, sessionKey, TEST_ADDR);
-        DataMessage msg = new DataMessage(10, "test".getBytes(), null);
+        DataMessage msg = new DataMessage(10, "test".getBytes(), OWN_ID);
 
         // Act
         boolean result = authPerfLink.verifySequenceNumber(msg, mockSession, TEST_ADDR);
@@ -133,7 +133,7 @@ class AuthPerfLinkTest {
 
         byte[] payload = "test".getBytes();
         long sequenceNumber = 1;
-        DataMessage msgWithoutHmac = new DataMessage(sequenceNumber, payload, null);
+        DataMessage msgWithoutHmac = new DataMessage(sequenceNumber, payload, OWN_ID);
         String jsonWithoutHmac = msgWithoutHmac.toJsonString();
         byte[] hmac = Crypto.generateHMAC(sessionKey, jsonWithoutHmac.getBytes());
 
@@ -152,7 +152,7 @@ class AuthPerfLinkTest {
 
         byte[] payload = "test".getBytes();
         byte[] wrongHmac = new byte[32]; // Fake HMAC
-        DataMessage msgWithoutHmac = new DataMessage(1, payload, null);
+        DataMessage msgWithoutHmac = new DataMessage(1, payload, OWN_ID);
         String jsonWithoutHmac = msgWithoutHmac.toJsonString();
 
         // Act
@@ -170,9 +170,9 @@ class AuthPerfLinkTest {
         long sequenceNumber = 5;
 
         // Act: Create a DataMessage with HMAC
-        DataMessage msgWithoutHmac = new DataMessage(sequenceNumber, payload, null);
+        DataMessage msgWithoutHmac = new DataMessage(sequenceNumber, payload, OWN_ID);
         byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
-        DataMessage msg = new DataMessage(sequenceNumber, payload, hmac);
+        DataMessage msg = new DataMessage(sequenceNumber, payload, hmac, OWN_ID);
 
         // Assert
         assertNotNull(msg);
@@ -195,9 +195,9 @@ class AuthPerfLinkTest {
 
         // Create valid ACK message
         long sequenceNumber = 1;
-        DataACKMessage msgWithoutHmac = new DataACKMessage(sequenceNumber, null);
+        DataACKMessage msgWithoutHmac = new DataACKMessage(sequenceNumber, null, OWN_ID);
         byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
-        DataACKMessage msg = new DataACKMessage(sequenceNumber, hmac);
+        DataACKMessage msg = new DataACKMessage(sequenceNumber, hmac, OWN_ID);
 
         // Act
         authPerfLink.handleAck(msg, TEST_ADDR);
@@ -210,7 +210,7 @@ class AuthPerfLinkTest {
     void testHandleAck_UnknownSender() {
         // Arrange
         when(mockMemberManagement.getMemberByAddress(TEST_ADDR)).thenReturn(null);
-        DataACKMessage msg = new DataACKMessage(1, new byte[32]);
+        DataACKMessage msg = new DataACKMessage(1, new byte[32], OWN_ID);
 
         // Act
         authPerfLink.handleAck(msg, TEST_ADDR);
@@ -227,6 +227,7 @@ class AuthPerfLinkTest {
         when(mockSession.getExpectedSequenceNumber()).thenReturn(1L); // Expecting sequence 1
         when(mockSession.getSessionKey()).thenReturn(sessionKey);
         when(mockSession.getAddr()).thenReturn(TEST_ADDR);
+        when(mockSession.getSenderID()).thenReturn(PEER_ID);
 
         MemberInfo mockMember = mock(MemberInfo.class);
         when(mockMember.getId()).thenReturn(PEER_ID);
@@ -237,9 +238,9 @@ class AuthPerfLinkTest {
         // Create valid DATA message with expected sequence number
         byte[] payload = "some data".getBytes();
         long sequenceNumber = 1;
-        DataMessage msgWithoutHmac = new DataMessage(sequenceNumber, payload, null);
+        DataMessage msgWithoutHmac = new DataMessage(sequenceNumber, payload, OWN_ID);
         byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
-        DataMessage msg = new DataMessage(sequenceNumber, payload, hmac);
+        DataMessage msg = new DataMessage(sequenceNumber, payload, hmac, OWN_ID);
 
         // Act
         authPerfLink.handleData(msg, TEST_ADDR);
@@ -256,9 +257,9 @@ class AuthPerfLinkTest {
         long sequenceNumber = 5;
 
         // Act: Build a DataMessage with proper HMAC
-        DataMessage msgWithoutHmac = new DataMessage(sequenceNumber, content, null);
+        DataMessage msgWithoutHmac = new DataMessage(sequenceNumber, content, OWN_ID);
         byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
-        DataMessage msg = new DataMessage(sequenceNumber, content, hmac);
+        DataMessage msg = new DataMessage(sequenceNumber, content, hmac, OWN_ID);
 
         // Assert: Verify message was created correctly
         assertNotNull(msg);
@@ -284,9 +285,9 @@ class AuthPerfLinkTest {
         long sequenceNumber = 3;
 
         // Act: Create message and convert to datagram packet
-        DataMessage msgWithoutHmac = new DataMessage(sequenceNumber, content, null);
+        DataMessage msgWithoutHmac = new DataMessage(sequenceNumber, content, OWN_ID);
         byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
-        DataMessage msg = new DataMessage(sequenceNumber, content, hmac);
+        DataMessage msg = new DataMessage(sequenceNumber, content, hmac, OWN_ID);
 
         DatagramPacket packet = msg.toDatagramPacket(TEST_ADDR);
 
