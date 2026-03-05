@@ -116,6 +116,8 @@ public class Application {
     }
 
     public void commandDecided(String command) {
+        // TODO: validar comando outra vez (copiar da handleClientCommand) antes de
+        // executar
         // delete from pending
         pendingCommands.remove(command);
         try {
