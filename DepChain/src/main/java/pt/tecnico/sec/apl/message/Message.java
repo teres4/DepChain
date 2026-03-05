@@ -1,20 +1,27 @@
 package pt.tecnico.sec.apl.message;
 
-import com.google.gson.Gson;
 import java.net.DatagramPacket;
 import java.net.InetSocketAddress;
+
+import com.google.gson.Gson;
 
 public abstract class Message {
     private final MessageType type;
     private long sequenceNumber;
+    private long senderId; // ID of the replica that sent this message (for logging/debugging)
 
-    protected Message(MessageType type, long sequenceNumber) {
+    protected Message(MessageType type, long sequenceNumber, long senderId) {
         this.type = type;
         this.sequenceNumber = sequenceNumber;
+        this.senderId = senderId;
     }
 
     public MessageType getType() {
         return type;
+    }
+
+    public long getSenderId() {
+        return senderId;
     }
 
     public long getSequenceNumber() {
@@ -59,6 +66,6 @@ public abstract class Message {
 
     @Override
     public String toString() {
-        return "Message{type=" + type + ", sequenceNumber=" + sequenceNumber + "}";
+        return "Message{type=" + type + ", sequenceNumber=" + sequenceNumber + ", senderId=" + senderId + "}";
     }
 }

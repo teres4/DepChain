@@ -1,14 +1,13 @@
 package pt.tecnico.sec;
 
+import java.util.Scanner;
+
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.message.NewCommandMessage;
-import pt.tecnico.sec.utils.MemberInfo;
-
-import java.util.Scanner;
-
+import pt.tecnico.sec.replica.ReplicaState;
 import pt.tecnico.sec.utils.Crypto;
-import pt.tecnico.sec.utils.DHKeyAgreement;
+import pt.tecnico.sec.utils.MemberInfo;
 
 public class App {
     public static void main(String[] args) {
@@ -39,12 +38,15 @@ public class App {
             return;
         }
 
-        // create consensus object
+        // Initialize replica state
+        ReplicaState replicaState = new ReplicaState();
+
         Consensus consensus = new Consensus(
                 ownId,
                 apl.getMembers() != null ? apl.getMembers().length + 1 : 1,
                 apl.getMemberManager(),
-                apl);
+                apl,
+                replicaState);
         
         consensus.consensusLoop();
 
@@ -65,7 +67,8 @@ public class App {
             System.out.println("3. View active sessions");
             System.out.println("4. Start session with all members");
             System.out.println("5. Send command to consensus leader");
-            System.out.println("6. Exit");
+            System.out.println("6. View replica state");
+            System.out.println("7. Exit");
             System.out.print("Your choice: ");
 
             String choice = scanner.nextLine();
@@ -124,6 +127,10 @@ public class App {
                     break;
 
                 case "6":
+                    System.out.println("Current replica state: \"" + replicaState.getState() + "\"");
+                    break;
+
+                case "7":
                     System.out.println("Exiting the application. Goodbye!");
                     running = false;
                     apl.shutdown();

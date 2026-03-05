@@ -1,7 +1,6 @@
 package pt.tecnico.sec.apl.message;
 
 public class ConnectionACKMessage extends Message {
-    private final long senderId;
     private final byte[] dhPublicKey; // Responder's DH public key
     private final String signature; 
 
@@ -10,8 +9,7 @@ public class ConnectionACKMessage extends Message {
     }
 
     public ConnectionACKMessage(long sequenceNumber, byte[] receiverPublicKey, long senderId, String signature) {
-        super(MessageType.CONNECTION_ACK, sequenceNumber);
-        this.senderId = senderId;
+        super(MessageType.CONNECTION_ACK, sequenceNumber, senderId);
         this.dhPublicKey = receiverPublicKey;
         this.signature = signature;
     }
@@ -21,12 +19,12 @@ public class ConnectionACKMessage extends Message {
     public String getSignature() { return this.signature; }
     
     public String getSignableContent() {
-        return this.senderId + ":" + java.util.Base64.getEncoder().encodeToString(this.dhPublicKey);
+        return this.getSenderId() + ":" + java.util.Base64.getEncoder().encodeToString(this.dhPublicKey);
     }
 
     @Override
     public ConnectionACKMessage withoutHmac() {
-        return new ConnectionACKMessage(getSequenceNumber(), dhPublicKey, senderId, null);
+        return new ConnectionACKMessage(getSequenceNumber(), dhPublicKey, this.getSenderId(), null);
     }
     
     @Override

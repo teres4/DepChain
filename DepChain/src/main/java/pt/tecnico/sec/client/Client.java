@@ -5,7 +5,6 @@ import java.util.Scanner;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.utils.Crypto;
-import pt.tecnico.sec.utils.MemberInfo;
 
 public class Client {
     private int clientId;
@@ -20,19 +19,7 @@ public class Client {
         this.authPerfLink = new AuthPerfLink(this.clientId, Crypto.getClientPrivateKey(this.clientId));
         this.clientOps = new ClientOperations(this.clientId, this.authPerfLink);
         
-        connectToAllReplicas();
-    }
-
-    private void connectToAllReplicas() {
-        MemberInfo[] replicas = authPerfLink.getMembers();
-        
-        for (MemberInfo replica : replicas) {
-            try {
-                authPerfLink.startConnection(replica.getId());
-            } catch (Exception e) {
-                System.err.println("Failed to connect to replica " + replica.getId() + ": " + e.getMessage());
-            }
-        }
+        authPerfLink.connectToAllReplicas();
     }
 
     public static void main(String[] args) throws Exception {

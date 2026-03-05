@@ -163,6 +163,18 @@ public class AuthPerfLink {
         }
     }
 
+    // this is for the clients
+    public void connectToAllReplicas() {
+        MemberInfo[] replicas = memberManagement.getMembers();
+        for (MemberInfo replica : replicas) {
+            try {
+                startConnection(replica.getId());
+            } catch (Exception e) {
+                System.err.println("Failed to connect to replica " + replica.getId() + ": " + e.getMessage());
+            }
+        }
+    }
+
     public Session startConnection(long receiverID) {
         try {
             MemberInfo receiverInfo = memberManagement.getMember(receiverID);
@@ -499,14 +511,14 @@ public class AuthPerfLink {
     // build message helpers
 
     private DataMessage buildDataMessage(long seqNum, byte[] content, SecretKey sessionKey) throws Exception {
-        DataMessage msg = new DataMessage(seqNum, content, null);
-        return new DataMessage(seqNum, content, Crypto.generateHMAC(sessionKey, msg.toJsonString().getBytes()));
+        DataMessage msg = new DataMessage(seqNum, content, null, this.ownId);
+        return new DataMessage(seqNum, content, Crypto.generateHMAC(sessionKey, msg.toJsonString().getBytes()), this.ownId);
     }
 
     private DataACKMessage buildDataAck(long seqNum, SecretKey sessionKey) throws Exception {
-        DataACKMessage msgWithoutHmac = new DataACKMessage(seqNum, null);
+        DataACKMessage msgWithoutHmac = new DataACKMessage(seqNum, null, this.ownId);
         byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
-        return new DataACKMessage(seqNum, hmac);
+        return new DataACKMessage(seqNum, hmac, this.ownId);
     }
 
     // verification helpers

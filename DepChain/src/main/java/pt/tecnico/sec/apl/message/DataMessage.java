@@ -4,18 +4,18 @@ public class DataMessage extends Message {
     private byte[] content;
     private byte[] hmac;
 
-    public DataMessage(long sequenceNumber, byte[] content, byte[] hmac) {
-        super(MessageType.DATA, sequenceNumber);
+    public DataMessage(long sequenceNumber, byte[] content, byte[] hmac, long senderId) {
+        super(MessageType.DATA, sequenceNumber, senderId);
         this.content = content;
         this.hmac = hmac;
     }
 
-    public DataMessage(long sequenceNumber, byte[] content) {
-        this(sequenceNumber, content, null);
+    public DataMessage(long sequenceNumber, byte[] content, long senderId) {
+        this(sequenceNumber, content, null, senderId);
     }
 
-    public DataMessage(byte[] content) {
-        this(-1, content, null);
+    public DataMessage(byte[] content, long senderId) {
+        this(-1, content, null, senderId);
     }
 
     public byte[] getContent() {
@@ -40,11 +40,11 @@ public class DataMessage extends Message {
 
     @Override
     public DataMessage withoutHmac() {
-        return new DataMessage(getSequenceNumber(), getContent(), null);
+        return new DataMessage(getSequenceNumber(), getContent(), null, this.getSenderId());
     }
 
     @Override
     public String toString() {
-        return "DataMessage{sequenceNumber=" + getSequenceNumber() + ", content=" + new String(getContent()) + "}";
+        return "DataMessage{sequenceNumber=" + getSequenceNumber() + ", content=" + new String(getContent()) + ", senderId=" + this.getSenderId() + "}";
     }
 }

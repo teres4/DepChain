@@ -1,21 +1,25 @@
 package pt.tecnico.sec.client;
 
-import pt.tecnico.sec.apl.AuthPerfLink;
-import pt.tecnico.sec.apl.message.DataACKMessage;
-import pt.tecnico.sec.apl.message.DataMessage;
-import pt.tecnico.sec.apl.message.Message;
-import pt.tecnico.sec.utils.MemberInfo;
-
+import java.security.PrivateKey;
 import java.util.HashSet;
 import java.util.Queue;
 import java.util.Set;
 
-public class ClientOperations {
-    private AuthPerfLink authPerfLink;
-    private int clientId;
+import pt.tecnico.sec.apl.AuthPerfLink;
+import pt.tecnico.sec.apl.message.DataACKMessage;
+import pt.tecnico.sec.apl.message.Message;
+import pt.tecnico.sec.client.message.Command;
+import pt.tecnico.sec.client.message.CommandType;
+import pt.tecnico.sec.consensus.message.NewCommandMessage;
+import pt.tecnico.sec.utils.Crypto;
+import pt.tecnico.sec.utils.MemberInfo;
 
-    private int numReplicas;
-    private int f; // Fault tolerance parameter
+public class ClientOperations {
+    private final AuthPerfLink authPerfLink;
+    private final int clientId;
+    private final int numReplicas;
+    private final int f; // Fault tolerance parameter
+    private long nonce = 0; // To prevent replay attacks
 
     public ClientOperations(int clientId, AuthPerfLink authPerfLink) {
         this.authPerfLink = authPerfLink;
@@ -23,55 +27,62 @@ public class ClientOperations {
 
         MemberInfo[] replicas = authPerfLink.getMembers();
         this.numReplicas = replicas.length;
-        
         this.f = (this.numReplicas - 1) / 3;
     }
 
-    public String append(String stringToAppend) throws Exception {
-        byte[] messageBytes = stringToAppend.getBytes();
+    public void append(String stringToAppend) throws Exception {
+        PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
         
-        sendToAllReplicas(messageBytes);
-        
-        // Wait for f+1 ACKs
-        waitForAcks();
-    }
+        this.nonce++;
+        String signableContent = CommandType.APPEND + ":" + this.clientId + ":" + stringToAppend + ":" + this.nonce;
+        String signature = Crypto.signMessage(signableContent, clientPrivKey);
 
-    public void sendToAllReplicas(byte[] messageBytes) {
+        Command appendCommand = new Command(CommandType.APPEND, this.clientId, stringToAppend, signature, this.nonce);
+        String commandJson = appendCommand.toJson();
+        
+        NewCommandMessage newCommandMessage = new NewCommandMessage(
+            0,  // TODO CLIENT DOESNT KNOW VIEW NUMBER. WORK AROUND TO THIS?
+            this.clientId,
+            commandJson
+        );
+        sendToAllReplicas(newCommandMessage);
+        waitForAcks(this.nonce);
+    }
+    
+    private void sendToAllReplicas(NewCommandMessage message) {
+        String messageJson = message.toJson();
         MemberInfo[] replicas = authPerfLink.getMembers();
         for (MemberInfo replica : replicas) {
             try {
-                // TODO this method sets sequence number as -1. thats not ok
-                DataMessage dataMsg = new DataMessage(messageBytes);
-                authPerfLink.sendData(replica.getId(), dataMsg);
-                System.out.println("Sent to replica " + replica.getId());
+                authPerfLink.sendData(replica.getId(), messageJson);
             } catch (Exception e) {
                 System.err.println("Failed to send to replica " + replica.getId() + ": " + e.getMessage());
             }
         }
     }
 
-    public void waitForAcks() {
+    // waits for f+1 ACKs from replicas to ensure at least one honest replica received the command
+    private void waitForAcks(long nonce) throws Exception {
         int requiredAcks = this.f + 1;
-
         Set<Long> ackedReplicas = new HashSet<>();
-
-        // TODO track which replica sent the ACK
         Queue<Message> incomingMessages = authPerfLink.getIncomingMessages();
 
         while (ackedReplicas.size() < requiredAcks) {
-            if (msg instanceof DataACKMessage) {
+            Message msg = incomingMessages.poll();
+            // TODO HOW DO I KNOW WHICH ACKS ARE FOR THIS COMMAND? 
+            // (maybe include nonce in the message and check it here)
+            if (msg != null && msg instanceof DataACKMessage) {
                 DataACKMessage ack = (DataACKMessage) msg;
-                ackedReplicas.add(ack.getSenderId()); 
+                ackedReplicas.add(ack.getSenderId());
             }
             
             if (ackedReplicas.size() < requiredAcks) {
-                Thread.sleep(100); // Brief wait before checking again
+                Thread.sleep(100); 
             }
         }
         
         if (ackedReplicas.size() >= requiredAcks) {
             System.out.println("Successfully received " + ackedReplicas.size() + " ACKs");
-            return "Success";
         } else {
             throw new Exception("Timeout: Only received " + ackedReplicas.size() + " ACKs out of " + requiredAcks + " required");
         }

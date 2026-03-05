@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.consensus.message.*;
+import pt.tecnico.sec.replica.ReplicaState;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberManager;
 import pt.tecnico.sec.utils.threshsig.GroupKey;
@@ -89,7 +90,9 @@ public class Consensus {
     private KeyShare privateKeyShare;
     private GroupKey publicKey;
 
-    public Consensus(long replicaID, int totalReplicas, MemberManager memberManager, AuthPerfLink authPerfLink) {
+    private final ReplicaState replicaState;
+
+    public Consensus(long replicaID, int totalReplicas, MemberManager memberManager, AuthPerfLink authPerfLink, ReplicaState replicaState) {
         this.replicaID = replicaID;
         this.totalReplicas = totalReplicas;
         this.quorumSize = totalReplicas - (totalReplicas - 1) / 3; // n-f where f = (n-1)/3
@@ -97,6 +100,7 @@ public class Consensus {
         this.authPerfLink = authPerfLink;
         this.tree = new Tree();
         this.viewNumber = new AtomicInteger(1);
+        this.replicaState = replicaState;
 
         // Load threshold signature keys
         try {
@@ -633,12 +637,31 @@ public class Consensus {
 
     // ==================== REPLICA METHODS ====================
 
-    public void onReceiveNewCommandMessage(NewCommandMessage newCommandMessage) {
+    // TODO ADD QUEUE OF COMMANDS OF CLIENT ? 
+    public void onReceiveNewCommandMessage(NewCommandMessage newCommandMessage) throws Exception {
         // Only leader can receive new command messages from clients
         if (!amLeader(newCommandMessage.getViewNumber())) {
             System.err.println("Received new command message but am not leader, ignoring");
             return;
         }
+
+        // TODO uncomment for command processing by various replicas? and verification of signature 
+        // we also have to verify the command format and etc
+        // Command command = Command.fromJson(newCommandMessage.getCommand());
+        // if (command == null) {
+        //     System.err.println("Failed to parse command, ignoring");
+        //     return;
+        // }
+
+        // long clientId = command.getSenderId();
+        // PublicKey clientPublicKey = Crypto.getClientPublicKey(clientId);
+
+        // String signableContent = command.getType() + ":" + command.getSenderId() + ":" + command.getContent() + ":" + command.getNonce();
+
+        // if(!Crypto.verifySignature(signableContent.getBytes(), command.getSignature(), clientPublicKey)) {
+        //     System.err.println("Invalid command signature from client " + clientId + ", ignoring");
+        //     return;
+        // }
 
         // for now we assume that just the leader will receive client commands
         try {
@@ -836,7 +859,17 @@ public class Consensus {
         } catch (Exception e) {
             System.err.println("Failed to start new view after decide: " + e.getMessage());
         }
+        // TODO uncomment to enable command execution
+        // executeDecidedCommand(decidedNode);
+    }
 
+    private void executeDecidedCommand(Node decidedNode) {
+        try {
+            String commandJson = decidedNode.getCommand();
+            replicaState.executeCommand(commandJson);
+        } catch (Exception e) {
+            System.err.println("Failed to execute decided command: " + e.getMessage());
+        }
     }
 
     // ==================== TIMEOUT METHODS ====================
