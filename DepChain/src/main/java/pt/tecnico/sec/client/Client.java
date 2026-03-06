@@ -55,15 +55,9 @@ public class Client {
         Scanner scanner = new Scanner(System.in);
         boolean running = true;
 
-        System.out.println("\n\u001B[36m" +
-                " ██████╗██╗     ██╗███████╗███╗   ██╗████████╗\n" +
-                "██╔════╝██║     ██║██╔════╝████╗  ██║╚══██╔══╝\n" +
-                "██║     ██║     ██║█████╗  ██╔██╗ ██║   ██║   \n" +
-                "██║     ██║     ██║██╔══╝  ██║╚██╗██║   ██║   \n" +
-                "╚██████╗███████╗██║███████╗██║ ╚████║   ██║   \n" +
-                " ╚═════╝╚══════╝╚═╝╚══════╝╚═╝  ╚═══╝   ╚═╝   \n" +
-                "\u001B[0m");
-
+        System.out.println("=================================================");
+        System.out.println("       Starting Client " + clientId);
+        System.out.println("=================================================");
 
         while (running) {
             System.out.println("\nPlease choose an option:");
