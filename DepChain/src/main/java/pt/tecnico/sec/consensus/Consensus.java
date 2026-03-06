@@ -19,7 +19,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import pt.tecnico.sec.application.MessageRouter;
+import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberManager;

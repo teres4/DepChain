@@ -7,8 +7,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
-import pt.tecnico.sec.application.ApplicationMessageType;
-import pt.tecnico.sec.application.DepChainMessage;
+import pt.tecnico.sec.router.ApplicationMessageType;
+import pt.tecnico.sec.router.DepChainMessage;
 import pt.tecnico.sec.client.message.Command;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.utils.Crypto;

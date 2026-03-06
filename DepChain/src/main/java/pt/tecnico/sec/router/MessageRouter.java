@@ -1,4 +1,4 @@
-package pt.tecnico.sec.application;
+package pt.tecnico.sec.router;
 
 import java.util.concurrent.*;
 
@@ -8,11 +8,7 @@ import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.message.HotStuffMessage;
 import pt.tecnico.sec.replica.Replica;
 
-/**
- * It receives all messages via APL and routes them to the appropriate handler:
- * - CONSENSUS messages → Consensus
- * - CLIENT_COMMAND messages → Replica
- */
+// receives all messages and routes them to right handles
 public class MessageRouter {
     private AuthPerfLink authPerfLink;
     private Consensus consensus;

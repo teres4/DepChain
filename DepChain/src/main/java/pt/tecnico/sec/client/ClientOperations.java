@@ -8,11 +8,10 @@ import java.util.Set;
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.apl.message.DataACKMessage;
 import pt.tecnico.sec.apl.message.Message;
-import pt.tecnico.sec.application.ApplicationMessageType;
-import pt.tecnico.sec.application.DepChainMessage;
+import pt.tecnico.sec.router.ApplicationMessageType;
+import pt.tecnico.sec.router.DepChainMessage;
 import pt.tecnico.sec.client.message.Command;
 import pt.tecnico.sec.client.message.CommandType;
-import pt.tecnico.sec.consensus.message.NewCommandMessage;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
 

@@ -1,4 +1,4 @@
-package pt.tecnico.sec.application;
+package pt.tecnico.sec.router;
 
 public enum ApplicationMessageType {
     CONSENSUS,

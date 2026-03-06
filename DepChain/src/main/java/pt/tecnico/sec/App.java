@@ -3,7 +3,7 @@ package pt.tecnico.sec;
 import java.util.Scanner;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
-import pt.tecnico.sec.application.MessageRouter;
+import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.message.NewCommandMessage;
 import pt.tecnico.sec.replica.Replica;

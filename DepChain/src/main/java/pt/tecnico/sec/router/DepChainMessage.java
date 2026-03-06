@@ -1,4 +1,4 @@
-package pt.tecnico.sec.application;
+package pt.tecnico.sec.router;
 
 import com.google.gson.Gson;
 
