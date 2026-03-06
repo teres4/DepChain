@@ -279,7 +279,6 @@ class ConsensusTest {
             // so they cannot trigger a PRE_COMMIT for the stale node.
             TestableConsensus c = consensus(2);
             c.viewNumber.set(2);
-            doNothing().when(application).sendConsensusMessage(any(), anyLong());
 
             Node newNode = new Node("newHash", "newCmd", "root", null);
             c.tree.addNode(newNode);
