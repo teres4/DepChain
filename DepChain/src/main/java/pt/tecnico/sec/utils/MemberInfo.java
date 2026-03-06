@@ -9,8 +9,8 @@ public class MemberInfo {
     private final String keyFile;
     private final InetSocketAddress addr;
 
-    public MemberInfo(long id, PublicKey publicSignatureKey, String keyFile, 
-                        InetSocketAddress addr) {
+    public MemberInfo(long id, PublicKey publicSignatureKey, String keyFile,
+            InetSocketAddress addr) {
         this.id = id;
         this.publicSignatureKey = publicSignatureKey;
         this.keyFile = keyFile;

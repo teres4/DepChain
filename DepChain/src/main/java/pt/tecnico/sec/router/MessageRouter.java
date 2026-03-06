@@ -25,21 +25,20 @@ public class MessageRouter {
         executorService.submit(() -> authPerfLink.receive());
         authPerfLink.setMessageListener((content) -> {
             try {
-                DepChainMessage appMsg = DepChainMessage.fromBytes(content);
-                switch (appMsg.getMessageType()) {
-                    case CONSENSUS:
-                        HotStuffMessage consensusMsg = HotStuffMessage.fromJson(appMsg.getPayload());
-                        executorService.submit(() -> routeToConsensus(consensusMsg));
-                        break;
-                    case CLIENT_COMMAND:
-                        Command clientCmd = Command.fromJson(appMsg.getPayload());
-                        executorService.submit(() -> routeToReplica(clientCmd));
-                        break;
-                    default:
-                        System.err.println("[ROUTER] Unknown message type: " + appMsg.getMessageType());
-                }
+                Command cmd = Command.fromJson(content);
+                routeToReplica(cmd);
             } catch (Exception e) {
-                System.err.println("[ROUTER] Failed to handle message: " + e.getMessage());
+                System.err.println("Failed to parse client command: " + e.getMessage());
+                e.printStackTrace();
+            }
+        });
+        authPerfLink.setConsensusMessageListener((content) -> {
+            try {
+                HotStuffMessage msg = HotStuffMessage.fromJson(content);
+                routeToConsensus(msg);
+            } catch (Exception e) {
+                System.err.println("Failed to parse consensus message: " + e.getMessage());
+                e.printStackTrace();
             }
         });
     }
@@ -65,9 +64,8 @@ public class MessageRouter {
     }
 
     public void sendConsensusMessage(HotStuffMessage message, long targetReplicaId) {
-        DepChainMessage appMsg = new DepChainMessage(ApplicationMessageType.CONSENSUS, message.toJson());
         try {
-            executorService.submit(() -> authPerfLink.sendData(targetReplicaId, appMsg.toBytes()));
+            executorService.submit(() -> authPerfLink.sendData(targetReplicaId, message.toJson().getBytes()));
         } catch (Exception e) {
             System.err.println("[ROUTER] Failed to send consensus message: " + e.getMessage());
         }

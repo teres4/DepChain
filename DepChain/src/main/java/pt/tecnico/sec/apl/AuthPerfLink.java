@@ -51,7 +51,9 @@ public class AuthPerfLink {
 
     private final ConcurrentLinkedQueue<Message> incomingMessages = new ConcurrentLinkedQueue<>();
 
-    private MessageListener messageListener;
+    private MessageListener consensusMessageListener; // separate listener for consensus messages to avoid contention
+                                                      // with client commands
+    private MessageListener messageListener; // general listener for all messages, can be used for client
 
     // constructors
 
@@ -84,6 +86,10 @@ public class AuthPerfLink {
 
     public void setMessageListener(MessageListener listener) {
         this.messageListener = listener;
+    }
+
+    public void setConsensusMessageListener(MessageListener listener) {
+        this.consensusMessageListener = listener;
     }
 
     public void receive() {
@@ -183,7 +189,7 @@ public class AuthPerfLink {
 
             Session session = sessionManager.getSession(receiverID);
             if (session == null) {
-                session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), null);
+                session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), null, false);
             }
 
             // Retry handshake with timeout
@@ -274,17 +280,26 @@ public class AuthPerfLink {
             }
 
             MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
+            long senderId = msg.getSenderId();
+            boolean isClient = false;
             if (senderMember == null) {
-                System.err.println("Unknown sender address: " + addr);
-                return;
+                // maybe a client
+                if (msg.getClientID() != -1) {
+                    System.out.println("Received connection request from client " + msg.getClientID() + " at " + addr);
+                    senderId = msg.getClientID();
+                    isClient = true;
+                } else {
+                    System.err.println("Unknown sender address for connection request: " + addr);
+                    return;
+                }
             }
 
             // Check if session already exists
-            Session existingSession = sessionManager.getSession(senderMember.getId());
+            Session existingSession = sessionManager.getSession(senderId);
             if (existingSession != null) {
                 // Duplicate request - resend ACK (original ACK was probably lost)
                 System.out.println(
-                        "Received duplicate CONNECTION_REQUEST from " + senderMember.getId() + ", resending ACK");
+                        "Received duplicate CONNECTION_REQUEST from " + senderId + ", resending ACK");
 
                 // Recreate and resend the ACK
                 byte[] responderDHPublicKey = this.dhKeyAgreement.getEncodedPublicKey();
@@ -296,7 +311,12 @@ public class AuthPerfLink {
                 return;
             }
 
-            PublicKey senderPublicKey = senderMember.getPublicSignatureKey();
+            PublicKey senderPublicKey;
+            if (!isClient) {
+                senderPublicKey = senderMember.getPublicSignatureKey();
+            } else {
+                senderPublicKey = Crypto.getClientPublicKey(senderId);
+            }
             if (!Crypto.verifySignature(msg.getSignableContent().getBytes(), msg.getSignature(), senderPublicKey)) {
                 System.err.println("Failed to verify signature for connection request from: " + addr);
                 return;
@@ -312,7 +332,7 @@ public class AuthPerfLink {
             String responderKeyBase64 = Base64.getEncoder().encodeToString(responderDHPublicKey);
             String signature = Crypto.signMessage(this.ownId + ":" + responderKeyBase64, this.privateKey);
 
-            Session session = sessionManager.createSession(senderMember.getId(), addr, sessionKey);
+            Session session = sessionManager.createSession(senderMember.getId(), addr, sessionKey, isClient);
 
             // Handshake: reply with seq 1 (request was seq 0)
             long replySeqNum = 1;
@@ -415,11 +435,11 @@ public class AuthPerfLink {
                     System.err.println("Failed to verify sender ID in content for: " + addr + " - " + e.getMessage());
                     return;
                 }
-
-                if (messageListener != null) {
-                    System.out.println(
-                            "Received DATA: " + new String(msg.getContent()) + " from: " + session.getSenderID());
-                    messageListener.onMessage(new String(msg.getContent()));
+                String contentStr = new String(msg.getContent());
+                if (session.isClientSession()) {
+                    messageListener.onMessage(contentStr);
+                } else {
+                    consensusMessageListener.onMessage(contentStr);
                 }
 
                 // Update expected sequence number and send cumulative ACK

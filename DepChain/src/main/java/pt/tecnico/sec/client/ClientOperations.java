@@ -4,8 +4,6 @@ import java.security.PrivateKey;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
-import pt.tecnico.sec.router.ApplicationMessageType;
-import pt.tecnico.sec.router.DepChainMessage;
 import pt.tecnico.sec.client.message.Command;
 import pt.tecnico.sec.client.message.CommandResponse;
 import pt.tecnico.sec.client.message.CommandType;
@@ -18,7 +16,7 @@ public class ClientOperations {
     private final int numReplicas;
     private final int f; // Fault tolerance parameter
     private long nonce = 0; // To prevent replay attacks
-    
+
     private final ConcurrentLinkedQueue<CommandResponse> currentResponses = new ConcurrentLinkedQueue<>();
     private long currentNonce = -1;
 
@@ -41,18 +39,15 @@ public class ClientOperations {
         Command appendCommand = new Command(CommandType.APPEND, this.clientId, stringToAppend, signature, this.nonce);
         String commandJson = appendCommand.toJson();
 
-        DepChainMessage appMsg = new DepChainMessage(ApplicationMessageType.CLIENT_COMMAND, commandJson);
-
         // Clear previous responses and set current nonce
         currentResponses.clear();
         currentNonce = this.nonce;
-        
-        sendToAllReplicas(appMsg);
+
+        sendToAllReplicas(commandJson);
         waitForResponses(this.nonce);
     }
 
-    private void sendToAllReplicas(DepChainMessage message) {
-        String messageJson = message.toJson();
+    private void sendToAllReplicas(String messageJson) {
         MemberInfo[] replicas = authPerfLink.getMembers();
         for (MemberInfo replica : replicas) {
             try {
@@ -86,7 +81,8 @@ public class ClientOperations {
                 .count();
 
         if (successfulResponses < requiredResponses) {
-            throw new Exception("Not enough successful responses. Got " + successfulResponses + " successful, need " + requiredResponses);
+            throw new Exception("Not enough successful responses. Got " + successfulResponses + " successful, need "
+                    + requiredResponses);
         }
 
         // Print the result from one successful response
@@ -94,7 +90,7 @@ public class ClientOperations {
                 .filter(CommandResponse::isSuccess)
                 .findFirst()
                 .orElseThrow();
-        
+
         System.out.println("Command executed successfully. Result: " + successResponse.getResult());
     }
 }

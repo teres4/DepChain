@@ -7,8 +7,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
-import pt.tecnico.sec.router.ApplicationMessageType;
-import pt.tecnico.sec.router.DepChainMessage;
 import pt.tecnico.sec.client.message.Command;
 import pt.tecnico.sec.client.message.CommandResponse;
 import pt.tecnico.sec.consensus.Consensus;
@@ -58,13 +56,13 @@ public class Replica {
 
     public void commandDecided(String commandJson) {
         pendingCommands.remove(commandJson);
-        
+
         // Handle NO-OP commands (used when no real command is available)
         if ("NO-OP".equals(commandJson)) {
             System.out.println("NO-OP command decided, skipping execution");
             return;
         }
-        
+
         try {
             Command command = Command.fromJson(commandJson);
             Long clientID = command.getSenderId();
@@ -108,11 +106,10 @@ public class Replica {
         try {
             String message = success ? "Command executed successfully" : "Command execution failed";
             CommandResponse response = new CommandResponse(clientId, nonce, success, result);
-            DepChainMessage appMsg = new DepChainMessage(ApplicationMessageType.COMMAND_RESPONSE, response.toJson());
 
             executorService.submit(() -> {
                 try {
-                    authPerfLink.sendData(clientId, appMsg.toBytes());
+                    authPerfLink.sendData(clientId, response.toJson().getBytes());
                 } catch (Exception e) {
                     System.err.println("Failed to send response to client: " + e.getMessage());
                 }
@@ -125,16 +122,16 @@ public class Replica {
     private boolean checkCommandFormat(String commandJson) {
         try {
             Command cmd = Command.fromJson(commandJson);
-            return cmd.getType() != null && cmd.getSenderId() > 0 && cmd.getNonce() >= 0 
-                   && checkCommandSignature(cmd);
+            return cmd.getType() != null && cmd.getSenderId() > 0 && cmd.getNonce() >= 0
+                    && checkCommandSignature(cmd);
         } catch (Exception e) {
             return false;
         }
     }
 
     private boolean checkCommandSignature(Command cmd) {
-        String contentToVerify = cmd.getType().toString() + ":" + cmd.getSenderId() + ":" 
-                               + cmd.getContent() + ":" + cmd.getNonce();
+        String contentToVerify = cmd.getType().toString() + ":" + cmd.getSenderId() + ":"
+                + cmd.getContent() + ":" + cmd.getNonce();
         try {
             PublicKey clientPubKey = Crypto.getClientPublicKey(cmd.getSenderId());
             return Crypto.verifySignature(contentToVerify.getBytes(), cmd.getSignature(), clientPubKey);

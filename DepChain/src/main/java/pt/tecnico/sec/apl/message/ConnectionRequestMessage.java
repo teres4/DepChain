@@ -1,17 +1,37 @@
 package pt.tecnico.sec.apl.message;
 
+import java.sql.Connection;
+
 public class ConnectionRequestMessage extends Message {
     private final byte[] dhPublicKey; // Sender's DH public key
     private final String signature;
+    private long clientID; //
+
+    public ConnectionRequestMessage(long senderId, byte[] dhPublicKey, String signature, long clientID) {
+        super(MessageType.CONNECTION_REQUEST, 0, senderId);
+        this.dhPublicKey = dhPublicKey;
+        this.signature = signature;
+        this.clientID = clientID;
+    }
 
     public ConnectionRequestMessage(long senderId, byte[] dhPublicKey, String signature) {
         super(MessageType.CONNECTION_REQUEST, 0, senderId);
         this.dhPublicKey = dhPublicKey;
         this.signature = signature;
+        this.clientID = -1; // its a replica, not a client
     }
 
-    public byte[] getDhPublicKey() { return dhPublicKey; }
-    public String getSignature() { return signature; }
+    public long getClientID() {
+        return clientID;
+    }
+
+    public byte[] getDhPublicKey() {
+        return dhPublicKey;
+    }
+
+    public String getSignature() {
+        return signature;
+    }
 
     @Override
     public ConnectionRequestMessage withoutHmac() {
@@ -24,6 +44,7 @@ public class ConnectionRequestMessage extends Message {
 
     @Override
     public String toString() {
-        return "ConnectionRequestMessage{senderId=" + this.getSenderId() + ", sequenceNumber=" + getSequenceNumber() + "}";
+        return "ConnectionRequestMessage{senderId=" + this.getSenderId() + ", sequenceNumber=" + getSequenceNumber()
+                + "}";
     }
 }

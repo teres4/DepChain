@@ -7,8 +7,6 @@ import java.util.concurrent.Executors;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.client.message.CommandResponse;
-import pt.tecnico.sec.router.ApplicationMessageType;
-import pt.tecnico.sec.router.DepChainMessage;
 import pt.tecnico.sec.utils.Crypto;
 
 public class Client {
@@ -24,21 +22,20 @@ public class Client {
 
         this.authPerfLink = new AuthPerfLink(this.clientId, Crypto.getClientPrivateKey(this.clientId));
         this.clientOps = new ClientOperations(this.clientId, this.authPerfLink);
-        
+
         executorService.submit(() -> authPerfLink.receive());
         authPerfLink.setMessageListener((content) -> {
             try {
-                DepChainMessage appMsg = DepChainMessage.fromBytes(content);
-                if (appMsg.getMessageType() == ApplicationMessageType.COMMAND_RESPONSE) {
-                    CommandResponse response = CommandResponse.fromJson(appMsg.getPayload());
-                    clientOps.handleCommandResponse(response);
-                }
+                CommandResponse response = CommandResponse.fromJson(content);
+                clientOps.handleCommandResponse(response);
+
             } catch (Exception e) {
                 System.err.println("[CLIENT] Failed to handle message: " + e.getMessage());
             }
         });
-        
+
         authPerfLink.connectToAllReplicas();
+
     }
 
     public static void main(String[] args) throws Exception {
@@ -93,11 +90,9 @@ public class Client {
         try {
             this.clientOps.append(message);
             System.out.println("Append request sent successfully.");
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             System.err.println("Error sending append request: " + e.getMessage());
         }
-        
+
     }
 }
-

@@ -32,12 +32,14 @@ public class Session {
 
     private final InetSocketAddress addr;
 
-    Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr) {
-        this(senderID, sequenceNumber, sessionKey, addr, 10, 5000); // default window size=10, timeout=5s
+    private boolean isClientSession;
+
+    Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr, boolean isClient) {
+        this(senderID, sequenceNumber, sessionKey, addr, 10, 5000, isClient); // default window size=10, timeout=5s
     }
 
     Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr, int windowSize,
-            long timeout) {
+            long timeout, boolean isClient) {
         this.senderID = senderID;
         this.sendBase = sequenceNumber;
         this.nextSeqNum = sequenceNumber;
@@ -48,6 +50,7 @@ public class Session {
         this.timeout = timeout;
         this.sendBuffer = new LinkedHashMap<>();
         this.timer = null;
+        this.isClientSession = isClient;
     }
 
     // Sender methods
@@ -62,6 +65,10 @@ public class Session {
 
     public synchronized void advanceNextSeqNum() {
         this.nextSeqNum++;
+    }
+
+    public boolean isClientSession() {
+        return this.isClientSession;
     }
 
     public synchronized void bufferPacket(long seqNum, DataMessage msg, Runnable timeoutHandler) {

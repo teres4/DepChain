@@ -6,7 +6,6 @@ import java.util.Collection;
 
 import javax.crypto.SecretKey;
 
-
 public class SessionManager {
 
     private ConcurrentHashMap<Long, Session> sessions = new ConcurrentHashMap<>();
@@ -23,10 +22,11 @@ public class SessionManager {
         return sessions.containsKey(senderID);
     }
 
-    public Session createSession(long senderID, InetSocketAddress addr, SecretKey sessionKey) throws Exception {
+    public Session createSession(long senderID, InetSocketAddress addr, SecretKey sessionKey, boolean isClient)
+            throws Exception {
         // create a new session and add it to the session manager
         // get socket adress from config
-        Session session = new Session(senderID, 1, sessionKey, addr);
+        Session session = new Session(senderID, 1, sessionKey, addr, isClient);
         addSession(senderID, session);
         return session;
     }
