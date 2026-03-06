@@ -84,6 +84,7 @@ public class Consensus {
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     private static final Duration TIMEOUT = Duration.ofSeconds(30); // TODO: choose appropriate timeout duration
+    private static final Duration COMMAND_WAIT_TIMEOUT = Duration.ofSeconds(5); // Timeout to wait for pending commands
 
     // Threshold signature keys
     private KeyShare privateKeyShare;
@@ -433,6 +434,44 @@ public class Consensus {
     }
 
     /**
+     * Gets a command to propose with timeout mechanism.
+     * First tries to get an immediate command, then waits for a timeout period
+     * checking periodically for new commands. Returns "NO-OP" if no command
+     * becomes available within the timeout.
+     */
+    private String getCommandWithTimeout() {
+        // First, try to get a command immediately
+        String command = application.getCommandtoPropose();
+        if (command != null) {
+            return command;
+        }
+
+        // If no immediate command, wait with timeout
+        System.out.println("No immediate command available, waiting for " + COMMAND_WAIT_TIMEOUT.toMillis() + "ms");
+
+        long startTime = System.currentTimeMillis();
+        long timeoutMs = COMMAND_WAIT_TIMEOUT.toMillis();
+
+        while (System.currentTimeMillis() - startTime < timeoutMs) {
+            try {
+                Thread.sleep(50); // Check every 50ms
+                command = application.getCommandtoPropose();
+                if (command != null) {
+                    System.out.println("Command became available during wait period");
+                    return command;
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                System.err.println("Command wait interrupted: " + e.getMessage());
+                break;
+            }
+        }
+
+        System.out.println("No command available after timeout, using NO-OP");
+        return "NO-OP";
+    }
+
+    /**
      * @param message
      * @param viewNumber
      * @return true if message is from the expected leader for the view, false
@@ -477,10 +516,7 @@ public class Consensus {
                     newViewMessages.remove(senderId);
                 }
             }
-            String command = application.getCommandtoPropose();
-            if (command == null) {
-                command = "NO-OP";
-            }
+            String command = getCommandWithTimeout();
             prepare(highQC, command);
             this.viewNumber.set(newViewMessage.getViewNumber());
             return highQC;
