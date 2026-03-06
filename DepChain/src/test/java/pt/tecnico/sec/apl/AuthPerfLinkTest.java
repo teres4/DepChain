@@ -117,6 +117,37 @@ public class AuthPerfLinkTest {
         return manager;
     }
 
+    // Test bidirection communication
+    @Test
+    @Timeout(15)
+    public void testBidirectionalCommunication() throws Exception {
+        CountDownLatch senderLatch = new CountDownLatch(1);
+        CountDownLatch receiverLatch = new CountDownLatch(1);
+
+        sender.setMessageListener(content -> senderLatch.countDown());
+        receiver.setMessageListener(content -> receiverLatch.countDown());
+
+        // Establish connections
+        Session senderSession = sender.startConnection(RECEIVER_ID);
+        Session receiverSession = receiver.startConnection(SENDER_ID);
+        
+        assertNotNull(senderSession);
+        assertNotNull(receiverSession);
+        Thread.sleep(500);
+
+        // Send in both directions
+        String toReceiver = "Sender to Receiver";
+        String toSender = "Receiver to Sender";
+        sender.sendData(RECEIVER_ID, toReceiver.getBytes());
+        receiver.sendData(SENDER_ID, toSender.getBytes());
+
+        // Both should receive
+        assertTrue(receiverLatch.await(5, TimeUnit.SECONDS), 
+                   "Receiver should get message");
+        assertTrue(senderLatch.await(5, TimeUnit.SECONDS), 
+                   "Sender should get message");
+    }
+
     // A message sent from a correct sender should be delivered to a correct receiver 
     @Test
     @Timeout(10)
@@ -312,6 +343,50 @@ public class AuthPerfLinkTest {
         assertFalse(duplicateDelivered, "Duplicate should NOT be delivered");
         assertEquals(1, deliveryCount.get(), "Should only have 1 delivery");
         assertEquals(1, deliveredMessages.size(), "Should only have 1 message");
+    }
+
+    // Test that HMAC verification 
+    @Test
+    @Timeout(10)
+    public void testAuthenticity_HMACVerification() throws Exception {
+        AtomicInteger deliveryCount = new AtomicInteger(0);
+
+        receiver.setMessageListener(content -> {
+            deliveryCount.incrementAndGet();
+        });
+
+        // Establish connection
+        Session senderSession = sender.startConnection(RECEIVER_ID);
+        assertNotNull(senderSession);
+        Thread.sleep(500);
+
+        Session receiverSession = receiver.getSession(SENDER_ID);
+        assertNotNull(receiverSession);
+
+        // Send valid message
+        String validMessage = "Valid message";
+        sender.sendData(RECEIVER_ID, validMessage.getBytes());
+        Thread.sleep(1000);
+
+        int validDeliveries = deliveryCount.get();
+        assertTrue(validDeliveries >= 1, "Valid message should be delivered");
+
+        // Create a message with tampered content and wrong HMAC (simulates an attacker modifying the message)
+        long seqNum = receiverSession.getExpectedSequenceNumber();
+        String tamperedMessage = "Tampered message";
+        
+        // Create message with wrong HMAC (all zeros)
+        byte[] wrongHmac = new byte[32];
+        DataMessage tamperedMsg = new DataMessage(seqNum, tamperedMessage.getBytes(), wrongHmac, SENDER_ID);
+        
+        // Send tampered message from sender's socket to receiver
+        senderSocket.send(tamperedMsg.toDatagramPacket(senderSession.getAddr()));
+        
+        Thread.sleep(1000);
+        
+        // Tampered message should NOT be delivered (HMAC verification should fail)
+        assertEquals(validDeliveries, deliveryCount.get(), 
+                     "Tampered message should be rejected due to HMAC verification failure");
     }
 
 }
