@@ -1,13 +1,11 @@
 package pt.tecnico.sec.replica;
 
-import java.security.PublicKey;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 import pt.tecnico.sec.client.message.Command;
-import pt.tecnico.sec.utils.Crypto;
 
 public class ReplicaState {
 
@@ -17,35 +15,23 @@ public class ReplicaState {
         this.state = new ArrayList<>();
     }
 
-    public void executeCommand(String commandJson) throws Exception {
-        // Parse the command
-        Command command = Command.fromJson(commandJson);
-        
-        // Verify client signature
-        if (!verifyCommandSignature(command)) {
-            throw new SecurityException("Invalid command signature from client " + command.getSenderId());
-        }
-
-        // TODO verify command type 
-
-        // Execute based on type
-        switch (command.getType()) {
-            case APPEND -> append(command.getSenderId(), command.getContent());
-            default -> throw new IllegalArgumentException("Unknown command type: " + command.getType());
-        }
-    }
-
-    private boolean verifyCommandSignature(Command command) {
+    // execute command that has been validated and decided by consensus
+    public boolean executeCommand(String commandJson) throws Exception {
         try {
-            String signableContent = command.getType() + ":" + command.getSenderId() + ":" + command.getContent();
-            byte[] signableBytes = signableContent.getBytes();
+            // Parse the command
+            Command command = Command.fromJson(commandJson);
             
-            PublicKey clientPublicKey = Crypto.getClientPublicKey(command.getSenderId());
-            return Crypto.verifySignature(signableBytes, command.getSignature(), clientPublicKey);
+            // Execute based on type
+            switch (command.getType()) {
+                case APPEND -> {
+                    append(command.getSenderId(), command.getContent());
+                    return true;
+                }
+            }
         } catch (Exception e) {
-            System.err.println("Failed to verify command signature: " + e.getMessage());
-            return false;
+            throw new Exception("Execution error: " + e.getMessage());
         }
+        return false;
     }
 
     public void append(long clientId, String content) {

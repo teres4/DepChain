@@ -5,7 +5,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import pt.tecnico.sec.application.Application;
+import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.replica.ReplicaState;
 import pt.tecnico.sec.utils.MemberManager;
@@ -32,7 +32,7 @@ class ConsensusTest {
         TestableConsensus(long replicaID, int totalReplicas,
                           MemberManager memberManager,
                           ReplicaState replicaState) {
-            super(replicaID, totalReplicas, memberManager, replicaState);
+            super(replicaID, totalReplicas, memberManager);
         }
 
         @Override
@@ -78,11 +78,11 @@ class ConsensusTest {
 
     @Mock MemberManager memberManager;
     @Mock ReplicaState  replicaState;
-    @Mock Application   application;
+    @Mock MessageRouter router;
 
     private TestableConsensus consensus(long replicaID) {
         TestableConsensus c = new TestableConsensus(replicaID, N, memberManager, replicaState);
-        c.setApplication(application);
+        c.setRouter(router);
         return c;
     }
 
@@ -112,8 +112,8 @@ class ConsensusTest {
             // Replica 2 is leader for view 1
             TestableConsensus c = consensus(2);
             c.seedRoot("rootHash");
-            when(application.getCommandtoPropose()).thenReturn("cmd");
-            doNothing().when(application).sendConsensusMessage(any(), anyLong());
+            when(router.getCommandtoPropose()).thenReturn("cmd");
+            doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
             c.onReceiveNewViewMessage(newView(1, 1));
             assertNull(c.getPhase(), "No prepare before quorum");
@@ -139,8 +139,8 @@ class ConsensusTest {
             c.tree.addNode(lowNode);
             c.tree.addNode(highNode);
 
-            when(application.getCommandtoPropose()).thenReturn("cmd");
-            doNothing().when(application).sendConsensusMessage(any(), anyLong());
+            when(router.getCommandtoPropose()).thenReturn("cmd");
+            doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
             // Sender 1 carries QC from view 1, sender 3 carries QC from view 5
             c.onReceiveNewViewMessage(newViewWithQC(1, 1, qc(1, "hash-low",  "prepare")));
@@ -181,7 +181,7 @@ class ConsensusTest {
         void fullPipeline_allPhasesInOrder() throws Exception {
             TestableConsensus leader = consensus(2); // leader for view 1
             leader.viewNumber.set(1);
-            doNothing().when(application).sendConsensusMessage(any(), anyLong());
+            doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
             Node node = new Node("nodeHash", "cmd", "rootHash", null);
             leader.tree.addNode(node);
@@ -206,7 +206,7 @@ class ConsensusTest {
         void extraVotes_doNotCauseDoubleTransition() throws Exception {
             TestableConsensus c = consensus(2);
             c.viewNumber.set(1);
-            doNothing().when(application).sendConsensusMessage(any(), anyLong());
+            doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
             Node node = new Node("nodeHash2", "cmd", "parentHash", null);
             c.tree.addNode(node);
@@ -218,7 +218,7 @@ class ConsensusTest {
                 c.onReceivePrepareVoteMessage(new PrepareVoteMessage(1, node, s, "SIG:" + s));
 
             // PRE_COMMIT broadcast must have happened exactly once (N-1 sends)
-            verify(application, times(N - 1)).sendConsensusMessage(
+            verify(router, times(N - 1)).sendConsensusMessage(
                     argThat(m -> m instanceof PreCommitMessage), anyLong());
         }
     }
@@ -237,7 +237,7 @@ class ConsensusTest {
             // Leader collects quorum in view 1, transitions to PRE_COMMIT, then view
             // advances to 2. A PREPARE vote still tagged view 1 must be silently dropped.
             TestableConsensus c = consensus(2);
-            doNothing().when(application).sendConsensusMessage(any(), anyLong());
+            doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
             Node node = new Node("nodeHash", "cmd", "root", null);
             c.tree.addNode(node);
@@ -268,7 +268,7 @@ class ConsensusTest {
             PrepareMessage stale = new PrepareMessage(1, oldNode, null, 2);
 
             assertDoesNotThrow(() -> c.onReceivePrepareMessage(stale));
-            verify(application, never()).sendConsensusMessage(any(), anyLong());
+            verify(router, never()).sendConsensusMessage(any(), anyLong());
         }
 
         @Test
@@ -318,7 +318,7 @@ class ConsensusTest {
             // Replica 4 is never a leader in views 1 or 2 - pure voter.
             // Leader view 1 = (1%4)+1 = 2;  leader view 2 = (2%4)+1 = 3.
             TestableConsensus c = consensus(4);
-            doNothing().when(application).sendConsensusMessage(any(), anyLong());
+            doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
             // View 1: replica receives PREPARE for node A
             c.viewNumber.set(1);
@@ -350,7 +350,7 @@ class ConsensusTest {
                     new DecideMessage(2, qc(2, "hashB", "commit"), 3));
 
             // Assertions
-            verify(application).commandDecided("cmdB");
+            verify(router).commandDecided("cmdB");
 
             assertNull(c.tree.getNode("hashA"),
                     "Node A (conflicting, never decided) must be pruned after B is decided");
@@ -380,7 +380,7 @@ class ConsensusTest {
             PreCommitMessage msg = new PreCommitMessage(1, fakeQC, 2);
 
             assertDoesNotThrow(() -> c.onReceivePreCommitMessage(msg));
-            verify(application, never()).sendConsensusMessage(any(), anyLong());
+            verify(router, never()).sendConsensusMessage(any(), anyLong());
         }
 
         @Test
@@ -398,7 +398,7 @@ class ConsensusTest {
             DecideMessage msg = new DecideMessage(1, badSigQC, 2);
 
             assertDoesNotThrow(() -> c.onReceiveDecideMessage(msg));
-            verify(application, never()).commandDecided(any());
+            verify(router, never()).commandDecided(any());
         }
 
         @Test
@@ -422,7 +422,7 @@ class ConsensusTest {
             PrepareMessage msg = new PrepareMessage(2, nodeY, qc(0, "rootHash", "prepare"), 3);
 
             assertDoesNotThrow(() -> c.onReceivePrepareMessage(msg));
-            verify(application, never()).sendConsensusMessage(any(), anyLong());
+            verify(router, never()).sendConsensusMessage(any(), anyLong());
         }
 
         @Test
@@ -439,7 +439,7 @@ class ConsensusTest {
             DecideMessage replay = new DecideMessage(1, qc(1, "hashOld", "commit"), 2);
             c.onReceiveDecideMessage(replay);
 
-            verify(application, never()).commandDecided(any());
+            verify(router, never()).commandDecided(any());
             assertEquals(2, c.getViewNumberInt(), "View must not change on replayed DECIDE");
         }
     }

@@ -3,9 +3,10 @@ package pt.tecnico.sec;
 import java.util.Scanner;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
-import pt.tecnico.sec.application.Application;
+import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.message.NewCommandMessage;
+import pt.tecnico.sec.replica.Replica;
 import pt.tecnico.sec.replica.ReplicaState;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
@@ -39,23 +40,18 @@ public class App {
             return;
         }
 
-        // Initialize replica state
-        ReplicaState replicaState = new ReplicaState();
-
         Consensus consensus = new Consensus(
                 ownId,
                 apl.getMembers() != null ? apl.getMembers().length + 1 : 1,
-                apl.getMemberManager(),
-                replicaState);
+                apl.getMemberManager());
 
-        // Create application instance
-        Application application = new Application(apl, consensus);
+        ReplicaState replicaState = new ReplicaState();
+        Replica replica = new Replica(ownId, apl, consensus, replicaState);
 
-        // Set application in consensus to enable message sending
-        consensus.setApplication(application);
+        MessageRouter router = new MessageRouter(apl, consensus, replica);
+        consensus.setRouter(router);
 
-        // Start the application main loop instead of consensus loop
-        application.mainLoop();
+        router.mainLoop();
 
         System.out.println("\n\u001B[32m" +
                 "███████╗███████╗ ██████╗\n" +
@@ -134,7 +130,7 @@ public class App {
                     break;
 
                 case "6":
-                    System.out.println("Current replica state: \"" + replicaState.getState() + "\"");
+                    System.out.println("Current replica state: \"" + replica.getState().getState() + "\"");
                     break;
 
                 case "7":
