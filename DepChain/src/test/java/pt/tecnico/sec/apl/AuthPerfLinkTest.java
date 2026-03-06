@@ -8,6 +8,7 @@ import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -387,6 +388,51 @@ public class AuthPerfLinkTest {
         // Tampered message should NOT be delivered (HMAC verification should fail)
         assertEquals(validDeliveries, deliveryCount.get(), 
                      "Tampered message should be rejected due to HMAC verification failure");
+    }
+
+
+
+    // Tests that messages claiming to be from a different sender are rejected (a sender tries to impersonate another)
+    @Test
+    @Timeout(10)
+    public void testAuthenticity_SenderIDVerification() throws Exception {
+        AtomicInteger deliveryCount = new AtomicInteger(0);
+
+        receiver.setMessageListener(content -> {
+            deliveryCount.incrementAndGet();
+        });
+
+        // Establish connection
+        Session senderSession = sender.startConnection(RECEIVER_ID);
+        assertNotNull(senderSession);
+        Thread.sleep(500);
+
+        // Send valid message
+        String message = "Legitimate message";
+        sender.sendData(RECEIVER_ID, message.getBytes());
+        Thread.sleep(1000);
+
+        int legitimateDeliveries = deliveryCount.get();
+        assertTrue(legitimateDeliveries == 1);
+
+        // Try to forge a message with wrong sender ID in the content
+        Session receiverSession = receiver.getSession(SENDER_ID);
+        long seqNum = receiverSession.getExpectedSequenceNumber();
+        
+        // Create message claiming to be from different sender (ID mismatch in content)
+        long fakeSenderId = 999L;
+        String fakeContent = "{\"senderId\":" + fakeSenderId + ",\"data\":\"Fake message\"}";
+        byte[] hmac = Crypto.generateHMAC(receiverSession.getSessionKey(), fakeContent.getBytes());
+        DataMessage fakeMsg = new DataMessage(seqNum, fakeContent.getBytes(), hmac, fakeSenderId);
+        
+        // Send forged message from sender to receiver
+        senderSocket.send(fakeMsg.toDatagramPacket(senderSession.getAddr()));
+        
+        Thread.sleep(1000);
+        
+        // Fake message should be rejected (content senderId doesn't match session)
+        assertEquals(legitimateDeliveries, deliveryCount.get(),
+                     "Message with wrong sender ID should be rejected");
     }
 
 }
