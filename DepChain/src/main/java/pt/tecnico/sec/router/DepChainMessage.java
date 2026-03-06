@@ -4,7 +4,7 @@ import com.google.gson.Gson;
 
 public class DepChainMessage {
     private final ApplicationMessageType messageType;
-    private final String payload; // JSON string of the actual message (HotStuffMessage or Command)
+    private final String payload; 
 
     public DepChainMessage(ApplicationMessageType messageType, String payload) {
         this.messageType = messageType;

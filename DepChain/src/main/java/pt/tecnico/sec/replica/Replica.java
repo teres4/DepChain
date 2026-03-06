@@ -10,6 +10,7 @@ import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.router.ApplicationMessageType;
 import pt.tecnico.sec.router.DepChainMessage;
 import pt.tecnico.sec.client.message.Command;
+import pt.tecnico.sec.client.message.CommandResponse;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.utils.Crypto;
 
@@ -98,7 +99,9 @@ public class Replica {
 
     private void sendResponseToClient(long clientId, long nonce, boolean success, String result) {
         try {
-            DepChainMessage appMsg = new DepChainMessage(ApplicationMessageType.COMMAND_RESPONSE, result);
+            String message = success ? "Command executed successfully" : "Command execution failed";
+            CommandResponse response = new CommandResponse(clientId, nonce, success, result);
+            DepChainMessage appMsg = new DepChainMessage(ApplicationMessageType.COMMAND_RESPONSE, response.toJson());
 
             executorService.submit(() -> {
                 try {

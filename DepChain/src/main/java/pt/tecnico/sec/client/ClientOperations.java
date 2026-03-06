@@ -1,16 +1,13 @@
 package pt.tecnico.sec.client;
 
 import java.security.PrivateKey;
-import java.util.HashSet;
-import java.util.Queue;
-import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
-import pt.tecnico.sec.apl.message.DataACKMessage;
-import pt.tecnico.sec.apl.message.Message;
 import pt.tecnico.sec.router.ApplicationMessageType;
 import pt.tecnico.sec.router.DepChainMessage;
 import pt.tecnico.sec.client.message.Command;
+import pt.tecnico.sec.client.message.CommandResponse;
 import pt.tecnico.sec.client.message.CommandType;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
@@ -21,6 +18,9 @@ public class ClientOperations {
     private final int numReplicas;
     private final int f; // Fault tolerance parameter
     private long nonce = 0; // To prevent replay attacks
+    
+    private final ConcurrentLinkedQueue<CommandResponse> currentResponses = new ConcurrentLinkedQueue<>();
+    private long currentNonce = -1;
 
     public ClientOperations(int clientId, AuthPerfLink authPerfLink) {
         this.authPerfLink = authPerfLink;
@@ -43,8 +43,12 @@ public class ClientOperations {
 
         DepChainMessage appMsg = new DepChainMessage(ApplicationMessageType.CLIENT_COMMAND, commandJson);
 
+        // Clear previous responses and set current nonce
+        currentResponses.clear();
+        currentNonce = this.nonce;
+        
         sendToAllReplicas(appMsg);
-        waitForAcks(this.nonce);
+        waitForResponses(this.nonce);
     }
 
     private void sendToAllReplicas(DepChainMessage message) {
@@ -59,32 +63,38 @@ public class ClientOperations {
         }
     }
 
-    // waits for f+1 ACKs from replicas to ensure at least one honest replica
-    // received the command
-    private void waitForAcks(long nonce) throws Exception {
-        int requiredAcks = this.f + 1;
-        Set<Long> ackedReplicas = new HashSet<>();
-        Queue<Message> incomingMessages = authPerfLink.getIncomingMessages();
+    public void handleCommandResponse(CommandResponse response) {
+        // Only accept responses for the current command
+        if (response.getNonce() == currentNonce) {
+            currentResponses.add(response);
+        }
+    }
 
-        while (ackedReplicas.size() < requiredAcks) {
-            Message msg = incomingMessages.poll();
-            // TODO HOW DO I KNOW WHICH ACKS ARE FOR THIS COMMAND?
-            // (maybe include nonce in the message and check it here)
-            if (msg != null && msg instanceof DataACKMessage) {
-                DataACKMessage ack = (DataACKMessage) msg;
-                ackedReplicas.add(ack.getSenderId());
-            }
+    // waits for f+1 matching successful responses from replicas to ensure
+    // at least one honest replica executed the command
+    private void waitForResponses(long nonce) throws Exception {
+        int requiredResponses = this.f + 1; // Need f+1 = 2 responses
 
-            if (ackedReplicas.size() < requiredAcks) {
-                Thread.sleep(100);
-            }
+        // Wait until we get enough responses
+        while (currentResponses.size() < requiredResponses) {
+            Thread.sleep(100);
         }
 
-        if (ackedReplicas.size() >= requiredAcks) {
-            System.out.println("Successfully received " + ackedReplicas.size() + " ACKs");
-        } else {
-            throw new Exception(
-                    "Timeout: Only received " + ackedReplicas.size() + " ACKs out of " + requiredAcks + " required");
+        // Check if we have f+1 successful responses
+        long successfulResponses = currentResponses.stream()
+                .filter(CommandResponse::isSuccess)
+                .count();
+
+        if (successfulResponses < requiredResponses) {
+            throw new Exception("Not enough successful responses. Got " + successfulResponses + " successful, need " + requiredResponses);
         }
+
+        // Print the result from one successful response
+        CommandResponse successResponse = currentResponses.stream()
+                .filter(CommandResponse::isSuccess)
+                .findFirst()
+                .orElseThrow();
+        
+        System.out.println("Command executed successfully. Result: " + successResponse.getResult());
     }
 }
