@@ -58,6 +58,13 @@ public class Replica {
 
     public void commandDecided(String commandJson) {
         pendingCommands.remove(commandJson);
+        
+        // Handle NO-OP commands (used when no real command is available)
+        if ("NO-OP".equals(commandJson)) {
+            System.out.println("NO-OP command decided, skipping execution");
+            return;
+        }
+        
         try {
             Command command = Command.fromJson(commandJson);
             Long clientID = command.getSenderId();
