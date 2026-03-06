@@ -31,7 +31,7 @@ import pt.tecnico.sec.utils.threshsig.SigShare;
 
 public class Consensus {
     // current viewnumber
-    private AtomicInteger viewNumber;
+    AtomicInteger viewNumber;
 
     // my ID
     protected final long replicaID;
@@ -51,7 +51,7 @@ public class Consensus {
     // message handling
 
     // tree structure
-    private final Tree tree;
+    final Tree tree;
 
     // New-view message collection for leader
     private final Map<Long, NewViewMessage> newViewMessages = new ConcurrentHashMap<>();
@@ -75,7 +75,7 @@ public class Consensus {
     // since we can have differrent threads handling different messages, we need to
     // make sure
     // that they see the most up to date proposal when they receive votes
-    private volatile Node curProposal = null;
+    volatile Node curProposal = null;
 
     ExecutorService executorService = java.util.concurrent.Executors.newFixedThreadPool(10);
 

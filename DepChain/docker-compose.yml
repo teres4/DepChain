@@ -1,20 +1,28 @@
 services:
   server1:
-    build: .
+    image: depchain:latest
     container_name: depchain_member1
-    command: tail -f /dev/null
+    networks:
+      - depchain_net
 
   server2:
-    build: .
+    image: depchain:latest
     container_name: depchain_member2
-    command: tail -f /dev/null
+    networks:
+      - depchain_net
 
   server3:
-    build: .
+    image: depchain:latest
     container_name: depchain_member3
-    command: tail -f /dev/null
+    networks:
+      - depchain_net
 
   server4:
-    build: .
+    image: depchain:latest
     container_name: depchain_member4
-    command: tail -f /dev/null
+    networks:
+      - depchain_net
+
+networks:
+  depchain_net:
+    driver: bridge

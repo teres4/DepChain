@@ -1,29 +1,16 @@
-# ---------- BUILD STAGE ----------
-FROM maven:3.9.9-eclipse-temurin-21 AS build
-
-WORKDIR /app
-
-# Copy pom first (better caching)
-COPY pom.xml .
-RUN mvn -q -e -DskipTests dependency:go-offline
-
-# Copy source
-COPY src ./src
-
-# Compile once (optional but speeds up runtime)
-RUN mvn -q -DskipTests clean compile
-
-
-# ---------- RUNTIME STAGE ----------
 FROM maven:3.9.9-eclipse-temurin-21
 
 WORKDIR /app
 
-# Copy project (code + config)
-COPY . .
+# 1. Dependencies (cached layer - only invalidated when pom.xml changes)
+COPY pom.xml .
+RUN mvn -q -e dependency:go-offline
 
-# Download dependencies once
-RUN mvn -q -e -DskipTests dependency:go-offline
+# 2. Source + config (invalidated when any source file changes)
+COPY src ./src
+COPY config ./config
 
-# Keep container alive
+# 3. Compile main + test sources at build time
+RUN mvn -q compile test-compile -DskipTests
+
 CMD ["tail", "-f", "/dev/null"]

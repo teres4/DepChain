@@ -40,6 +40,10 @@ public class Tree {
         return executedNode;
     }
 
+    public void setRoot(Node root) {
+        this.root = root;
+    }
+
     public void setLockedQC(QuorumCertificate lockedQC) {
         this.lockedQC = lockedQC;
     }
