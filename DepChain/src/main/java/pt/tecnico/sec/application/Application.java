@@ -1,6 +1,5 @@
 package pt.tecnico.sec.application;
 
-import java.lang.reflect.Array;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
@@ -116,16 +115,46 @@ public class Application {
     }
 
     public void commandDecided(String command) {
-        // TODO: validar comando outra vez (copiar da handleClientCommand) antes de
-        // executar
         // delete from pending
         pendingCommands.remove(command);
         try {
             Command clientCmd = Command.fromJson(command);
-            // TODO: respond to client
+            Long clientID = clientCmd.getSenderId();
+            Long nonce = clientCmd.getNonce();
+
+            if (!checkCommandFormat(command)) {
+                System.out.println("Decided command has invalid format: " + command);
+                sendResponseToClient(clientID, nonce, false, null);
+                return;
+            }
+            
+            if (!checkCommandSignature(clientCmd)) {
+                System.out.println("Decided command has invalid signature from client " + clientID);
+                sendResponseToClient(clientID, nonce, false, null);
+                return;
+            }
+
+            // TODO do i need to increment nonce?
+            if (clientNonces.containsKey(clientID) && nonce < clientNonces.get(clientID)) {
+                System.out.println("Rejected replayed command from client " + clientID + " with nonce " + nonce);
+                sendResponseToClient(clientID, nonce, false,  null);
+                return;
+            }
+
+            System.out.println("\u001B[32mSuccessfully executed command from client " + clientID + 
+                                " with nonce " + nonce + "\u001B[0m");
+            // TODO: wait for confirmation of execution and respond to client
+            String result = "";
+            sendResponseToClient(clientID, nonce, true, result);
+
         } catch (Exception e) {
             System.out.println("Failed to handle client command " + command + ": " + e.getMessage());
         }
+    }
+
+    // TODO 
+    private void sendResponseToClient(long clientId, long nonce, boolean success, String result) {
+        
     }
 
     public boolean checkCommandFormat(String commandJson) {
