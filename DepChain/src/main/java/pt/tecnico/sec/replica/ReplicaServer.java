@@ -31,8 +31,7 @@ public class ReplicaServer {
             // Initialize Consensus
             Consensus consensus = new Consensus(
                 replicaId,
-                apl.getMembers() != null ? apl.getMembers().length + 1 : 1,
-                apl.getMemberManager()
+                apl.getMembers() != null ? apl.getMembers().length + 1 : 1
             );
 
             // Initialize Replica State and Replica

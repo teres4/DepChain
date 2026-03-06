@@ -42,8 +42,7 @@ public class App {
 
         Consensus consensus = new Consensus(
                 ownId,
-                apl.getMembers() != null ? apl.getMembers().length + 1 : 1,
-                apl.getMemberManager());
+                apl.getMembers() != null ? apl.getMembers().length + 1 : 1);
 
         ReplicaState replicaState = new ReplicaState();
         Replica replica = new Replica(ownId, apl, consensus, replicaState);

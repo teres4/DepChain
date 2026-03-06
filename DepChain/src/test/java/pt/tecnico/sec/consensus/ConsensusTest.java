@@ -10,9 +10,10 @@ import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.replica.ReplicaState;
 import pt.tecnico.sec.utils.MemberManager;
 
-import java.util.*;
-
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
 /**
@@ -24,15 +25,14 @@ import static org.mockito.Mockito.*;
  *  3. View change - leader crash, stale-message rejection
  *  4. Safety - conflicting node pruned after competing node is decided
  *  5. Byzantine - forged/tampered messages
+ *  6. Future message buffering
  */
 @ExtendWith(MockitoExtension.class)
 class ConsensusTest {
     static class TestableConsensus extends Consensus {
 
-        TestableConsensus(long replicaID, int totalReplicas,
-                          MemberManager memberManager,
-                          ReplicaState replicaState) {
-            super(replicaID, totalReplicas, memberManager);
+        TestableConsensus(long replicaID, int totalReplicas) {
+            super(replicaID, totalReplicas);
         }
 
         @Override
@@ -81,7 +81,7 @@ class ConsensusTest {
     @Mock MessageRouter router;
 
     private TestableConsensus consensus(long replicaID) {
-        TestableConsensus c = new TestableConsensus(replicaID, N, memberManager, replicaState);
+        TestableConsensus c = new TestableConsensus(replicaID, N);
         c.setRouter(router);
         return c;
     }
@@ -441,6 +441,110 @@ class ConsensusTest {
 
             verify(router, never()).commandDecided(any());
             assertEquals(2, c.getViewNumberInt(), "View must not change on replayed DECIDE");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. Future message buffering
+    // -----------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("6. Future message buffering")
+    class FutureMessageBuffering {
+
+        @Test
+        @DisplayName("Message from a future view is buffered and not processed immediately")
+        void futureMessage_isBufferedNotProcessed() throws Exception {
+            TestableConsensus c = consensus(2);
+            c.viewNumber.set(1);
+
+            Node node = new Node("nodeHash", "cmd", "root", null);
+            c.tree.addNode(node);
+            c.setCurrentPhase(Consensus.Phase.PREPARE);
+            c.curProposal = node;
+
+            // Send a vote for view 2 while we are still in view 1
+            PrepareVoteMessage futureVote = new PrepareVoteMessage(2, node, 1, "SIG:1");
+            c.handleMessage(futureVote);
+
+            // Phase must not have changed - the vote was buffered, not processed
+            assertEquals(Consensus.Phase.PREPARE, c.getPhase());
+            assertNotNull(c.futureMessages.get(2), "Message should be buffered for view 2");
+            assertEquals(1, c.futureMessages.get(2).size());
+        }
+
+        @Test
+        @DisplayName("Buffered messages are replayed in protocol order when view advances")
+        void futureMessage_replayedInOrderOnViewAdvance() throws Exception {
+            TestableConsensus c = consensus(3); // leader for view 2
+            c.viewNumber.set(1);
+            doNothing().when(router).sendConsensusMessage(any(), anyLong());
+
+            Node node = new Node("nodeHash", "cmd", "root", null);
+            c.tree.addNode(node);
+            c.setCurrentPhase(Consensus.Phase.PREPARE);
+            c.curProposal = node;
+
+            // Buffer a full quorum of PREPARE votes for view 2 before we get there
+            for (int s = 1; s <= QUORUM; s++) {
+                c.handleMessage(new PrepareVoteMessage(2, node, s, "SIG:" + s));
+            }
+
+            // Still in view 1 - nothing should have been processed yet
+            assertEquals(Consensus.Phase.PREPARE, c.getPhase());
+
+            // Now advance to view 2 and set up state as if prepare was just broadcast
+            c.viewNumber.set(2);
+            c.curProposal = node;
+            c.setCurrentPhase(Consensus.Phase.PREPARE);
+
+            c.drainFutureMessages(2);
+
+            // Buffered quorum of PREPARE votes should have triggered PRE_COMMIT
+            assertEquals(Consensus.Phase.PRE_COMMIT, c.getPhase());
+        }
+
+        @Test
+        @DisplayName("Messages beyond MAX_VIEW_LOOKAHEAD are dropped")
+        void futureMessage_beyondLookaheadIsDropped() {
+            TestableConsensus c = consensus(2);
+            c.viewNumber.set(1);
+
+            Node node = new Node("nodeHash", "cmd", "root", null);
+            c.tree.addNode(node);
+
+            PrepareVoteMessage farFutureVote = new PrepareVoteMessage(1 + 100, node, 1, "SIG:1");
+            c.handleMessage(farFutureVote);
+
+            // Message should not be in the buffer
+            assertNull(c.futureMessages.get(1 + 100));
+        }
+
+        @Test
+        @DisplayName("Full round buffered in advance completes all the way to DECIDE when view advances")
+        void futureMessage_fullRoundBufferedAndDecided() throws Exception {
+            // Replica 4 is a pure voter (never leader in view 2, leader is 3)
+            TestableConsensus c = consensus(4);
+            c.viewNumber.set(1);
+            doNothing().when(router).sendConsensusMessage(any(), anyLong());
+
+            Node node = new Node("nodeHash", "cmd", "rootHash", null);
+            c.tree.addNode(node);
+
+            // While still in view 1, buffer all messages for view 2 out of order
+            c.handleMessage(new DecideMessage(2, qc(2, "nodeHash", "commit"), 3));
+            c.handleMessage(new CommitMessage(2, qc(2, "nodeHash", "pre-commit"), 3));
+            c.handleMessage(new PreCommitMessage(2, qc(2, "nodeHash", "prepare"), 3));
+            c.handleMessage(new PrepareMessage(2, node, qc(1, "nodeHash", "prepare"), 3));
+
+            // All 4 messages buffered, nothing processed yet
+            assertEquals(4, c.futureMessages.get(2).size());
+            verify(router, never()).commandDecided(any());
+
+            c.viewNumber.set(2);
+            c.drainFutureMessages(2);
+
+            verify(router).commandDecided("cmd");
         }
     }
 }

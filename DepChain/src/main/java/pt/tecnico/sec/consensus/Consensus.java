@@ -7,7 +7,9 @@ import java.io.ObjectOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
@@ -22,7 +24,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.utils.Crypto;
-import pt.tecnico.sec.utils.MemberManager;
 import pt.tecnico.sec.utils.threshsig.GroupKey;
 import pt.tecnico.sec.utils.threshsig.KeyShare;
 import pt.tecnico.sec.utils.threshsig.SigShare;
@@ -40,9 +41,6 @@ public class Consensus {
     // total number of replicas
     private final int totalReplicas;
 
-    // member management
-    private final MemberManager memberManager;
-
     // router for message sending
     private MessageRouter router;
 
@@ -58,7 +56,12 @@ public class Consensus {
     private final Queue<PreCommitVoteMessage> preCommitVotes = new ConcurrentLinkedQueue<>();
     private final Queue<CommitVoteMessage> commitVotes = new ConcurrentLinkedQueue<>();
 
-    private volatile boolean newViewInterrupt = false;
+    // Messages from future views: key = view number, value = list of messages.
+    final Map<Integer, List<HotStuffMessage>> futureMessages = new ConcurrentHashMap<>();
+
+    // Cap how far ahead we buffer. Byzantine nodes could spam artificially high
+    // view numbers to exhaust memory; this bounds the damage.
+    private static final int MAX_VIEW_LOOKAHEAD = 10;
 
     public enum Phase {
         NEW_VIEW, PREPARE, PRE_COMMIT, COMMIT, DECIDE
@@ -66,13 +69,7 @@ public class Consensus {
 
     private Phase currentPhase;
 
-    // will be used to check if the proposal is the same for all votes in the same
-    // phase
-    // volatile keyword means that changes to this variable are immediately visible
-    // to all threads
-    // since we can have differrent threads handling different messages, we need to
-    // make sure
-    // that they see the most up to date proposal when they receive votes
+    // will be used to check if the proposal is the same for all votes in the same phase
     volatile Node curProposal = null;
 
     ExecutorService executorService = java.util.concurrent.Executors.newFixedThreadPool(10);
@@ -88,12 +85,17 @@ public class Consensus {
     private KeyShare privateKeyShare;
     private GroupKey publicKey;
 
-    public Consensus(long replicaID, int totalReplicas, MemberManager memberManager) {
+    private static final String YELLOW = "\u001B[33m";
+    private static final String RESET  = "\u001B[0m";
+
+    private void logHotStuff(String message) {
+        System.out.println(YELLOW + "[HotStuff] " + message + RESET);
+    }
+
+    public Consensus(long replicaID, int totalReplicas) {
         this.replicaID = replicaID;
         this.totalReplicas = totalReplicas;
         this.quorumSize = totalReplicas - (totalReplicas - 1) / 3; // n-f where f = (n-1)/3
-        this.memberManager = memberManager;
-        // this.authPerfLink = authPerfLink;
         this.tree = new Tree();
         this.viewNumber = new AtomicInteger(1);
 
@@ -138,9 +140,6 @@ public class Consensus {
     // ==================== COMMON UTILITY METHODS ====================
 
     public boolean amLeader(int viewNumber) {
-        System.out.println("Checking if am leader for view " + viewNumber + ": replicaID=" + replicaID
-                + " totalReplicas=" + totalReplicas
-                + " leader=" + getLeader(viewNumber));
         return (viewNumber % this.totalReplicas) + 1 == this.replicaID;
     }
 
@@ -180,11 +179,65 @@ public class Consensus {
             // Fallback for tests - use AuthPerfLink directly
             System.out.println("No router set, cannot send new-view message to leader");
         }
-        heartbeat(); // Update last seen time when starting a new view
+        heartbeat();
     }
+
+    // ==================== FUTURE MESSAGE BUFFERING ====================
+
+    // stores the message in the futureMessages map to be processed when we advance to that view number
+    private void bufferFutureMessage(HotStuffMessage msg) {
+        int msgView = msg.getViewNumber();
+        int currentView = this.viewNumber.get();
+
+        if (msgView > currentView + MAX_VIEW_LOOKAHEAD) {
+            return;
+        }
+
+        // If no list exists for this view yet, create one, then append the message
+        futureMessages.computeIfAbsent(msgView, k -> new ArrayList<>()).add(msg);
+    }
+
+    // called when we advance to a new view number, processes any buffered messages for that view
+    void drainFutureMessages(int view) {
+        List<HotStuffMessage> pending = futureMessages.remove(view);
+        if (pending == null || pending.isEmpty()) {
+            return;
+        }
+
+        // Sort by phase order so messages are replayed in protocol sequence
+        // (PREPARE -> PRE_COMMIT -> COMMIT -> DECIDE) even if they arrived out of order
+        pending.sort(Comparator.comparingInt(m -> phaseOrder(m.getHotStuffType())));
+
+        for (HotStuffMessage msg : pending) {
+            handleMessage(msg);
+        }
+    }
+
+    // ==================== MESSAGE DISPATCH ====================
 
     public void handleMessage(HotStuffMessage msg) {
         try {
+            int msgView = msg.getViewNumber();
+            int currentView = this.viewNumber.get();
+
+            // Future message: buffer and return
+            if (msgView > currentView) {
+                bufferFutureMessage(msg);
+                return;
+            }
+
+            // Stale message: discard (except NEW_VIEW which the leader accepts from
+            //    the previous view number while it waits to collect a quorum)
+            if (msgView < currentView) {
+                if (msg.getHotStuffType() != HotStuffMessageType.NEW_VIEW) {
+                    System.out.println("Discarding stale " + msg.getHotStuffType()
+                            + " for view " + msgView + " (current=" + currentView + ")");
+                    return;
+                }
+            }
+
+            // Current view: normal dispatch
+            logHotStuff("Received " + msg.getHotStuffType() + " from replica " + msg.getSenderId() + " (view " + msgView + ")");
             switch (msg.getHotStuffType()) {
                 case NEW_COMMAND -> onReceiveNewCommandMessage((NewCommandMessage) msg);
                 case NEW_VIEW -> onReceiveNewViewMessage((NewViewMessage) msg);
@@ -214,7 +267,6 @@ public class Consensus {
                             // Fallback for tests - use AuthPerfLink directly
                             router.sendConsensusMessage(message, replicaIndex);
                         }
-
                     } catch (Exception e) {
                         System.err.println("Failed to send message to replica " + replicaIndex + ": " + e.getMessage());
                     }
@@ -224,25 +276,8 @@ public class Consensus {
         sendToSelf(message);
     }
 
-    /**
-     * Since the leader also participates in voting, we need to handle the case
-     * where the leader needs to process its own messages.
-     * For simplicity, we can directly call the message handler for the leader's own
-     * messages instead of sending them through the network.
-     * Method automatically checks if current replica is the leader and if so, it
-     * processes the message directly.
-     * 
-     * @throws Exception
-     */
     public void sendToSelf(HotStuffMessage message) throws Exception {
-        System.out.println("sendToSelf called: replicaID=" + replicaID
-                + " viewNumber=" + viewNumber.get()
-                + " message.viewNumber=" + message.getViewNumber()
-                + " totalReplicas=" + totalReplicas
-                + " amLeader=" + amLeader(message.getViewNumber()));
         if (amLeader(message.getViewNumber())) {
-            System.out.println("Message is for self, processing directly");
-            // Process the message synchronously to maintain correct ordering
             handleMessage(message);
         }
     }
@@ -251,14 +286,11 @@ public class Consensus {
 
     public QuorumCertificate QC(Node node, Queue<HotStuffMessage> votes) {
         try {
-            // Use tcombine to get the combined signature
             String combinedSigBase64 = tcombine(votes);
             if (combinedSigBase64 == null) {
                 return null;
             }
 
-            // Create and return QuorumCertificate
-            // Get view number and type from first vote
             HotStuffMessage firstVote = votes.peek();
             int viewNum = firstVote != null ? firstVote.getViewNumber() : this.viewNumber.get();
             String qcType = firstVote instanceof PrepareVoteMessage ? "prepare"
@@ -412,12 +444,6 @@ public class Consensus {
         return null;
     }
 
-    /**
-     * @param message
-     * @param viewNumber
-     * @return true if message view number is less than current view number (i.e.
-     *         outdated message), false otherwise
-     */
     private boolean checkView(HotStuffMessage message, int viewNumber) {
         if (message.getViewNumber() < viewNumber) {
             System.out.println("Received message for view " + message.getViewNumber() +
@@ -465,12 +491,6 @@ public class Consensus {
         return "NO-OP";
     }
 
-    /**
-     * @param message
-     * @param viewNumber
-     * @return true if message is from the expected leader for the view, false
-     *         otherwise
-     */
     private boolean checkisLeaderMessage(HotStuffMessage message, int viewNumber) {
         if (!isLeader(message.getViewNumber(), message.getSenderId())) {
             System.out.println("Received message from sender " + message.getSenderId() +
@@ -478,6 +498,21 @@ public class Consensus {
                     + getLeader(message.getViewNumber()));
         }
         return true;
+    }
+
+    private int phaseOrder(HotStuffMessageType type) {
+        return switch (type) {
+            case NEW_VIEW        -> 0;
+            case NEW_COMMAND     -> 1;
+            case PREPARE         -> 2;
+            case PREPARE_VOTE    -> 3;
+            case PRE_COMMIT      -> 4;
+            case PRE_COMMIT_VOTE -> 5;
+            case COMMIT          -> 6;
+            case COMMIT_VOTE     -> 7;
+            case DECIDE          -> 8;
+            default              -> 99;
+        };
     }
 
     // ==================== LEADER METHODS ====================
@@ -501,6 +536,7 @@ public class Consensus {
 
         // if received (n-f) new-view messages
         if (newViewMessages.size() >= this.quorumSize) {
+            logHotStuff("View " + newViewMessage.getViewNumber() + " - NEW_VIEW quorum reached, advancing to PREPARE");
             // choose highest prepareQC from collected new-view messages
             QuorumCertificate highQC = getHighestQC(newViewMessages.values().stream().toList());
 
@@ -522,28 +558,24 @@ public class Consensus {
     // prepare phase - leader creates new leaf, broadcasts prepare message with new
     // leaf and highQC
     public void prepare(QuorumCertificate highQC, String command) throws Exception {
-        System.out.println("Starting prepare phase for view " + this.viewNumber.get());
-
         if (!amLeader(this.viewNumber.get())) {
             return;
         }
 
-        System.out.println("Creating proposal for view " + this.viewNumber.get() + " with command: " + command);
-
         setCurrentPhase(Phase.PREPARE);
+        logHotStuff("View " + this.viewNumber.get() + " - PREPARE phase started (command: " + command + ")");
 
         // if highQC is null, then this is the very first proposal and the new node
         // should extend from the root
         Node parentNode = (highQC != null) ? tree.getNode(highQC.getNodeHash()) : tree.getRoot();
 
-        Node newNode = createLeaf(parentNode, command); // TODO: define command
+        Node newNode = createLeaf(parentNode, command);
         this.curProposal = newNode;
         tree.addNode(newNode);
 
         // broadcast prepare message
         PrepareMessage prepareMessage = new PrepareMessage(this.viewNumber.get(), newNode, highQC, this.replicaID);
         this.prepareVotes.clear();
-        System.out.println("BROADCASTING PREPARE MESSAGE");
         broadcastMessage(prepareMessage);
     }
 
@@ -579,10 +611,10 @@ public class Consensus {
             @SuppressWarnings("unchecked")
             Queue<HotStuffMessage> voteQueue = (Queue<HotStuffMessage>) (Queue<?>) prepareVotes;
             QuorumCertificate preCommitQC = QC(voteMessage.getNode(), voteQueue);
+            logHotStuff("View " + this.viewNumber.get() + " - PREPARE phase complete");
             // move to pre-commit phase
             precommit(preCommitQC);
         }
-
     }
 
     // pre-commit phase
@@ -591,6 +623,7 @@ public class Consensus {
             return;
         }
         setCurrentPhase(Phase.PRE_COMMIT);
+        logHotStuff("View " + this.viewNumber.get() + " - PRE-COMMIT phase started");
         // Broadcast prepareQC in pre-commit messages
         PreCommitMessage preCommitMessage = new PreCommitMessage(this.viewNumber.get(), prepareQC, this.replicaID);
         this.preCommitVotes.clear();
@@ -624,6 +657,7 @@ public class Consensus {
             @SuppressWarnings("unchecked")
             Queue<HotStuffMessage> voteQueue = (Queue<HotStuffMessage>) (Queue<?>) preCommitVotes;
             QuorumCertificate preCommitQC = QC(voteMessage.getNode(), voteQueue);
+            logHotStuff("View " + this.viewNumber.get() + " - PRE-COMMIT phase complete");
             commit(preCommitQC);
         }
     }
@@ -634,6 +668,7 @@ public class Consensus {
             return;
         }
         setCurrentPhase(Phase.COMMIT);
+        logHotStuff("View " + this.viewNumber.get() + " - COMMIT phase started");
         CommitMessage commitMessage = new CommitMessage(this.viewNumber.get(), preCommitQC, this.replicaID);
         this.commitVotes.clear();
         broadcastMessage(commitMessage);
@@ -666,6 +701,7 @@ public class Consensus {
             @SuppressWarnings("unchecked")
             Queue<HotStuffMessage> voteQueue = (Queue<HotStuffMessage>) (Queue<?>) commitVotes;
             QuorumCertificate commitQC = QC(voteMessage.getNode(), voteQueue);
+            logHotStuff("View " + this.viewNumber.get() + " - COMMIT phase complete");
             decide(commitQC);
         }
     }
@@ -676,6 +712,7 @@ public class Consensus {
             return;
         }
         setCurrentPhase(Phase.DECIDE);
+        logHotStuff("View " + this.viewNumber.get() + " - DECIDE phase started");
         DecideMessage decideMessage = new DecideMessage(this.viewNumber.get(), commitQC, this.replicaID);
         broadcastMessage(decideMessage);
     }
@@ -819,11 +856,6 @@ public class Consensus {
             return;
         }
 
-        // TODO: where to use this lockedQC? how can we use it for safety checks?
-        // this is where we lock
-        // this means that we only accept proposals that extend from this node in future
-        // views
-        // even if they come with a valid QC
         tree.setLockedQC(preCommitQC);
 
         // sign and send commit vote to leader
@@ -875,16 +907,21 @@ public class Consensus {
         // TODO: upcall to blockchain layer
         // for now we should just print the decided command or store in an append only
         // array/log
-        System.out.println("Decided on command: " + decidedNode.getCommand());
+        logHotStuff("View " + decideMessage.getViewNumber() + " - DECIDED on command: " + decidedNode.getCommand());
+        // onDecide(decidedNode);
 
         tree.pruneConflictingBranches(decidedNode);
 
         heartbeat();
-        this.viewNumber.incrementAndGet();
+        int nextView = this.viewNumber.incrementAndGet();
         this.curProposal = null;
         router.commandDecided(decidedNode.getCommand());
 
-        // send newview message to leader of next view to trigger next view
+        // Drain buffered messages for the new view BEFORE sending NEW_VIEW.
+        // If any PREPARE or vote messages arrived early they are processed now,
+        // giving the new leader a head-start.
+        drainFutureMessages(nextView);
+
         try {
             startNewView();
         } catch (Exception e) {
@@ -896,7 +933,6 @@ public class Consensus {
 
     public void heartbeat() {
         this.lastSeen = Instant.now();
-        System.out.println("Heartbeat received.");
     }
 
     private void checkLeaderActivity() {
@@ -909,26 +945,27 @@ public class Consensus {
 
     private void onLeaderInactive() {
         if (amLeader(this.viewNumber.get() + 1)) {
-            this.viewNumber.incrementAndGet(); // Move to next view
+            int nextView = this.viewNumber.incrementAndGet();
             try {
-                System.out.println("⚠ Leader is INACTIVE/FAULTY!");
-                System.out.println("Im the next active leader");
+                logHotStuff("⚠ Leader is INACTIVE/FAULTY! I am the next leader for view " + nextView);
                 this.newViewMessages.put(this.replicaID,
-                        new NewViewMessage(this.viewNumber.get(), tree.getPrepareQC(), this.replicaID));
+                        new NewViewMessage(nextView, tree.getPrepareQC(), this.replicaID));
                 heartbeat();
+                // Drain any messages that arrived early for this new view
+                drainFutureMessages(nextView);
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
             }
-        } else if (!amLeader(this.viewNumber.get() + 1)) {
-            this.viewNumber.incrementAndGet(); // Move to next view
+        } else {
+            int nextView = this.viewNumber.incrementAndGet();
             try {
-                System.out.println("⚠ Leader is INACTIVE/FAULTY!");
-                System.out.println("Starting new view");
+                logHotStuff("⚠ Leader is INACTIVE/FAULTY! Starting new view " + nextView);
+                // Drain any messages that arrived early for this new view
+                drainFutureMessages(nextView);
                 startNewView();
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
             }
         }
     }
-
 }
