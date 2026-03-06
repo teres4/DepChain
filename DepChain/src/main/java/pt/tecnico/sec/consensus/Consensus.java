@@ -19,10 +19,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import pt.tecnico.sec.apl.AuthPerfLink;
-import pt.tecnico.sec.application.Application;
+import pt.tecnico.sec.application.MessageRouter;
 import pt.tecnico.sec.consensus.message.*;
-import pt.tecnico.sec.replica.ReplicaState;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberManager;
 import pt.tecnico.sec.utils.threshsig.GroupKey;
@@ -45,8 +43,8 @@ public class Consensus {
     // member management
     private final MemberManager memberManager;
 
-    // application layer for message sending
-    private Application application;
+    // router for message sending
+    private MessageRouter router;
 
     // message handling
 
@@ -89,10 +87,7 @@ public class Consensus {
     private KeyShare privateKeyShare;
     private GroupKey publicKey;
 
-    private final ReplicaState replicaState;
-
-    public Consensus(long replicaID, int totalReplicas, MemberManager memberManager,
-            ReplicaState replicaState) {
+    public Consensus(long replicaID, int totalReplicas, MemberManager memberManager) {
         this.replicaID = replicaID;
         this.totalReplicas = totalReplicas;
         this.quorumSize = totalReplicas - (totalReplicas - 1) / 3; // n-f where f = (n-1)/3
@@ -100,7 +95,6 @@ public class Consensus {
         // this.authPerfLink = authPerfLink;
         this.tree = new Tree();
         this.viewNumber = new AtomicInteger(1);
-        this.replicaState = replicaState;
 
         // Load threshold signature keys
         try {
@@ -119,8 +113,8 @@ public class Consensus {
                 TimeUnit.SECONDS);
     }
 
-    public void setApplication(Application application) {
-        this.application = application;
+    public void setRouter(MessageRouter router) {
+        this.router = router;
     }
 
     // ==================== INITIALIZATION ====================
@@ -179,11 +173,11 @@ public class Consensus {
     public void startNewView() throws Exception {
         NewViewMessage newViewMessage = new NewViewMessage(this.viewNumber.get(), tree.getPrepareQC(),
                 this.replicaID);
-        if (application != null) {
-            application.sendConsensusMessage(newViewMessage, getLeader(this.viewNumber.get()));
+        if (router != null) {
+            router.sendConsensusMessage(newViewMessage, getLeader(this.viewNumber.get()));
         } else {
             // Fallback for tests - use AuthPerfLink directly
-            System.out.println("No application set, cannot send new-view message to leader");
+            System.out.println("No router set, cannot send new-view message to leader");
         }
         heartbeat(); // Update last seen time when starting a new view
     }
@@ -213,11 +207,11 @@ public class Consensus {
                 final int replicaIndex = i;
                 executorService.submit(() -> {
                     try {
-                        if (application != null) {
-                            application.sendConsensusMessage(message, replicaIndex);
+                        if (router != null) {
+                            router.sendConsensusMessage(message, replicaIndex);
                         } else {
                             // Fallback for tests - use AuthPerfLink directly
-                            application.sendConsensusMessage(message, replicaIndex);
+                            router.sendConsensusMessage(message, replicaIndex);
                         }
 
                     } catch (Exception e) {
@@ -477,7 +471,7 @@ public class Consensus {
                     newViewMessages.remove(senderId);
                 }
             }
-            String command = application.getCommandtoPropose();
+            String command = router.getCommandtoPropose();
             if (command == null) {
                 command = "NO-OP";
             }
@@ -659,29 +653,6 @@ public class Consensus {
             System.err.println("Received new command message but am not leader, ignoring");
             return;
         }
-
-        // TODO uncomment for command processing by various replicas? and verification
-        // of signature
-        // we also have to verify the command format and etc
-        // Command command = Command.fromJson(newCommandMessage.getCommand());
-        // if (command == null) {
-        // System.err.println("Failed to parse command, ignoring");
-        // return;
-        // }
-
-        // long clientId = command.getSenderId();
-        // PublicKey clientPublicKey = Crypto.getClientPublicKey(clientId);
-
-        // String signableContent = command.getType() + ":" + command.getSenderId() +
-        // ":" + command.getContent() + ":" + command.getNonce();
-
-        // if(!Crypto.verifySignature(signableContent.getBytes(),
-        // command.getSignature(), clientPublicKey)) {
-        // System.err.println("Invalid command signature from client " + clientId + ",
-        // ignoring");
-        // return;
-        // }
-
         // for now we assume that just the leader will receive client commands
         try {
             prepare(null, newCommandMessage.getCommand());
@@ -727,8 +698,8 @@ public class Consensus {
                 }
             } else {
                 // Send vote to leader
-                if (application != null) {
-                    application.sendConsensusMessage(voteMessage, getLeader(prepareMessage.getViewNumber()));
+                if (router != null) {
+                    router.sendConsensusMessage(voteMessage, getLeader(prepareMessage.getViewNumber()));
                 }
             }
         }
@@ -777,8 +748,8 @@ public class Consensus {
                 System.err.println("Failed to handle own pre-commit vote message: " + e.getMessage());
             }
         } else {
-            if (application != null) {
-                application.sendConsensusMessage(voteMessage, getLeader(preCommitMessage.getViewNumber()));
+            if (router != null) {
+                router.sendConsensusMessage(voteMessage, getLeader(preCommitMessage.getViewNumber()));
             }
         }
     }
@@ -830,8 +801,8 @@ public class Consensus {
                 System.err.println("Failed to handle own commit vote message: " + e.getMessage());
             }
         } else {
-            if (application != null) {
-                application.sendConsensusMessage(voteMessage, getLeader(commitMessage.getViewNumber()));
+            if (router != null) {
+                router.sendConsensusMessage(voteMessage, getLeader(commitMessage.getViewNumber()));
             }
         }
     }
@@ -869,31 +840,19 @@ public class Consensus {
         // for now we should just print the decided command or store in an append only
         // array/log
         System.out.println("Decided on command: " + decidedNode.getCommand());
-        // onDecide(decidedNode);
 
         tree.pruneConflictingBranches(decidedNode);
 
         heartbeat();
         this.viewNumber.incrementAndGet();
         this.curProposal = null;
-        application.commandDecided(decidedNode.getCommand());
+        router.commandDecided(decidedNode.getCommand());
 
         // send newview message to leader of next view to trigger next view
         try {
             startNewView();
         } catch (Exception e) {
             System.err.println("Failed to start new view after decide: " + e.getMessage());
-        }
-        // TODO uncomment to enable command execution
-        // executeDecidedCommand(decidedNode);
-    }
-
-    private void executeDecidedCommand(Node decidedNode) {
-        try {
-            String commandJson = decidedNode.getCommand();
-            replicaState.executeCommand(commandJson);
-        } catch (Exception e) {
-            System.err.println("Failed to execute decided command: " + e.getMessage());
         }
     }
 
