@@ -20,20 +20,30 @@ echo "Starting tmux session..."
 tmux kill-session -t $SESSION 2>/dev/null
 tmux new-session -d -s $SESSION "$SHELL_CMD"
 
+# Create 5 panes: 4 replicas (top row) + 1 client (bottom)
 P1=$(tmux display-message -p '#{pane_id}')
 P2=$(tmux split-window -h -P -F '#{pane_id}')
 tmux select-pane -t $P1
-P3=$(tmux split-window -v -P -F '#{pane_id}')
+P3=$(tmux split-window -h -P -F '#{pane_id}')
 tmux select-pane -t $P2
-P4=$(tmux split-window -v -P -F '#{pane_id}')
-tmux select-layout tiled
+P4=$(tmux split-window -h -P -F '#{pane_id}')
 
-echo "Running members..."
+# Create client pane at bottom spanning full width
+tmux select-pane -t $P1
+P5=$(tmux split-window -v -P -F '#{pane_id}')
 
-# No recompile needed - already compiled in Docker image
-tmux send-keys -t $P1 "docker exec -it depchain_member1 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='1' 2>&1" C-m
-tmux send-keys -t $P2 "docker exec -it depchain_member2 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='2' 2>&1" C-m
-tmux send-keys -t $P3 "docker exec -it depchain_member3 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='3' 2>&1" C-m
-tmux send-keys -t $P4 "docker exec -it depchain_member4 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='4' 2>&1" C-m
+# Adjust layout
+tmux select-layout main-horizontal
+
+echo "Running replicas and client..."
+
+# Launch 4 replicas with ReplicaServer
+tmux send-keys -t $P1 "docker exec -it depchain_member1 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='1' 2>&1" C-m
+tmux send-keys -t $P2 "docker exec -it depchain_member2 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='2' 2>&1" C-m
+tmux send-keys -t $P3 "docker exec -it depchain_member3 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='3' 2>&1" C-m
+tmux send-keys -t $P4 "docker exec -it depchain_member4 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='4' 2>&1" C-m
+
+# Launch client (clientId=1001, clientPort=9000)
+tmux send-keys -t $P5 "docker exec -it depchain_client1 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.client.Client -Dexec.args='1001 9000' 2>&1" C-m
 
 tmux attach -t $SESSION
