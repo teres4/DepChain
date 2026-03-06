@@ -1,8 +1,5 @@
 package pt.tecnico.sec.apl;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
-
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.security.KeyPair;
@@ -11,7 +8,6 @@ import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -19,9 +15,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import pt.tecnico.sec.apl.message.DataMessage;
 import pt.tecnico.sec.utils.Crypto;
@@ -264,13 +266,19 @@ public class AuthPerfLinkTest {
     @Test
     @Timeout(10)
     public void testNoDuplication_DuplicatePackets() throws Exception {
-        CompletableFuture<Void> messageDelivered = new CompletableFuture<>();
+        CountDownLatch firstMessage = new CountDownLatch(1);
+        CountDownLatch secondMessage = new CountDownLatch(1);
+        AtomicInteger deliveryCount = new AtomicInteger(0);
         List<String> deliveredMessages = Collections.synchronizedList(new ArrayList<>());
 
         receiver.setMessageListener(content -> {
+            int count = deliveryCount.incrementAndGet();
             deliveredMessages.add(content);
-            if (deliveredMessages.size() == 1) {
-                messageDelivered.complete(null);
+            
+            if (count == 1) {
+                firstMessage.countDown();
+            } else if (count == 2) {
+                secondMessage.countDown(); // This should NEVER happen
             }
         });
 
@@ -286,27 +294,24 @@ public class AuthPerfLinkTest {
         String message = "Test message";
         sender.sendData(RECEIVER_ID, message.getBytes());
 
-        // Wait for delivery
-        assertDoesNotThrow(() -> messageDelivered.get(5, TimeUnit.SECONDS), 
-                           "Message should be delivered");
-        assertEquals(1, deliveredMessages.size(), "First message should be delivered");
+        // Wait for first delivery
+        assertTrue(firstMessage.await(5, TimeUnit.SECONDS), "First message should be delivered");
+        assertEquals(1, deliveryCount.get());
 
-        // send a duplicate packet with the SAME sequence number
+        // Send duplicate with SAME sequence number
         long usedSeqNum = senderSession.getNextSequenceNumber() - 1;
-
-        // Build duplicate data message with same sequence number
         DataMessage duplicateMsg = new DataMessage(usedSeqNum, message.getBytes(), null, SENDER_ID);
         byte[] hmac = Crypto.generateHMAC(receiverSession.getSessionKey(), duplicateMsg.toJsonString().getBytes());
         DataMessage duplicateWithHmac = new DataMessage(usedSeqNum, message.getBytes(), hmac, SENDER_ID);
 
-        // Send duplicate directly via socket (bypassing normal send flow)
         senderSocket.send(duplicateWithHmac.toDatagramPacket(receiverSession.getAddr()));
 
-        // Wait to see if duplicate gets delivered
-        Thread.sleep(2000);
-
-        assertEquals(1, deliveredMessages.size(), 
-                     "Duplicate packet should NOT be delivered (APL2: No duplication)");
+        // Wait to see if duplicate triggers delivery (it shouldn't)
+        boolean duplicateDelivered = secondMessage.await(5, TimeUnit.SECONDS);
+        
+        assertFalse(duplicateDelivered, "Duplicate should NOT be delivered");
+        assertEquals(1, deliveryCount.get(), "Should only have 1 delivery");
+        assertEquals(1, deliveredMessages.size(), "Should only have 1 message");
     }
 
 }
