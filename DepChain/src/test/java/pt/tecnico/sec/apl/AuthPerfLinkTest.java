@@ -125,8 +125,8 @@ public class AuthPerfLinkTest {
         CountDownLatch senderLatch = new CountDownLatch(1);
         CountDownLatch receiverLatch = new CountDownLatch(1);
 
-        sender.setMessageListener(content -> senderLatch.countDown());
-        receiver.setMessageListener(content -> receiverLatch.countDown());
+        sender.setConsensusMessageListener(content -> senderLatch.countDown());
+        receiver.setConsensusMessageListener(content -> receiverLatch.countDown());
 
         // Establish connections
         Session senderSession = sender.startConnection(RECEIVER_ID);
@@ -156,7 +156,7 @@ public class AuthPerfLinkTest {
         CompletableFuture<String> future = new CompletableFuture<>();
 
         // listener will be triggered whenever the receiver gets a message
-        receiver.setMessageListener(content -> future.complete(content));
+        receiver.setConsensusMessageListener(content -> future.complete(content));
 
         // Establish connection first
         Session session = sender.startConnection(RECEIVER_ID);
@@ -303,7 +303,7 @@ public class AuthPerfLinkTest {
         AtomicInteger deliveryCount = new AtomicInteger(0);
         List<String> deliveredMessages = Collections.synchronizedList(new ArrayList<>());
 
-        receiver.setMessageListener(content -> {
+        receiver.setConsensusMessageListener(content -> {
             int count = deliveryCount.incrementAndGet();
             deliveredMessages.add(content);
             
@@ -352,7 +352,7 @@ public class AuthPerfLinkTest {
     public void testAuthenticity_HMACVerification() throws Exception {
         AtomicInteger deliveryCount = new AtomicInteger(0);
 
-        receiver.setMessageListener(content -> {
+        receiver.setConsensusMessageListener(content -> {
             deliveryCount.incrementAndGet();
         });
 
@@ -398,7 +398,7 @@ public class AuthPerfLinkTest {
     public void testAuthenticity_SenderIDVerification() throws Exception {
         AtomicInteger deliveryCount = new AtomicInteger(0);
 
-        receiver.setMessageListener(content -> {
+        receiver.setConsensusMessageListener(content -> {
             deliveryCount.incrementAndGet();
         });
 
