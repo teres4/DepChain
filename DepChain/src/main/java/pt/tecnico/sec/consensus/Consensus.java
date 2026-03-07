@@ -69,7 +69,8 @@ public class Consensus {
 
     private Phase currentPhase;
 
-    // will be used to check if the proposal is the same for all votes in the same phase
+    // will be used to check if the proposal is the same for all votes in the same
+    // phase
     volatile Node curProposal = null;
 
     ExecutorService executorService = java.util.concurrent.Executors.newFixedThreadPool(10);
@@ -86,7 +87,7 @@ public class Consensus {
     private GroupKey publicKey;
 
     private static final String YELLOW = "\u001B[33m";
-    private static final String RESET  = "\u001B[0m";
+    private static final String RESET = "\u001B[0m";
 
     private void logHotStuff(String message) {
         System.out.println(YELLOW + "[HotStuff] " + message + RESET);
@@ -184,7 +185,8 @@ public class Consensus {
 
     // ==================== FUTURE MESSAGE BUFFERING ====================
 
-    // stores the message in the futureMessages map to be processed when we advance to that view number
+    // stores the message in the futureMessages map to be processed when we advance
+    // to that view number
     private void bufferFutureMessage(HotStuffMessage msg) {
         int msgView = msg.getViewNumber();
         int currentView = this.viewNumber.get();
@@ -197,7 +199,8 @@ public class Consensus {
         futureMessages.computeIfAbsent(msgView, k -> new ArrayList<>()).add(msg);
     }
 
-    // called when we advance to a new view number, processes any buffered messages for that view
+    // called when we advance to a new view number, processes any buffered messages
+    // for that view
     void drainFutureMessages(int view) {
         List<HotStuffMessage> pending = futureMessages.remove(view);
         if (pending == null || pending.isEmpty()) {
@@ -227,7 +230,7 @@ public class Consensus {
             }
 
             // Stale message: discard (except NEW_VIEW which the leader accepts from
-            //    the previous view number while it waits to collect a quorum)
+            // the previous view number while it waits to collect a quorum)
             if (msgView < currentView) {
                 if (msg.getHotStuffType() != HotStuffMessageType.NEW_VIEW) {
                     System.out.println("Discarding stale " + msg.getHotStuffType()
@@ -237,7 +240,8 @@ public class Consensus {
             }
 
             // Current view: normal dispatch
-            logHotStuff("Received " + msg.getHotStuffType() + " from replica " + msg.getSenderId() + " (view " + msgView + ")");
+            logHotStuff("Received " + msg.getHotStuffType() + " from replica " + msg.getSenderId() + " (view " + msgView
+                    + ")");
             switch (msg.getHotStuffType()) {
                 case NEW_COMMAND -> onReceiveNewCommandMessage((NewCommandMessage) msg);
                 case NEW_VIEW -> onReceiveNewViewMessage((NewViewMessage) msg);
@@ -502,16 +506,16 @@ public class Consensus {
 
     private int phaseOrder(HotStuffMessageType type) {
         return switch (type) {
-            case NEW_VIEW        -> 0;
-            case NEW_COMMAND     -> 1;
-            case PREPARE         -> 2;
-            case PREPARE_VOTE    -> 3;
-            case PRE_COMMIT      -> 4;
+            case NEW_VIEW -> 0;
+            case NEW_COMMAND -> 1;
+            case PREPARE -> 2;
+            case PREPARE_VOTE -> 3;
+            case PRE_COMMIT -> 4;
             case PRE_COMMIT_VOTE -> 5;
-            case COMMIT          -> 6;
-            case COMMIT_VOTE     -> 7;
-            case DECIDE          -> 8;
-            default              -> 99;
+            case COMMIT -> 6;
+            case COMMIT_VOTE -> 7;
+            case DECIDE -> 8;
+            default -> 99;
         };
     }
 
@@ -915,6 +919,7 @@ public class Consensus {
         heartbeat();
         int nextView = this.viewNumber.incrementAndGet();
         this.curProposal = null;
+
         router.commandDecided(decidedNode.getCommand());
 
         // Drain buffered messages for the new view BEFORE sending NEW_VIEW.

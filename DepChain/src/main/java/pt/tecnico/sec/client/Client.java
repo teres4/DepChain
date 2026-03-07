@@ -20,11 +20,12 @@ public class Client {
         this.clientId = clientId;
         this.clientPort = clientPort;
 
-        this.authPerfLink = new AuthPerfLink(this.clientId, Crypto.getClientPrivateKey(this.clientId), false, clientPort);
+        this.authPerfLink = new AuthPerfLink(this.clientId, Crypto.getClientPrivateKey(this.clientId), false,
+                clientPort);
         this.clientOps = new ClientOperations(this.clientId, this.authPerfLink);
 
         executorService.submit(() -> authPerfLink.receive());
-        authPerfLink.setMessageListener((content) -> {
+        authPerfLink.setConsensusMessageListener((content) -> {
             try {
                 CommandResponse response = CommandResponse.fromJson(content);
                 clientOps.handleCommandResponse(response);

@@ -23,6 +23,7 @@ import pt.tecnico.sec.apl.message.ConnectionRequestMessage;
 import pt.tecnico.sec.apl.message.DataACKMessage;
 import pt.tecnico.sec.apl.message.DataMessage;
 import pt.tecnico.sec.apl.message.Message;
+import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.DHKeyAgreement;
 import pt.tecnico.sec.utils.MemberInfo;
@@ -35,11 +36,15 @@ public class AuthPerfLink {
         void onMessage(String content);
     }
 
+    public interface ConsensusMessageListener {
+        void onConsensusMessage(String content);
+    }
+
     public static final int BUFFER_SIZE = 65536; // Maximum UDP packet size
 
     private final long ownId;
     private final PrivateKey privateKey;
-    private final boolean isReplica; 
+    private final boolean isReplica;
 
     private final DatagramSocket datagramSocket;
     private final ExecutorService executorService;
@@ -52,10 +57,12 @@ public class AuthPerfLink {
 
     private final ConcurrentLinkedQueue<Message> incomingMessages = new ConcurrentLinkedQueue<>();
 
-    private MessageListener consensusMessageListener; // separate listener for consensus messages to avoid contention
-                                                      // with client commands
+    private ConsensusMessageListener consensusMessageListener; // separate listener for consensus messages to avoid
+                                                               // contention
+    // with client commands
     private MessageListener messageListener; // general listener for all messages, can be used for client
 
+    private final boolean logger = false; // set to true to enable debug logging
     // constructors
 
     // Default constructor for production use
@@ -94,7 +101,7 @@ public class AuthPerfLink {
         this.messageListener = listener;
     }
 
-    public void setConsensusMessageListener(MessageListener listener) {
+    public void setConsensusMessageListener(ConsensusMessageListener listener) {
         this.consensusMessageListener = listener;
     }
 
@@ -142,13 +149,13 @@ public class AuthPerfLink {
             }
             // Atomically get sequence number and advance to prevent race conditions
             long seqNum = session.getAndAdvanceSequenceNumber();
-            System.out.println("\u001B[35mSENDING DATA with seqNum=" + seqNum + " to ID: " + receiverID
-                    + " (nextSeqNum was " + seqNum + ", now " + (seqNum + 1) + ")\u001B[0m");
+            logger("SENDING DATA with seqNum=" + seqNum + " to ID: " + receiverID
+                    + " (nextSeqNum was " + seqNum + ", now " + (seqNum + 1) + ")");
             DataMessage signedDataMessage = buildDataMessage(seqNum,
                     content,
                     session.getSessionKey());
             send(signedDataMessage, receiverID);
-            System.out.println("DATA sent to ID: " + receiverID);
+            logger("DATA sent to ID: " + receiverID);
         } catch (Exception e) {
             System.err.println("Failed to send DATA: " + e.getMessage());
         }
@@ -161,7 +168,8 @@ public class AuthPerfLink {
                 continue; // skip self
             if (sessionManager.getSession(member.getId()) != null)
                 continue; // already connected
-            System.err.println("Attempting to connect to replica ID: " + member.getId() + " at address: " + member.getAddr());
+            System.err.println(
+                    "Attempting to connect to replica ID: " + member.getId() + " at address: " + member.getAddr());
             startConnection(member.getId());
         }
     }
@@ -172,7 +180,8 @@ public class AuthPerfLink {
         System.err.println("Attempting to connect to all replicas. Found " + replicas.length + " members in config.");
         for (MemberInfo replica : replicas) {
             try {
-                System.err.println("Attempting to connect to replica ID: " + replica.getId() + " at address: " + replica.getAddr());
+                System.err.println("Attempting to connect to replica ID: " + replica.getId() + " at address: "
+                        + replica.getAddr());
                 startConnection(replica.getId());
             } catch (Exception e) {
                 System.err.println("Failed to connect to replica " + replica.getId() + ": " + e.getMessage());
@@ -188,14 +197,16 @@ public class AuthPerfLink {
                 return null;
             }
 
-            System.err.println("Starting connection to member ID: " + receiverID + " at address: " + receiverInfo.getAddr());
+            System.err.println(
+                    "Starting connection to member ID: " + receiverID + " at address: " + receiverInfo.getAddr());
             byte[] publicKey = this.dhKeyAgreement.getEncodedPublicKey();
 
             // Sign the message
             String publicKeyBase64 = Base64.getEncoder().encodeToString(publicKey);
             String signature = Crypto.signMessage(this.ownId + ":" + publicKeyBase64, this.privateKey);
-            
-            // For clients, set clientID; for replicas, use default constructor (clientID = -1)
+
+            // For clients, set clientID; for replicas, use default constructor (clientID =
+            // -1)
             ConnectionRequestMessage connectionRequest;
             if (isReplica) {
                 connectionRequest = new ConnectionRequestMessage(this.ownId, publicKey, signature);
@@ -211,13 +222,14 @@ public class AuthPerfLink {
             // Retry handshake with timeout
             int maxRetries = 3;
             for (int attempt = 1; attempt <= maxRetries; attempt++) {
-                System.out.println("Sending CONNECTION_REQUEST to " + receiverID + " (attempt " + attempt + "/" + maxRetries + ")");
-                System.out.println("Message content: {" +
-                    "clientID: " + connectionRequest.getClientID() + ", " +
-                    "type: " + connectionRequest.getType() + ", " +
-                    "senderId: " + connectionRequest.getSenderId() + "}");
+                logger("Sending CONNECTION_REQUEST to " + receiverID + " (attempt " + attempt + "/"
+                        + maxRetries + ")");
+                logger("Message content: {" +
+                        "clientID: " + connectionRequest.getClientID() + ", " +
+                        "type: " + connectionRequest.getType() + ", " +
+                        "senderId: " + connectionRequest.getSenderId() + "}");
                 send(connectionRequest, receiverID);
-                System.out.println(
+                logger(
                         "Sent CONNECTION_REQUEST to " + receiverID + " (attempt " + attempt + "/" + maxRetries + ")");
 
                 // Wait for connection to be established
@@ -226,7 +238,7 @@ public class AuthPerfLink {
                     return session;
                 }
 
-                System.out.println("Connection timeout with " + receiverID + ", retrying...");
+                logger("Connection timeout with " + receiverID + ", retrying...");
             }
 
             System.err.println(
@@ -280,7 +292,7 @@ public class AuthPerfLink {
 
         try {
             Message msg = Message.fromPacket(packet);
-            System.out.println("Message content: {" +
+            logger("Message content: {" +
                     "type: " + msg.getType() + ", " +
                     "senderId: " + msg.getSenderId() + "}");
             switch (msg.getType()) {
@@ -308,7 +320,7 @@ public class AuthPerfLink {
             if (senderMember == null) {
                 // maybe a client
                 if (msg.getClientID() != -1) {
-                    System.out.println("Received connection request from client " + msg.getClientID() + " at " + addr);
+                    logger("Received connection request from client " + msg.getClientID() + " at " + addr);
                     senderId = msg.getClientID();
                     isClient = true;
                 } else {
@@ -321,7 +333,7 @@ public class AuthPerfLink {
             Session existingSession = sessionManager.getSession(senderId);
             if (existingSession != null) {
                 // Duplicate request - resend ACK (original ACK was probably lost)
-                System.out.println(
+                logger(
                         "Received duplicate CONNECTION_REQUEST from " + senderId + ", resending ACK");
 
                 // Recreate and resend the ACK
@@ -373,7 +385,7 @@ public class AuthPerfLink {
             // Mark session as established after sending reply
             session.markConnectionEstablished();
 
-            System.out.println("Connection reply sent to: " + addr);
+            logger("Connection reply sent to: " + addr);
         } catch (Exception e) {
             System.err.println("Failed to handle connection request: " + e.getMessage());
         }
@@ -418,7 +430,7 @@ public class AuthPerfLink {
             // Mark session as established
             session.markConnectionEstablished();
 
-            System.out.println("Connection reply verified and session established with: " + addr);
+            logger("Connection reply verified and session established with: " + addr);
         } catch (Exception e) {
             System.err.println("Failed to handle connection reply: " + e.getMessage());
         }
@@ -432,7 +444,8 @@ public class AuthPerfLink {
                 session = sessionManager.getSession(senderId);
 
                 if (session == null) {
-                    System.err.println("Unknown sender address or client ID: " + addr + " (senderId: " + senderId + ")");
+                    System.err
+                            .println("Unknown sender address or client ID: " + addr + " (senderId: " + senderId + ")");
                     return;
                 }
             }
@@ -469,19 +482,20 @@ public class AuthPerfLink {
                 if (session.isClientSession()) {
                     messageListener.onMessage(contentStr);
                 } else {
-                    consensusMessageListener.onMessage(contentStr);
+                    consensusMessageListener.onConsensusMessage(contentStr);
                 }
 
                 // Update expected sequence number and send cumulative ACK
                 session.setExpectedSequenceNumber(expectedSeq + 1);
                 String contentPreview = contentStr.length() > 50 ? contentStr.substring(0, 50) + "..." : contentStr;
-                System.out.println("Received expected packet " + msg.getSequenceNumber() + " from: " + addr + " (content: " + contentPreview + ") sending ACK for seq " + (expectedSeq + 1));
+                logger("Received expected packet " + msg.getSequenceNumber() + " from: " + addr
+                        + " (content: " + contentPreview + ") sending ACK for seq " + (expectedSeq + 1));
 
                 sendDataAck(session, expectedSeq + 1);
 
             } else {
                 // Out-of-order packet - discard and resend ACK for last in-order packet
-                System.out.println("Received out-of-order packet " + msg.getSequenceNumber() +
+                logger("Received out-of-order packet " + msg.getSequenceNumber() +
                         " (expected " + expectedSeq + ") from: " + addr + ", discarding");
 
                 // Send cumulative ACK for last correctly received packet
@@ -506,7 +520,7 @@ public class AuthPerfLink {
             // Cumulative ACK: acknowledges all packets up to seqNum - 1
             long ackNum = msg.getSequenceNumber();
             session.handleAck(ackNum);
-            System.out.println("Cumulative ACK " + ackNum + " received from: " + addr);
+            logger("Cumulative ACK " + ackNum + " received from: " + addr);
         } catch (Exception e) {
             System.err.println("Failed to handle ACK: " + e.getMessage());
         }
@@ -547,7 +561,7 @@ public class AuthPerfLink {
                 DatagramPacket packet = message.toDatagramPacket(session.getAddr());
                 datagramSocket.send(packet);
 
-                System.out.println("Sent packet " + dataMsg.getSequenceNumber() + " to: " + session.getAddr());
+                logger("Sent packet " + dataMsg.getSequenceNumber() + " to: " + session.getAddr());
             } catch (IOException e) {
                 System.err.println("Failed to send message: " + e.getMessage());
             }
@@ -557,7 +571,7 @@ public class AuthPerfLink {
             try {
                 DatagramPacket packet = message.toDatagramPacket(session.getAddr());
                 datagramSocket.send(packet);
-                System.out.println("Sent message seq " + message.getSequenceNumber() + " to: " + session.getAddr());
+                logger("Sent message seq " + message.getSequenceNumber() + " to: " + session.getAddr());
             } catch (IOException e) {
                 System.err.println("Failed to send message: " + e.getMessage());
             }
@@ -565,7 +579,7 @@ public class AuthPerfLink {
     }
 
     private void handleTimeout(Session session) {
-        System.out.println("Timeout! Retransmitting all unacknowledged packets to: " + session.getSenderID());
+        logger("Timeout! Retransmitting all unacknowledged packets to: " + session.getSenderID());
 
         // Retransmit all packets in the window
         Map<Long, DataMessage> unacked = session.getUnacknowledgedPackets();
@@ -573,7 +587,7 @@ public class AuthPerfLink {
             try {
                 DatagramPacket packet = msg.toDatagramPacket(session.getAddr());
                 datagramSocket.send(packet);
-                System.out.println("Retransmitted packet " + msg.getSequenceNumber());
+                logger("Retransmitted packet " + msg.getSequenceNumber());
             } catch (IOException e) {
                 System.err.println("Failed to retransmit packet: " + e.getMessage());
             }
@@ -588,7 +602,7 @@ public class AuthPerfLink {
         try {
             DataACKMessage ack = buildDataAck(seqNum, session.getSessionKey());
             datagramSocket.send(ack.toDatagramPacket(session.getAddr()));
-            System.out.println("ACK " + seqNum + " sent to: " + session.getAddr());
+            logger("ACK " + seqNum + " sent to: " + session.getAddr());
         } catch (Exception e) {
             System.err.println("Failed to send ACK: " + e.getMessage());
         }
@@ -647,8 +661,10 @@ public class AuthPerfLink {
     }
 
     private void logger(String message) {
-        String red = "\u001B[31m";
-        String reset = "\u001B[0m";
-        System.out.println(red + "[AuthPerfLink] " + message + reset);
+        if (logger) { // set to true to enable debug logging
+            String red = "\u001B[31m";
+            String reset = "\u001B[0m";
+            System.out.println(red + "[AuthPerfLink] " + message + reset);
+        }
     }
 }
