@@ -39,6 +39,7 @@ public class AuthPerfLink {
 
     private final long ownId;
     private final PrivateKey privateKey;
+    private final boolean isReplica; 
 
     private final DatagramSocket datagramSocket;
     private final ExecutorService executorService;
@@ -58,17 +59,22 @@ public class AuthPerfLink {
     // constructors
 
     // Default constructor for production use
-    public AuthPerfLink(long ownId, PrivateKey privateKey) throws IOException, Exception {
-        this(ownId, privateKey, new DatagramSocket(8080), Executors.newFixedThreadPool(100),
-                new SessionManager(), new MemberManager(ownId), initializeDHKeyAgreement());
+    public AuthPerfLink(long ownId, PrivateKey privateKey, int port) throws IOException, Exception {
+        this(ownId, privateKey, true, port);
+    }
+
+    public AuthPerfLink(long ownId, PrivateKey privateKey, boolean isReplica, int port) throws IOException, Exception {
+        this(ownId, privateKey, isReplica, new DatagramSocket(port), Executors.newFixedThreadPool(100),
+                new SessionManager(), new MemberManager(ownId, isReplica), initializeDHKeyAgreement());
     }
 
     // Constructor with dependency injection for testing
-    public AuthPerfLink(long ownId, PrivateKey privateKey, DatagramSocket socket,
+    public AuthPerfLink(long ownId, PrivateKey privateKey, boolean isReplica, DatagramSocket socket,
             ExecutorService executorService, SessionManager sessionManager,
             MemberManager memberManagement, DHKeyAgreement dhKeyAgreement) {
         this.ownId = ownId;
         this.privateKey = privateKey;
+        this.isReplica = isReplica;
         this.datagramSocket = socket;
         this.executorService = executorService;
         this.sessionManager = sessionManager;
@@ -155,6 +161,7 @@ public class AuthPerfLink {
                 continue; // skip self
             if (sessionManager.getSession(member.getId()) != null)
                 continue; // already connected
+            System.err.println("Attempting to connect to replica ID: " + member.getId() + " at address: " + member.getAddr());
             startConnection(member.getId());
         }
     }
@@ -162,8 +169,10 @@ public class AuthPerfLink {
     // this is for the clients
     public void connectToAllReplicas() {
         MemberInfo[] replicas = memberManagement.getMembers();
+        System.err.println("Attempting to connect to all replicas. Found " + replicas.length + " members in config.");
         for (MemberInfo replica : replicas) {
             try {
+                System.err.println("Attempting to connect to replica ID: " + replica.getId() + " at address: " + replica.getAddr());
                 startConnection(replica.getId());
             } catch (Exception e) {
                 System.err.println("Failed to connect to replica " + replica.getId() + ": " + e.getMessage());
@@ -179,13 +188,20 @@ public class AuthPerfLink {
                 return null;
             }
 
+            System.err.println("Starting connection to member ID: " + receiverID + " at address: " + receiverInfo.getAddr());
             byte[] publicKey = this.dhKeyAgreement.getEncodedPublicKey();
 
             // Sign the message
             String publicKeyBase64 = Base64.getEncoder().encodeToString(publicKey);
             String signature = Crypto.signMessage(this.ownId + ":" + publicKeyBase64, this.privateKey);
-            ConnectionRequestMessage connectionRequest = new ConnectionRequestMessage(this.ownId, publicKey,
-                    signature);
+            
+            // For clients, set clientID; for replicas, use default constructor (clientID = -1)
+            ConnectionRequestMessage connectionRequest;
+            if (isReplica) {
+                connectionRequest = new ConnectionRequestMessage(this.ownId, publicKey, signature);
+            } else {
+                connectionRequest = new ConnectionRequestMessage(this.ownId, publicKey, signature, this.ownId);
+            }
 
             Session session = sessionManager.getSession(receiverID);
             if (session == null) {
@@ -195,6 +211,8 @@ public class AuthPerfLink {
             // Retry handshake with timeout
             int maxRetries = 3;
             for (int attempt = 1; attempt <= maxRetries; attempt++) {
+                System.out.println("Sending CONNECTION_REQUEST to " + receiverID + " (attempt " + attempt + "/" + maxRetries + ")");
+                System.out.println("Message content: " + connectionRequest.toJsonString());
                 send(connectionRequest, receiverID);
                 System.out.println(
                         "Sent CONNECTION_REQUEST to " + receiverID + " (attempt " + attempt + "/" + maxRetries + ")");

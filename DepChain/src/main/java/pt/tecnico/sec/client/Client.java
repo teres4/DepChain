@@ -20,7 +20,7 @@ public class Client {
         this.clientId = clientId;
         this.clientPort = clientPort;
 
-        this.authPerfLink = new AuthPerfLink(this.clientId, Crypto.getClientPrivateKey(this.clientId));
+        this.authPerfLink = new AuthPerfLink(this.clientId, Crypto.getClientPrivateKey(this.clientId), false, clientPort);
         this.clientOps = new ClientOperations(this.clientId, this.authPerfLink);
 
         executorService.submit(() -> authPerfLink.receive());
@@ -47,6 +47,7 @@ public class Client {
         int clientId = Integer.parseInt(args[0]);
         int clientPort = Integer.parseInt(args[1]);
 
+        System.err.println("Starting Client with ID: " + clientId + " on port: " + clientPort);
         Client client = new Client(clientId, clientPort);
 
         Scanner scanner = new Scanner(System.in);

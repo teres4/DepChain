@@ -32,7 +32,7 @@ public class App {
 
         final AuthPerfLink apl;
         try {
-            apl = new AuthPerfLink(ownId, Crypto.getReplicaPrivateKey(ownId));
+            apl = new AuthPerfLink(ownId, Crypto.getReplicaPrivateKey(ownId), 8080);
         } catch (Exception e) {
             System.err.println("Failed to initialize AuthPerfLink: " + e.getMessage());
             e.printStackTrace();

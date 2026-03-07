@@ -26,7 +26,7 @@ public class ReplicaServer {
 
         try {
             // Initialize AuthPerfLink
-            AuthPerfLink apl = new AuthPerfLink(replicaId, Crypto.getReplicaPrivateKey(replicaId));
+            AuthPerfLink apl = new AuthPerfLink(replicaId, Crypto.getReplicaPrivateKey(replicaId), 8080);
             
             // Initialize Consensus
             Consensus consensus = new Consensus(

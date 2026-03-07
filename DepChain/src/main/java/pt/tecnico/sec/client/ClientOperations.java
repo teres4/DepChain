@@ -26,6 +26,7 @@ public class ClientOperations {
 
         MemberInfo[] replicas = authPerfLink.getMembers();
         this.numReplicas = replicas.length;
+        System.err.println("NUMBER OF REPLICAS " + numReplicas);
         this.f = (this.numReplicas - 1) / 3;
     }
 

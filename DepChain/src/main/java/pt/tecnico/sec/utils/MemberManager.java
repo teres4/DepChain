@@ -16,26 +16,44 @@ public class MemberManager {
     private final String CONFIG_FILE = "config/membership/memberconfig.json";
 
     public MemberManager(long ownId) {
+        this(ownId, true); // Default: assume it's a replica
+    }
+
+    public MemberManager(long ownId, boolean isReplica) {
+        System.out.println("MemberManager " + CONFIG_FILE);
         try {
             // Read and parse the JSON config file
             Gson gson = new Gson();
             FileReader reader = new FileReader(new File(CONFIG_FILE));
+            System.out.println("Loading member configuration from " + CONFIG_FILE);
             JsonObject config = gson.fromJson(reader, JsonObject.class);
             reader.close();
 
             int numberOfMembers = config.get("numberOfMembers").getAsInt();
             JsonArray serversArray = config.getAsJsonArray("servers");
-
-            members = new MemberInfo[numberOfMembers - 1];
+            System.out.println("Loading " + numberOfMembers + " members, isReplica=" + isReplica + ", ownId=" + ownId);
+            
+            // Clients need all replicas, replicas skip themselves
+            int arraySize;
+            if (isReplica) {
+                arraySize = numberOfMembers - 1;
+            } else {
+                arraySize = numberOfMembers;
+            }
+            
+            System.err.println("ARRAY SIZE GIVEN ISREPLICA: " + arraySize);
+            members = new MemberInfo[arraySize];
             int index = 0;
 
             // Populate members array with server information
             for (int i = 0; i < serversArray.size(); i++) {
                 JsonObject server = serversArray.get(i).getAsJsonObject();
 
-                // Skip own member info, because we don't want to send messages to ourselves
                 long id = server.get("id").getAsLong();
-                if (id == ownId) {
+                
+                // Replicas skip own member info (don't send to themselves)
+                // Clients include all replicas
+                if (isReplica && id == ownId) {
                     continue;
                 }
 

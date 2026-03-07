@@ -23,6 +23,12 @@ services:
     networks:
       - depchain_net
 
+  client1:
+    image: depchain:latest
+    container_name: depchain_client1
+    networks:
+      - depchain_net
+
 networks:
   depchain_net:
     driver: bridge
