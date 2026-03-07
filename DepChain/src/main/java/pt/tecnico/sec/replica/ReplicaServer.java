@@ -55,8 +55,8 @@ public class ReplicaServer {
             Thread.sleep(2000);
             
             // Send initial NEW_VIEW to start consensus protocol
-            System.out.println("Sending initial NEW_VIEW to leader...");
-            consensus.startNewView();
+            // System.out.println("Sending initial NEW_VIEW to leader...");
+            // consensus.startNewView();
             
             System.out.println("Replica " + replicaId + " ready to process commands.");
             

@@ -280,7 +280,9 @@ public class AuthPerfLink {
 
         try {
             Message msg = Message.fromPacket(packet);
-
+            System.out.println("Message content: {" +
+                    "type: " + msg.getType() + ", " +
+                    "senderId: " + msg.getSenderId() + "}");
             switch (msg.getType()) {
                 case CONNECTION_REQUEST -> handleConnectionRequest((ConnectionRequestMessage) msg, addr);
                 case CONNECTION_ACK -> handleConnectionReply((ConnectionACKMessage) msg, addr);
@@ -425,8 +427,15 @@ public class AuthPerfLink {
     public void handleData(DataMessage msg, InetSocketAddress addr) {
         try {
             Session session = getSessionForAddress(addr);
-            if (session == null)
-                return;
+            if (session == null) {
+                long senderId = msg.getSenderId();
+                session = sessionManager.getSession(senderId);
+
+                if (session == null) {
+                    System.err.println("Unknown sender address or client ID: " + addr + " (senderId: " + senderId + ")");
+                    return;
+                }
+            }
 
             long expectedSeq = session.getExpectedSequenceNumber();
 
@@ -465,6 +474,9 @@ public class AuthPerfLink {
 
                 // Update expected sequence number and send cumulative ACK
                 session.setExpectedSequenceNumber(expectedSeq + 1);
+                String contentPreview = contentStr.length() > 50 ? contentStr.substring(0, 50) + "..." : contentStr;
+                System.out.println("Received expected packet " + msg.getSequenceNumber() + " from: " + addr + " (content: " + contentPreview + ") sending ACK for seq " + (expectedSeq + 1));
+
                 sendDataAck(session, expectedSeq + 1);
 
             } else {
