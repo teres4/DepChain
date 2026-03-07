@@ -18,20 +18,18 @@ sleep 2
 
 echo "Starting tmux session..."
 tmux kill-session -t $SESSION 2>/dev/null || true
-P1=$(tmux new-session -d -s $SESSION -P -F '#{pane_id}' "$SHELL_CMD")
-P2=$(tmux split-window -h -P -F '#{pane_id}')
-tmux select-pane -t $P1
-P3=$(tmux split-window -v -P -F '#{pane_id}')
-tmux select-pane -t $P2
-P4=$(tmux split-window -v -P -F '#{pane_id}')
-tmux select-layout tiled
 
-echo "Running members..."
+tmux new-session -d -s $SESSION -x 220 -y 50
+tmux split-window -h -t $SESSION
+tmux split-window -v -t $SESSION:0.0
+tmux split-window -v -t $SESSION:0.1
 
-# No recompile needed - already compiled in Docker image
-tmux send-keys -t $P1 "docker exec -it depchain_member1 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='1' 2>&1" C-m
-tmux send-keys -t $P2 "docker exec -it depchain_member2 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='2' 2>&1" C-m
-tmux send-keys -t $P3 "docker exec -it depchain_member3 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='3' 2>&1" C-m
-tmux send-keys -t $P4 "docker exec -it depchain_member4 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='4 --byzantine' 2>&1" C-m
+# Send commands to each pane
+tmux send-keys -t $SESSION:0.0 "docker exec -it depchain_member1 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='1' 2>&1" C-m
+tmux send-keys -t $SESSION:0.1 "docker exec -it depchain_member2 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='2' 2>&1" C-m
+tmux send-keys -t $SESSION:0.2 "docker exec -it depchain_member3 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='3' 2>&1" C-m
+tmux send-keys -t $SESSION:0.3 "docker exec -it depchain_member4 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='4 --byzantine' 2>&1" C-m
+
+tmux select-layout -t $SESSION tiled
 
 tmux attach -t $SESSION
