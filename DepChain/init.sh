@@ -17,10 +17,8 @@ echo "Waiting for containers to be ready..."
 sleep 2
 
 echo "Starting tmux session..."
-tmux kill-session -t $SESSION 2>/dev/null
-tmux new-session -d -s $SESSION "$SHELL_CMD"
-
-P1=$(tmux display-message -p '#{pane_id}')
+tmux kill-session -t $SESSION 2>/dev/null || true
+P1=$(tmux new-session -d -s $SESSION -P -F '#{pane_id}' "$SHELL_CMD")
 P2=$(tmux split-window -h -P -F '#{pane_id}')
 tmux select-pane -t $P1
 P3=$(tmux split-window -v -P -F '#{pane_id}')
@@ -34,6 +32,6 @@ echo "Running members..."
 tmux send-keys -t $P1 "docker exec -it depchain_member1 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='1' 2>&1" C-m
 tmux send-keys -t $P2 "docker exec -it depchain_member2 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='2' 2>&1" C-m
 tmux send-keys -t $P3 "docker exec -it depchain_member3 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='3' 2>&1" C-m
-tmux send-keys -t $P4 "docker exec -it depchain_member4 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='4' 2>&1" C-m
+tmux send-keys -t $P4 "docker exec -it depchain_member4 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.App -Dexec.args='4 --byzantine' 2>&1" C-m
 
 tmux attach -t $SESSION

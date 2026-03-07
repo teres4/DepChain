@@ -120,6 +120,14 @@ public class Consensus {
         this.router = router;
     }
 
+    protected MessageRouter getRouter() {
+        return router;
+    }
+
+    protected int getTotalReplicas() {
+        return totalReplicas;
+    }
+
     // ==================== INITIALIZATION ====================
 
     // public void consensusLoop() {
