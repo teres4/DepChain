@@ -182,7 +182,9 @@ public class Consensus {
     public void startNewView() throws Exception {
         NewViewMessage newViewMessage = new NewViewMessage(this.viewNumber.get(), tree.getPrepareQC(),
                 this.replicaID);
-        if (router != null) {
+        if (amLeader(this.viewNumber.get())) {
+            newViewMessages.put(this.replicaID, newViewMessage);
+        } else if (router != null) {
             router.sendConsensusMessage(newViewMessage, getLeader(this.viewNumber.get()));
         } else {
             // Fallback for tests - use AuthPerfLink directly
@@ -969,7 +971,7 @@ public class Consensus {
             } catch (Exception e) {
                 System.err.println("Failed to start new view: " + e.getMessage());
             }
-        } else {
+        } else if (!amLeader(this.viewNumber.get())) {
             int nextView = this.viewNumber.incrementAndGet();
             try {
                 logHotStuff("⚠ Leader is INACTIVE/FAULTY! Starting new view " + nextView);
