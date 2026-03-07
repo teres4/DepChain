@@ -44,11 +44,13 @@ public class MessageRouter {
     }
 
     private void routeToConsensus(HotStuffMessage msg) {
-        try {
-            consensus.handleMessage(msg);
-        } catch (Exception e) {
-            System.err.println("[ROUTER] Error routing consensus message: " + e.getMessage());
-        }
+        executorService.submit(() -> {
+            try {
+                consensus.handleMessage(msg);
+            } catch (Exception e) {
+                System.err.println("[ROUTER] Error routing consensus message: " + e.getMessage());
+            }
+        });
     }
 
     private void routeToReplica(Command command) {

@@ -7,7 +7,7 @@ echo "Stopping and removing old containers..."
 docker compose down --volumes --remove-orphans
 
 echo "Building image (compile happens here)..."
-docker build --no-cache -t depchain:latest .
+docker build -t depchain:latest .
 
 echo "Starting containers..."
 docker compose up -d

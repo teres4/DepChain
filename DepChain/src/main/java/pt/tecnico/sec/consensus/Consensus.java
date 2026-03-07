@@ -510,6 +510,7 @@ public class Consensus {
             System.out.println("Received message from sender " + message.getSenderId() +
                     " but current leader for view " + message.getViewNumber() + " is "
                     + getLeader(message.getViewNumber()));
+            return false;
         }
         return true;
     }
@@ -554,15 +555,16 @@ public class Consensus {
             // choose highest prepareQC from collected new-view messages
             QuorumCertificate highQC = getHighestQC(newViewMessages.values().stream().toList());
 
-            // clear collected new-view messages from this view for next view
-            for (Long senderId : newViewMessages.keySet()) {
-                if (newViewMessages.get(senderId).getViewNumber() == this.viewNumber.get()) {
-                    newViewMessages.remove(senderId);
-                }
-            }
+            // Set viewNumber BEFORE prepare() so that PrepareMessage carries the correct
+            // view
+            int newView = newViewMessage.getViewNumber();
+            this.viewNumber.set(newView);
+
+            // clear collected new-view messages for this view
+            newViewMessages.clear();
+
             String command = getCommandWithTimeout();
             prepare(highQC, command);
-            this.viewNumber.set(newViewMessage.getViewNumber());
             return highQC;
         }
 
@@ -959,17 +961,14 @@ public class Consensus {
     }
 
     private void onLeaderInactive() {
-        if (!amLeader(this.viewNumber.get()) || this.viewNumber.get() == 1) { // if im leader,and i get here, im not
-                                                                              // inactive
-            int nextView = this.viewNumber.incrementAndGet();
-            try {
-                logHotStuff("⚠ Leader is INACTIVE/FAULTY! Starting new view " + nextView);
-                // Drain any messages that arrived early for this new view
-                drainFutureMessages(nextView);
-                startNewView();
-            } catch (Exception e) {
-                System.err.println("Failed to start new view: " + e.getMessage());
-            }
+        int nextView = this.viewNumber.incrementAndGet();
+        try {
+            logHotStuff("⚠ Leader is INACTIVE/FAULTY! Starting new view " + nextView);
+            // Drain any messages that arrived early for this new view
+            drainFutureMessages(nextView);
+            startNewView();
+        } catch (Exception e) {
+            System.err.println("Failed to start new view: " + e.getMessage());
         }
     }
 }

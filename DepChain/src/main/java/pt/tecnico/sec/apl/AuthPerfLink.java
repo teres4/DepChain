@@ -47,7 +47,8 @@ public class AuthPerfLink {
     private final boolean isReplica;
 
     private final DatagramSocket datagramSocket;
-    private final ExecutorService executorService;
+    private final ExecutorService executorService; // for receiving / handling packets
+    private final ExecutorService sendExecutorService; // dedicated pool for sending (may busy-wait)
     private final SessionManager sessionManager;
     private final MemberManager memberManagement;
 
@@ -71,7 +72,7 @@ public class AuthPerfLink {
     }
 
     public AuthPerfLink(long ownId, PrivateKey privateKey, boolean isReplica, int port) throws IOException, Exception {
-        this(ownId, privateKey, isReplica, new DatagramSocket(port), Executors.newFixedThreadPool(100),
+        this(ownId, privateKey, isReplica, new DatagramSocket(port), Executors.newFixedThreadPool(50),
                 new SessionManager(), new MemberManager(ownId, isReplica), initializeDHKeyAgreement());
     }
 
@@ -84,6 +85,7 @@ public class AuthPerfLink {
         this.isReplica = isReplica;
         this.datagramSocket = socket;
         this.executorService = executorService;
+        this.sendExecutorService = Executors.newCachedThreadPool(); // elastic pool for sends
         this.sessionManager = sessionManager;
         this.memberManagement = memberManagement;
         this.dhKeyAgreement = dhKeyAgreement;
@@ -130,12 +132,17 @@ public class AuthPerfLink {
 
         datagramSocket.close();
         executorService.shutdown();
+        sendExecutorService.shutdown();
         try {
             if (!executorService.awaitTermination(5, TimeUnit.SECONDS)) {
                 executorService.shutdownNow();
             }
+            if (!sendExecutorService.awaitTermination(5, TimeUnit.SECONDS)) {
+                sendExecutorService.shutdownNow();
+            }
         } catch (InterruptedException e) {
             executorService.shutdownNow();
+            sendExecutorService.shutdownNow();
             Thread.currentThread().interrupt();
         }
     }
@@ -528,7 +535,7 @@ public class AuthPerfLink {
 
     // send helpers
     private void send(Message message, long id) throws Exception {
-        executorService.submit(() -> sendPacket(message, id));
+        sendExecutorService.submit(() -> sendPacket(message, id));
     }
 
     private void sendPacket(Message message, long id) {
@@ -541,8 +548,16 @@ public class AuthPerfLink {
         if (message instanceof DataMessage) {
             DataMessage dataMsg = (DataMessage) message;
 
-            // Wait if window is full
+            // Wait if window is full (with bounded timeout to avoid infinite loop)
+            long waitStart = System.currentTimeMillis();
+            long maxWaitMs = 30_000; // 30 seconds max wait
             while (!session.canSend()) {
+                if (System.currentTimeMillis() - waitStart > maxWaitMs) {
+                    System.err.println("Window full timeout after " + maxWaitMs
+                            + "ms waiting to send to: " + session.getSenderID()
+                            + " (unacked=" + session.getUnacknowledgedPackets().size() + ")");
+                    return;
+                }
                 try {
                     Thread.sleep(5); // brief wait before checking again
                 } catch (InterruptedException e) {
