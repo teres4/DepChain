@@ -959,7 +959,8 @@ public class Consensus {
     }
 
     private void onLeaderInactive() {
-        if (!amLeader(this.viewNumber.get())) { // if im leader,and i get here, im not inactive
+        if (!amLeader(this.viewNumber.get()) || this.viewNumber.get() == 1) { // if im leader,and i get here, im not
+                                                                              // inactive
             int nextView = this.viewNumber.incrementAndGet();
             try {
                 logHotStuff("⚠ Leader is INACTIVE/FAULTY! Starting new view " + nextView);
@@ -970,6 +971,5 @@ public class Consensus {
                 System.err.println("Failed to start new view: " + e.getMessage());
             }
         }
-
     }
 }
