@@ -4,6 +4,7 @@ import java.util.Scanner;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.router.MessageRouter;
+import pt.tecnico.sec.consensus.ByzantineConsensus;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.message.NewCommandMessage;
 import pt.tecnico.sec.replica.Replica;
@@ -19,11 +20,13 @@ public class App {
         }
 
         long ownId;
+        boolean byzantine = false;
 
         try {
             ownId = Long.parseLong(args[0]);
+            if (args.length >= 2) byzantine = args[1].equals("--byzantine");
         } catch (NumberFormatException e) {
-            System.err.println("Invalid ownId. It must be a number.");
+            System.err.println("Invalid ownId.");
             return;
         }
 
@@ -40,9 +43,37 @@ public class App {
             return;
         }
 
-        Consensus consensus = new Consensus(
-                ownId,
-                apl.getMembers() != null ? apl.getMembers().length + 1 : 1);
+        int totalReplicas = apl.getMembers() != null ? apl.getMembers().length + 1 : 1;
+
+        Consensus consensus;
+        if (byzantine) {
+            ByzantineConsensus byz = new ByzantineConsensus(ownId, totalReplicas);
+            
+            System.out.println("\u001B[31m");
+            System.out.println("BYZANTINE MODE SELECTOR:");
+            System.out.println("1. Silent (drop all outgoing messages)");
+            System.out.println("2. Conflicting (propose conflicting nodes to different replicas as leader)");
+            System.out.println("3. Wrong node (vote for fabricated node instead of the one in the QC)");
+            System.out.println("4. Wrong leader(send votes to the wrong leader of a certain view)");
+            System.out.println("5. Double vote (replay votes)");
+            System.out.println("6. Start as honest node");
+            System.out.print("Select byzantine behaviour: ");
+            System.out.println("\u001B[0m");
+
+            String choice = scanner.nextLine().trim();
+            switch (choice) {
+                case "1" -> { byz.setSilent(true); System.out.println("[BYZANTINE] silent"); }
+                case "2" -> { byz.setSendConflicting(true); System.out.println("[BYZANTINE] conflicting"); }
+                case "3" -> { byz.setVoteForWrongNode(true); System.out.println("[BYZANTINE] wrongnode"); }
+                case "4" -> { byz.setSendToWrongLeader(true); System.out.println("[BYZANTINE] wrongleader"); }
+                case "5" -> { byz.setDoubleVote(true); System.out.println("[BYZANTINE] doublevote"); }
+                case "6" -> { /* Start as honest node */ }
+                default  -> System.err.println("Invalid choice, starting as honest node.");
+            }
+            consensus = byz;
+        } else {
+            consensus = new Consensus(ownId, totalReplicas);
+        }
 
         ReplicaState replicaState = new ReplicaState();
         Replica replica = new Replica(ownId, apl, consensus, replicaState);
