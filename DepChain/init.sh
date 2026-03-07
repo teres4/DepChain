@@ -1,51 +1,44 @@
 #!/usr/bin/env bash
+set -e
 
 SESSION="depchain"
-SHELL_CMD=${SHELL:-/bin/zsh}
 
 echo "Stopping and removing old containers..."
 docker compose down --volumes --remove-orphans
 
-echo "Rebuilding and starting containers..."
-docker compose up --build -d
+echo "Building image (compile happens here)..."
+docker build --no-cache -t depchain:latest .
+
+echo "Starting containers..."
+docker compose up -d
 
 echo "Waiting for containers to be ready..."
-sleep 3
+sleep 2
 
-echo "Starting tmux session with 4 replicas + 1 client..."
+echo "Starting tmux session..."
+tmux kill-session -t $SESSION 2>/dev/null || true
 
-tmux kill-session -t $SESSION 2>/dev/null
+tmux new-session -d -s $SESSION -x 220 -y 50
 
-tmux new-session -d -s $SESSION "$SHELL_CMD"
+# Create 4 panes for replicas (2x2 grid)
+tmux split-window -h -t $SESSION
+tmux split-window -v -t $SESSION:0.0
+tmux split-window -v -t $SESSION:0.1
 
-# Create 2x2 grid for 4 replicas
-P1=$(tmux display-message -p '#{pane_id}')
-P2=$(tmux split-window -h -P -F '#{pane_id}')
-
-tmux select-pane -t $P1
-P3=$(tmux split-window -v -P -F '#{pane_id}')
-
-tmux select-pane -t $P2
-P4=$(tmux split-window -v -P -F '#{pane_id}')
-
-# Create client pane at bottom spanning full width
-tmux select-pane -t $P1
-P5=$(tmux split-window -v -l 30% -P -F '#{pane_id}')
-
-# Adjust layout
-tmux select-layout tiled
-
-echo "Launching replicas..."
-
-tmux send-keys -t $P1 "docker exec -it depchain_member1 mvn -q compile exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='1'" C-m
-tmux send-keys -t $P2 "docker exec -it depchain_member2 mvn -q compile exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='2'" C-m
-tmux send-keys -t $P3 "docker exec -it depchain_member3 mvn -q compile exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='3'" C-m
-tmux send-keys -t $P4 "docker exec -it depchain_member4 mvn -q compile exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='4'" C-m
+# Send replica commands
+tmux send-keys -t $SESSION:0.0 "docker exec -it depchain_member1 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='1' 2>&1" C-m
+tmux send-keys -t $SESSION:0.1 "docker exec -it depchain_member2 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='2' 2>&1" C-m
+tmux send-keys -t $SESSION:0.2 "docker exec -it depchain_member3 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='3' 2>&1" C-m
+tmux send-keys -t $SESSION:0.3 "docker exec -it depchain_member4 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args='4' 2>&1" C-m
 
 echo "Waiting for replicas to initialize..."
 sleep 5
 
 echo "Launching client..."
-tmux send-keys -t $P5 "docker exec -it depchain_client1 mvn -q compile exec:java -Dexec.mainClass=pt.tecnico.sec.client.Client -Dexec.args='100 9000'" C-m
+# Create 5th pane for client
+tmux split-window -h -t $SESSION:0.3
+tmux send-keys -t $SESSION:0.4 "docker exec -it depchain_client1 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.client.Client -Dexec.args='100 9000' 2>&1" C-m
+
+tmux select-layout -t $SESSION tiled
 
 tmux attach -t $SESSION

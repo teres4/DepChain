@@ -87,10 +87,10 @@ public class AuthPerfLinkTest {
                                                      senderKeyPair.getPublic());
 
         // Create AuthPerfLink instances
-        sender = new AuthPerfLink(SENDER_ID, senderKeyPair.getPrivate(), senderSocket,
+        sender = new AuthPerfLink(SENDER_ID, senderKeyPair.getPrivate(), true, senderSocket,
                 senderExecutor, senderSessionManager, senderMemberManager, senderDH);
 
-        receiver = new AuthPerfLink(RECEIVER_ID, receiverKeyPair.getPrivate(), receiverSocket,
+        receiver = new AuthPerfLink(RECEIVER_ID, receiverKeyPair.getPrivate(), true, receiverSocket,
                 receiverExecutor, receiverSessionManager, receiverMemberManager, receiverDH);
 
         // Start receive threads

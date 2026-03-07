@@ -212,7 +212,10 @@ public class AuthPerfLink {
             int maxRetries = 3;
             for (int attempt = 1; attempt <= maxRetries; attempt++) {
                 System.out.println("Sending CONNECTION_REQUEST to " + receiverID + " (attempt " + attempt + "/" + maxRetries + ")");
-                System.out.println("Message content: " + connectionRequest.toJsonString());
+                System.out.println("Message content: {" +
+                    "clientID: " + connectionRequest.getClientID() + ", " +
+                    "type: " + connectionRequest.getType() + ", " +
+                    "senderId: " + connectionRequest.getSenderId() + "}");
                 send(connectionRequest, receiverID);
                 System.out.println(
                         "Sent CONNECTION_REQUEST to " + receiverID + " (attempt " + attempt + "/" + maxRetries + ")");
@@ -350,7 +353,7 @@ public class AuthPerfLink {
             String responderKeyBase64 = Base64.getEncoder().encodeToString(responderDHPublicKey);
             String signature = Crypto.signMessage(this.ownId + ":" + responderKeyBase64, this.privateKey);
 
-            Session session = sessionManager.createSession(senderMember.getId(), addr, sessionKey, isClient);
+            Session session = sessionManager.createSession(senderId, addr, sessionKey, isClient);
 
             // Handshake: reply with seq 1 (request was seq 0)
             long replySeqNum = 1;

@@ -34,14 +34,8 @@ public class MemberManager {
             System.out.println("Loading " + numberOfMembers + " members, isReplica=" + isReplica + ", ownId=" + ownId);
             
             // Clients need all replicas, replicas skip themselves
-            int arraySize;
-            if (isReplica) {
-                arraySize = numberOfMembers - 1;
-            } else {
-                arraySize = numberOfMembers;
-            }
-            
-            System.err.println("ARRAY SIZE GIVEN ISREPLICA: " + arraySize);
+            int arraySize = isReplica ? numberOfMembers - 1 : numberOfMembers;
+
             members = new MemberInfo[arraySize];
             int index = 0;
 

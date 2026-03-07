@@ -28,6 +28,11 @@ services:
     container_name: depchain_client1
     networks:
       - depchain_net
+    depends_on:
+      - server1
+      - server2
+      - server3
+      - server4
 
 networks:
   depchain_net:
