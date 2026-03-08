@@ -74,9 +74,13 @@ public class Consensus {
 
     private Phase currentPhase;
 
-    // will be used to check if the proposal is the same for all votes in the same
-    // phase
+    // will be used to check if the proposal is the same for all votes in the same phase
     volatile Node curProposal = null;
+
+    // tracks whether this replica has already voted in each phase for the current view
+    private volatile boolean prepareVoted = false;
+    private volatile boolean preCommitVoted = false;
+    private volatile boolean commitVoted = false;
 
     ExecutorService executorService = java.util.concurrent.Executors.newFixedThreadPool(10);
 
@@ -794,7 +798,15 @@ public class Consensus {
         if (tree.extendsFrom(prepareMessage.getNode(), ancestorNode)
                 && safeNode(prepareMessage.getNode(), prepareMessage.getHighQC())) {
 
+            // prevent duplicate vote
+            if (prepareVoted) {
+                System.err.println("Already sent PREPARE_VOTE in view " + this.viewNumber.get()
+                        + ", ignoring second PREPARE");
+                return;
+            }
+
             tree.addNode(prepareMessage.getNode());
+            prepareVoted = true;
             String partialSig = tsign(HotStuffMessageType.PREPARE_VOTE, this.viewNumber.get(),
                     prepareMessage.getNode().getHash());
 
@@ -848,7 +860,15 @@ public class Consensus {
             return;
         }
 
+        // prevent duplicate vote
+        if (preCommitVoted) {
+            System.err.println("Already sent PRE_COMMIT_VOTE in view " + this.viewNumber.get()
+                    + ", ignoring second PRE_COMMIT");
+            return;
+        }
+
         tree.setPrepareQC(prepareQC);
+        preCommitVoted = true;
 
         // sign and send pre-commit vote to leader, sign over the hash of the proposal
         String partialSig = tsign(HotStuffMessageType.PRE_COMMIT_VOTE, this.viewNumber.get(), prepareQC.getNodeHash());
@@ -897,7 +917,15 @@ public class Consensus {
             return;
         }
 
+        // prevent duplicate vote
+        if (commitVoted) {
+            System.err.println("Already sent COMMIT_VOTE in view " + this.viewNumber.get()
+                    + ", ignoring second COMMIT");
+            return;
+        }
+
         tree.setLockedQC(preCommitQC);
+        commitVoted = true;
 
         // sign and send commit vote to leader
         String partialSig = tsign(HotStuffMessageType.COMMIT_VOTE, this.viewNumber.get(), preCommitQC.getNodeHash());
@@ -956,6 +984,9 @@ public class Consensus {
         heartbeat();
         int nextView = this.viewNumber.incrementAndGet();
         this.curProposal = null;
+        this.prepareVoted = false;
+        this.preCommitVoted = false;
+        this.commitVoted = false;
 
         router.commandDecided(decidedNode.getCommand());
 
@@ -987,6 +1018,9 @@ public class Consensus {
 
     private void onLeaderInactive() {
         int nextView = this.viewNumber.incrementAndGet();
+        this.prepareVoted = false;
+        this.preCommitVoted = false;
+        this.commitVoted = false;
         try {
             logHotStuff("⚠ Leader is INACTIVE/FAULTY! Starting new view " + nextView);
             // Drain any messages that arrived early for this new view
