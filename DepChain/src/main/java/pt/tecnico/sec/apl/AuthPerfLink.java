@@ -355,7 +355,8 @@ public class AuthPerfLink {
             // Check if session already exists
             Session existingSession = sessionManager.getSession(senderId);
             if (existingSession != null && existingSession.isConnectionEstablished()) {
-                // Fully established duplicate request - original ACK was probably lost, resend it.
+                // Fully established duplicate request - original ACK was probably lost, resend
+                // it.
                 logger("Received duplicate CONNECTION_REQUEST from " + senderId + ", resending ACK");
 
                 byte[] responderDHPublicKey = this.dhKeyAgreement.getEncodedPublicKey();
@@ -485,7 +486,8 @@ public class AuthPerfLink {
             // null key throws InvalidKeyException. Drop the packet - the sender's
             // Go-Back-N timer will retransmit once the handshake finishes.
             if (!session.isConnectionEstablished()) {
-                logger("Dropping DATA from " + addr + " - handshake not yet complete for session " + session.getSenderID());
+                logger("Dropping DATA from " + addr + " - handshake not yet complete for session "
+                        + session.getSenderID());
                 return;
             }
 
@@ -550,8 +552,14 @@ public class AuthPerfLink {
     public void handleAck(DataACKMessage msg, InetSocketAddress addr) {
         try {
             Session session = getSessionForAddress(addr);
-            if (session == null)
-                return;
+            if (session == null) {
+                // Fallback for clients: they aren't in the members list,
+                // so look up the session by the sender ID in the message.
+                long senderId = msg.getSenderId();
+                session = sessionManager.getSession(senderId);
+                if (session == null)
+                    return;
+            }
 
             if (!session.isConnectionEstablished())
                 return;

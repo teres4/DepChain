@@ -55,7 +55,7 @@ public class Session {
     // Sender methods
 
     public synchronized boolean canSend() {
-        return this.nextSeqNum < this.sendBase + this.windowSize;
+        return this.sendBuffer.size() < this.windowSize;
     }
 
     public synchronized long getNextSequenceNumber() {
