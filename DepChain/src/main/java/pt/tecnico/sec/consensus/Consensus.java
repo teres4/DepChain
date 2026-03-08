@@ -56,6 +56,11 @@ public class Consensus {
     private final Queue<PreCommitVoteMessage> preCommitVotes = new ConcurrentLinkedQueue<>();
     private final Queue<CommitVoteMessage> commitVotes = new ConcurrentLinkedQueue<>();
 
+    // Track which senders have already voted in each phase to reject duplicate votes
+    private final java.util.Set<Long> prepareVoters = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<Long> preCommitVoters = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<Long> commitVoters = ConcurrentHashMap.newKeySet();
+
     // Messages from future views: key = view number, value = list of messages.
     final Map<Integer, List<HotStuffMessage>> futureMessages = new ConcurrentHashMap<>();
 
@@ -594,6 +599,7 @@ public class Consensus {
         // broadcast prepare message
         PrepareMessage prepareMessage = new PrepareMessage(this.viewNumber.get(), newNode, highQC, this.replicaID);
         this.prepareVotes.clear();
+        this.prepareVoters.clear();
         broadcastMessage(prepareMessage);
     }
 
@@ -612,6 +618,11 @@ public class Consensus {
 
         if (curProposal == null || !voteMessage.getNode().getHash().equals(curProposal.getHash())) {
             System.err.println("Received prepare vote for wrong node, ignoring");
+            return;
+        }
+
+        if (!prepareVoters.add(voteMessage.getSenderId())) {
+            System.err.println("Duplicate PREPARE_VOTE from replica " + voteMessage.getSenderId() + ", ignoring");
             return;
         }
 
@@ -645,6 +656,7 @@ public class Consensus {
         // Broadcast prepareQC in pre-commit messages
         PreCommitMessage preCommitMessage = new PreCommitMessage(this.viewNumber.get(), prepareQC, this.replicaID);
         this.preCommitVotes.clear();
+        this.preCommitVoters.clear();
         broadcastMessage(preCommitMessage);
     }
 
@@ -661,6 +673,11 @@ public class Consensus {
 
         if (curProposal == null || !voteMessage.getNode().getHash().equals(curProposal.getHash())) {
             System.err.println("Received pre-commit vote for wrong node, ignoring");
+            return;
+        }
+
+        if (!preCommitVoters.add(voteMessage.getSenderId())) {
+            System.err.println("Duplicate PRE_COMMIT_VOTE from replica " + voteMessage.getSenderId() + ", ignoring");
             return;
         }
 
@@ -689,6 +706,7 @@ public class Consensus {
         logHotStuff("View " + this.viewNumber.get() + " - COMMIT phase started");
         CommitMessage commitMessage = new CommitMessage(this.viewNumber.get(), preCommitQC, this.replicaID);
         this.commitVotes.clear();
+        this.commitVoters.clear();
         broadcastMessage(commitMessage);
     }
 
@@ -705,6 +723,11 @@ public class Consensus {
 
         if (curProposal == null || !voteMessage.getNode().getHash().equals(curProposal.getHash())) {
             System.err.println("Received commit vote for wrong node, ignoring");
+            return;
+        }
+
+        if (!commitVoters.add(voteMessage.getSenderId())) {
+            System.err.println("Duplicate COMMIT_VOTE from replica " + voteMessage.getSenderId() + ", ignoring");
             return;
         }
 

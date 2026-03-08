@@ -94,7 +94,7 @@ public class ReplicaServer {
         }
         ByzantineConsensus bc = new ByzantineConsensus(replicaId, totalReplicas);
         switch (mode) {
-            case 1 -> bc.setSilent(true);
+            case 1 -> bc.setSilent(true); // working
             case 2 -> bc.setSendConflicting(true);
             case 3 -> bc.setVoteForWrongNode(true); // working
             case 4 -> bc.setSendToWrongLeader(true); // working
