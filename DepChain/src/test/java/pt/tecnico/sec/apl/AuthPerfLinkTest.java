@@ -73,8 +73,8 @@ public class AuthPerfLinkTest {
         receiverSocket = new DatagramSocket(RECEIVER_PORT);
 
         // Create executors
-        senderExecutor = Executors.newFixedThreadPool(10);
-        receiverExecutor = Executors.newFixedThreadPool(10);
+        senderExecutor = Executors.newFixedThreadPool(20);
+        receiverExecutor = Executors.newFixedThreadPool(20);
 
         // Create session managers
         senderSessionManager = new SessionManager();
@@ -174,8 +174,44 @@ public class AuthPerfLinkTest {
                 "Received message should contain the sent content");
     }
 
-    // TODO BELOW TESTS ARE FAILING
     // Test that multiple messages sent in sequence are all delivered
+    @Test
+    @Timeout(60)
+    public void testReliableDelivery_MultipleMessages() throws Exception {
+        int messageCount = 10;
+        CompletableFuture<Void> allMessagesReceived = new CompletableFuture<>();
+        List<String> receivedMessages = new ArrayList<>();
+
+        receiver.setConsensusMessageListener(content -> {
+            synchronized (receivedMessages) {
+                receivedMessages.add(content);
+                System.out.println("Received message: " + content); // Debug log
+
+                if (receivedMessages.size() == messageCount) {
+                    allMessagesReceived.complete(null);
+                }
+            }
+        });
+        
+        // Establish connection
+        Session session = sender.startConnection(RECEIVER_ID);
+        assertNotNull(session);
+        Thread.sleep(500);
+
+        // Send multiple messages
+        for (int i = 0; i < messageCount; i++) {
+            System.out.println("Sending message: Message " + i); // Debug log
+            sender.sendData(RECEIVER_ID, ("Message " + i).getBytes());
+        }
+
+        // Wait for all messages
+        allMessagesReceived.get(60, TimeUnit.SECONDS);
+        assertEquals(messageCount, receivedMessages.size(), 
+                 "Should receive exactly " + messageCount + " messages");
+    }
+
+    // TODO BELOW TESTS ARE FAILING
+    // Test to simulate packet loss and verify retransmission
     // @Test
     // @Timeout(120)
     // public void testReliableDelivery_MultipleMessages() throws Exception {

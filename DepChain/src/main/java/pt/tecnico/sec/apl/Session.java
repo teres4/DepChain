@@ -71,10 +71,11 @@ public class Session {
     }
 
     public synchronized void bufferPacket(long seqNum, DataMessage msg, Runnable timeoutHandler) {
+        boolean wasEmpty = sendBuffer.isEmpty();
         sendBuffer.put(seqNum, msg);
 
-        // Start timer only for the first unacknowledged packet (window base)
-        if (seqNum == this.sendBase && this.timer == null) {
+        // Start timer when the first packet enters the buffer (window base)
+        if (wasEmpty && this.timer == null) {
             if (timeoutHandler != null) {
                 startTimer(timeoutHandler);
             } else {

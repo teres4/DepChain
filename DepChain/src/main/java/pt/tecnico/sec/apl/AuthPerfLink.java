@@ -10,7 +10,6 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -113,7 +112,9 @@ public class AuthPerfLink {
             DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
             try {
                 datagramSocket.receive(packet);
-                executorService.submit(() -> handlePacket(packet));
+                if (running.get()) {
+                    executorService.submit(() -> handlePacket(packet));
+                }
             } catch (IOException e) {
                 if (running.get()) {
                     e.printStackTrace();
@@ -269,13 +270,7 @@ public class AuthPerfLink {
             return null;
         }
     }
-
-    // TODO: incomingMessage for layer above to consume, currently just prints
-    // received messages
-    public Queue<Message> getIncomingMessages() {
-        return incomingMessages;
-    }
-
+    
     public MemberInfo[] getMembers() {
         return memberManagement.getMembers();
     }
