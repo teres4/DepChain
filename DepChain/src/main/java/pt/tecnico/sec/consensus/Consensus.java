@@ -828,6 +828,8 @@ public class Consensus {
                     router.sendConsensusMessage(voteMessage, getLeader(prepareMessage.getViewNumber()));
                 }
             }
+        } else {
+            logHotStuff("INVALID PROPOSAL FOR PREPARE");
         }
     }
 

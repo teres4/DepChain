@@ -11,7 +11,8 @@ public class ReplicaServer {
         if (args.length < 1) {
             System.err.println(
                     "Usage: mvn exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args=\"<replicaId> [byzantineMode]\"");
-            System.err.println("  byzantineMode: 0=honest (default), 1=silent, 2=conflicting, 3=wrongNode, 4=wrongLeader, 5=doubleVote");
+            System.err.println(
+                    "  byzantineMode: 0=honest (default), 1=silent, 2=conflicting, 3=wrongNode, 4=wrongLeader, 5=doubleVote, 6=forgedQC, 7=spoofSender, 8=delayed, 9=skipPhase, 10=inflatedNewView, 11=selectiveBroadcast");
             return;
         }
 
@@ -27,8 +28,8 @@ public class ReplicaServer {
         if (args.length >= 2) {
             try {
                 byzantineMode = Integer.parseInt(args[1]);
-                if (byzantineMode < 0 || byzantineMode > 6) {
-                    System.err.println("Invalid byzantineMode. Must be between 0 and 6.");
+                if (byzantineMode < 0 || byzantineMode > 11) {
+                    System.err.println("Invalid byzantineMode. Must be between 0 and 11.");
                     return;
                 }
             } catch (NumberFormatException e) {
@@ -99,6 +100,12 @@ public class ReplicaServer {
             case 3 -> bc.setVoteForWrongNode(true); // working
             case 4 -> bc.setSendToWrongLeader(true); // working
             case 5 -> bc.setDoubleVote(true);
+            case 6 -> bc.setForgedQC(true);
+            case 7 -> bc.setSpoofSenderId(true);
+            case 8 -> bc.setDelayMs(10000);
+            case 9 -> bc.setSkipPhase(true);
+            case 10 -> bc.setInflatedNewViewQC(true);
+            case 11 -> bc.setSelectiveBroadcast(true);
         }
         return bc;
     }

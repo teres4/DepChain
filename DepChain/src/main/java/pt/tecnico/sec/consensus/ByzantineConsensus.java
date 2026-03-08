@@ -7,25 +7,57 @@ public class ByzantineConsensus extends Consensus {
 
     // Drop every outgoing broadcast message (silent/crash-failure simulation)
     private volatile boolean silent = false;
-    
+
     // When acting as leader, send two conflicting PREPARE proposals: the first half
     // of replicas receives the original node, the second half receives an
     // alternative node with a different command and hash
     private volatile boolean sendConflicting = false;
-    
+
     // When voting (PREPARE_VOTE / PRE_COMMIT_VOTE / COMMIT_VOTE), sign and send a
     // vote for a fabricated node hash rather than the one proposed by the leader
     private volatile boolean voteForWrongNode = false;
-    
+
     // Send vote messages to a non-leader replica instead of the actual leader
     // The protocol should reject votes arriving at non-leader replicas
     private volatile boolean sendToWrongLeader = false;
-    
-    // Immediately re-send every vote message after the first send (double-voting / vote-replay attack)
+
+    // Immediately re-send every vote message after the first send (double-voting /
+    // vote-replay attack)
     // The protocol should handle duplicate votes gracefully
     private volatile boolean doubleVote = false;
 
-    private static final String RED   = "\u001B[31m";
+    // Byzantine leader fabricates a QuorumCertificate with fake signatures and
+    // uses it in PRE_COMMIT / COMMIT / DECIDE messages. Tests that replicas
+    // properly verify QC threshold signatures via tverify().
+    private volatile boolean forgedQC = false;
+
+    // Send messages with a spoofed sender ID, pretending to be a different
+    // replica. Tests that the authentication layer (AuthPerfLink / MAC)
+    // correctly validates sender identity and rejects impersonated messages.
+    private volatile boolean spoofSenderId = false;
+
+    // Introduce an artificial delay (in ms) before sending every outgoing message.
+    // Tests the timeout / view-change mechanism and protocol liveness under
+    // slow-network conditions. A value of 0 means no delay (disabled).
+    private volatile long delayMs = 0;
+
+    // Byzantine leader skips the PRE_COMMIT phase entirely, jumping straight
+    // from PREPARE to COMMIT. Tests that replicas enforce correct phase ordering
+    // and reject commits that lack a valid prepareQC.
+    private volatile boolean skipPhase = false;
+
+    // Send a NEW_VIEW message carrying a fabricated QC with an artificially high
+    // view number pointing to a non-existent node. Tests that the new leader
+    // validates the highQC and doesn't extend from an unsafe/unknown branch.
+    private volatile boolean inflatedNewViewQC = false;
+
+    // Only broadcast messages to the first half of replicas instead of all.
+    // Creates asymmetric information (some honest replicas see the message, others
+    // do not). Unlike silent (which drops everything), this is a partial omission
+    // fault that can cause liveness issues without breaking safety.
+    private volatile boolean selectiveBroadcast = false;
+
+    private static final String RED = "\u001B[31m";
     private static final String RESET = "\u001B[0m";
 
     // CONSTRUCTOR AND SETTERS
@@ -63,6 +95,36 @@ public class ByzantineConsensus extends Consensus {
         logByzantine("doubleVote = " + value);
     }
 
+    public void setForgedQC(boolean value) {
+        this.forgedQC = value;
+        logByzantine("forgedQC = " + value);
+    }
+
+    public void setSpoofSenderId(boolean value) {
+        this.spoofSenderId = value;
+        logByzantine("spoofSenderId = " + value);
+    }
+
+    public void setDelayMs(long value) {
+        this.delayMs = value;
+        logByzantine("delayMs = " + value);
+    }
+
+    public void setSkipPhase(boolean value) {
+        this.skipPhase = value;
+        logByzantine("skipPhase = " + value);
+    }
+
+    public void setInflatedNewViewQC(boolean value) {
+        this.inflatedNewViewQC = value;
+        logByzantine("inflatedNewViewQC = " + value);
+    }
+
+    public void setSelectiveBroadcast(boolean value) {
+        this.selectiveBroadcast = value;
+        logByzantine("selectiveBroadcast = " + value);
+    }
+
     // BYZANTINE OVERRIDES
 
     @Override
@@ -83,6 +145,16 @@ public class ByzantineConsensus extends Consensus {
             return;
         }
 
+        // Artificial delay before sending
+        if (delayMs > 0) {
+            logByzantine("Delaying outgoing " + message.getHotStuffType() + " by " + delayMs + "ms");
+            try {
+                Thread.sleep(delayMs);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+        }
+
         if (sendConflicting && message instanceof PrepareMessage prepareMsg) {
             logByzantine("Sending conflicting PREPARE proposals (view "
                     + prepareMsg.getViewNumber() + ")");
@@ -90,18 +162,128 @@ public class ByzantineConsensus extends Consensus {
             return;
         }
 
+        // Selective broadcast: only send to first half of replicas
+        if (selectiveBroadcast) {
+            logByzantine("Selective broadcast of " + message.getHotStuffType()
+                    + " (sending to first half only)");
+            broadcastSelective(message);
+            return;
+        }
+
         super.broadcastMessage(message);
+    }
+
+    // ---- Forged QC: leader skips collecting real votes, fabricates a QC ----
+
+    @Override
+    public synchronized void onReceivePrepareVoteMessage(PrepareVoteMessage voteMessage) throws Exception {
+        if (forgedQC && amLeader(voteMessage.getViewNumber()) && getCurrentPhase() == Phase.PREPARE) {
+            logByzantine("FORGED QC: Fabricating prepareQC without waiting for real votes");
+            QuorumCertificate fakeQC = new QuorumCertificate(
+                    voteMessage.getViewNumber(),
+                    curProposal != null ? curProposal.getHash() : "FORGED_NODE",
+                    "prepare",
+                    "FORGED_SIGNATURE_DATA");
+            precommit(fakeQC);
+            return;
+        }
+        super.onReceivePrepareVoteMessage(voteMessage);
+    }
+
+    @Override
+    public synchronized void onReceivePreCommitVoteMessage(PreCommitVoteMessage voteMessage) throws Exception {
+        if (forgedQC && amLeader(voteMessage.getViewNumber()) && getCurrentPhase() == Phase.PRE_COMMIT) {
+            logByzantine("FORGED QC: Fabricating preCommitQC without waiting for real votes");
+            QuorumCertificate fakeQC = new QuorumCertificate(
+                    voteMessage.getViewNumber(),
+                    curProposal != null ? curProposal.getHash() : "FORGED_NODE",
+                    "pre-commit",
+                    "FORGED_SIGNATURE_DATA");
+            commit(fakeQC);
+            return;
+        }
+        super.onReceivePreCommitVoteMessage(voteMessage);
+    }
+
+    @Override
+    public synchronized void onReceiveCommitVoteMessage(CommitVoteMessage voteMessage) throws Exception {
+        if (forgedQC && amLeader(voteMessage.getViewNumber()) && getCurrentPhase() == Phase.COMMIT) {
+            logByzantine("FORGED QC: Fabricating commitQC without waiting for real votes");
+            QuorumCertificate fakeQC = new QuorumCertificate(
+                    voteMessage.getViewNumber(),
+                    curProposal != null ? curProposal.getHash() : "FORGED_NODE",
+                    "commit",
+                    "FORGED_SIGNATURE_DATA");
+            decide(fakeQC);
+            return;
+        }
+        super.onReceiveCommitVoteMessage(voteMessage);
+    }
+
+    // ---- Skip phase: leader jumps from PREPARE straight to COMMIT ----
+
+    @Override
+    public void precommit(QuorumCertificate prepareQC) throws Exception {
+        if (skipPhase && amLeader(prepareQC.getViewNumber())) {
+            logByzantine("SKIP PHASE: Skipping PRE_COMMIT, jumping from PREPARE to COMMIT");
+            // Re-label the prepareQC as a pre-commit QC and go directly to commit
+            QuorumCertificate fakePreCommitQC = new QuorumCertificate(
+                    prepareQC.getViewNumber(),
+                    prepareQC.getNodeHash(),
+                    "pre-commit",
+                    prepareQC.getSignatures());
+            commit(fakePreCommitQC);
+            return;
+        }
+        super.precommit(prepareQC);
+    }
+
+    // ---- Inflated NEW_VIEW QC: send a NEW_VIEW with fabricated high QC ----
+
+    @Override
+    public void startNewView() throws Exception {
+        if (inflatedNewViewQC) {
+            int fakeViewNumber = viewNumber.get() + 100;
+            String fakeNodeHash = "INFLATED_NODE_VIEW_" + fakeViewNumber;
+            QuorumCertificate inflatedQC = new QuorumCertificate(
+                    fakeViewNumber, fakeNodeHash, "prepare", "INFLATED_FAKE_SIGNATURES");
+            logByzantine("INFLATED NEW_VIEW: Sending NEW_VIEW with fabricated QC at view "
+                    + fakeViewNumber + " (real view " + viewNumber.get() + ")");
+            NewViewMessage fakeNewView = new NewViewMessage(viewNumber.get(), inflatedQC, replicaID);
+            int leader = getLeader(viewNumber.get());
+            if (amLeader(viewNumber.get())) {
+                sendToSelf(fakeNewView);
+            } else {
+                MessageRouter r = getRouter();
+                if (r != null)
+                    r.sendConsensusMessage(fakeNewView, leader);
+            }
+            heartbeat();
+            return;
+        }
+        super.startNewView();
+    }
+
+    // ---- Spoofed sender ID: impersonate another replica ----
+
+    @Override
+    public void onReceiveDecideMessage(DecideMessage decideMessage) {
+        // Spoofed sender: on the outbound side we can't easily change sender in
+        // the authenticated link, so instead we test impersonation on NEW_VIEW.
+        // The spoofSenderId flag is handled in startNewView & vote dispatch.
+        super.onReceiveDecideMessage(decideMessage);
     }
 
     @Override
     public void onReceivePrepareMessage(PrepareMessage prepareMessage) {
-        if (!voteForWrongNode && !sendToWrongLeader && !doubleVote) {
+        if (!voteForWrongNode && !sendToWrongLeader && !doubleVote && !spoofSenderId) {
             super.onReceivePrepareMessage(prepareMessage);
             return;
         }
 
         // Ignore stale messages
-        if (prepareMessage.getViewNumber() < viewNumber.get()) return;
+        if (prepareMessage.getViewNumber() < viewNumber.get())
+            return;
 
         QuorumCertificate highQC = prepareMessage.getHighQC();
         Node ancestorNode = (highQC == null) ? tree.getRoot() : tree.getNode(highQC.getNodeHash());
@@ -121,14 +303,20 @@ public class ByzantineConsensus extends Consensus {
                 ? new Node(nodeHash, "BYZANTINE", prepareMessage.getNode().getHash(), null)
                 : prepareMessage.getNode();
 
+        // Spoofed sender ID: pretend to be another replica
+        long effectiveSenderId = spoofSenderId ? getSpoofedId() : replicaID;
+
         String partialSig = tsign(HotStuffMessageType.PREPARE_VOTE, viewNumber.get(), nodeHash);
         PrepareVoteMessage vote = new PrepareVoteMessage(
-                viewNumber.get(), voteNode, replicaID, partialSig);
+                viewNumber.get(), voteNode, effectiveSenderId, partialSig);
 
         int target = sendToWrongLeader
                 ? getWrongLeader(prepareMessage.getViewNumber())
                 : getLeader(prepareMessage.getViewNumber());
 
+        if (spoofSenderId)
+            logByzantine("PREPARE_VOTE: Spoofing sender ID as replica " + effectiveSenderId
+                    + " (real ID: " + replicaID + ")");
         if (voteForWrongNode && sendToWrongLeader)
             logByzantine("PREPARE_VOTE: WRONG hash + WRONG leader -> replica " + target
                     + " (correct leader: " + getLeader(prepareMessage.getViewNumber()) + ")");
@@ -150,12 +338,13 @@ public class ByzantineConsensus extends Consensus {
 
     @Override
     public void onReceivePreCommitMessage(PreCommitMessage preCommitMessage) {
-        if (!voteForWrongNode && !sendToWrongLeader && !doubleVote) {
+        if (!voteForWrongNode && !sendToWrongLeader && !doubleVote && !spoofSenderId) {
             super.onReceivePreCommitMessage(preCommitMessage);
             return;
         }
 
-        if (preCommitMessage.getViewNumber() < viewNumber.get()) return;
+        if (preCommitMessage.getViewNumber() < viewNumber.get())
+            return;
 
         QuorumCertificate prepareQC = preCommitMessage.getPrepareQC();
         Node node = tree.getNode(prepareQC.getNodeHash());
@@ -173,9 +362,11 @@ public class ByzantineConsensus extends Consensus {
                 ? new Node(nodeHash, "BYZANTINE", prepareQC.getNodeHash(), null)
                 : node;
 
+        long effectiveSenderId = spoofSenderId ? getSpoofedId() : replicaID;
+
         String partialSig = tsign(HotStuffMessageType.PRE_COMMIT_VOTE, viewNumber.get(), nodeHash);
         PreCommitVoteMessage vote = new PreCommitVoteMessage(
-                viewNumber.get(), voteNode, replicaID, partialSig);
+                viewNumber.get(), voteNode, effectiveSenderId, partialSig);
 
         int target = sendToWrongLeader
                 ? getWrongLeader(preCommitMessage.getViewNumber())
@@ -202,12 +393,13 @@ public class ByzantineConsensus extends Consensus {
 
     @Override
     public void onReceiveCommitMessage(CommitMessage commitMessage) {
-        if (!voteForWrongNode && !sendToWrongLeader && !doubleVote) {
+        if (!voteForWrongNode && !sendToWrongLeader && !doubleVote && !spoofSenderId) {
             super.onReceiveCommitMessage(commitMessage);
             return;
         }
 
-        if (commitMessage.getViewNumber() < viewNumber.get()) return;
+        if (commitMessage.getViewNumber() < viewNumber.get())
+            return;
 
         QuorumCertificate preCommitQC = commitMessage.getPrecommitQC();
         Node node = tree.getNode(preCommitQC.getNodeHash());
@@ -225,9 +417,11 @@ public class ByzantineConsensus extends Consensus {
                 ? new Node(nodeHash, "BYZANTINE", preCommitQC.getNodeHash(), null)
                 : node;
 
+        long effectiveSenderId = spoofSenderId ? getSpoofedId() : replicaID;
+
         String partialSig = tsign(HotStuffMessageType.COMMIT_VOTE, viewNumber.get(), nodeHash);
         CommitVoteMessage vote = new CommitVoteMessage(
-                viewNumber.get(), voteNode, replicaID, partialSig);
+                viewNumber.get(), voteNode, effectiveSenderId, partialSig);
 
         int target = sendToWrongLeader
                 ? getWrongLeader(commitMessage.getViewNumber())
@@ -269,16 +463,18 @@ public class ByzantineConsensus extends Consensus {
                 original.getViewNumber(), altNode, original.getHighQC(), replicaID);
 
         int total = getTotalReplicas();
-        int half  = total / 2;
+        int half = total / 2;
         MessageRouter r = getRouter();
 
         for (int i = 1; i <= total; i++) {
-            if (i == replicaID) continue;
+            if (i == replicaID)
+                continue;
             final int targetReplica = i;
             final PrepareMessage toSend = (targetReplica <= half) ? original : altMsg;
             executorService.submit(() -> {
                 try {
-                    if (r != null) r.sendConsensusMessage(toSend, targetReplica);
+                    if (r != null)
+                        r.sendConsensusMessage(toSend, targetReplica);
                 } catch (Exception e) {
                     System.err.println("[Byzantine] Conflicting send failed to "
                             + targetReplica + ": " + e.getMessage());
@@ -295,16 +491,56 @@ public class ByzantineConsensus extends Consensus {
 
     private void dispatchVote(HotStuffMessage vote, int viewNum, int target) {
         if (amLeader(viewNum)) {
-            try { sendToSelf(vote); } catch (Exception e) { /* ignore */ }
+            try {
+                sendToSelf(vote);
+            } catch (Exception e) {
+                /* ignore */ }
         } else {
             MessageRouter r = getRouter();
-            if (r != null) r.sendConsensusMessage(vote, target);
+            if (r != null)
+                r.sendConsensusMessage(vote, target);
         }
     }
 
     private int getWrongLeader(int viewNum) {
         int correctLeader = getLeader(viewNum);
         return (correctLeader % getTotalReplicas()) + 1;
+    }
+
+    /**
+     * Broadcast only to the first half of replicas, creating asymmetric view.
+     */
+    private void broadcastSelective(HotStuffMessage message) throws Exception {
+        int total = getTotalReplicas();
+        int half = total / 2;
+        MessageRouter r = getRouter();
+        for (int i = 1; i <= total; i++) {
+            if (i == replicaID)
+                continue;
+            if (i <= half) {
+                final int targetReplica = i;
+                executorService.submit(() -> {
+                    try {
+                        if (r != null)
+                            r.sendConsensusMessage(message, targetReplica);
+                    } catch (Exception e) {
+                        System.err.println("[Byzantine] Selective send failed to "
+                                + targetReplica + ": " + e.getMessage());
+                    }
+                });
+            } else {
+                logByzantine("Selective broadcast: DROPPING message to replica " + i);
+            }
+        }
+        // Still deliver to self
+        sendToSelf(message);
+    }
+
+    /**
+     * Returns a spoofed sender ID (the next replica in the ring).
+     */
+    private long getSpoofedId() {
+        return (replicaID % getTotalReplicas()) + 1;
     }
 
 }
