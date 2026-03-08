@@ -18,7 +18,6 @@ public class DHKeyAgreement {
     private static boolean initialized = false;
     
     private KeyPair keyPair;
-    private KeyAgreement keyAgreement;
 
     private static String dhConfigFile = "config/dhparams.json";
 
@@ -51,33 +50,28 @@ public class DHKeyAgreement {
         KeyPairGenerator kpg = KeyPairGenerator.getInstance("DH");
         kpg.initialize(dhParamSpec);
         this.keyPair = kpg.generateKeyPair();
-        
-        // Initialize KeyAgreement with private key
-        this.keyAgreement = KeyAgreement.getInstance("DH");
-        this.keyAgreement.init(keyPair.getPrivate());
     }
 
     public SecretKey computeSharedSecret(byte[] otherPublicKey) throws Exception {
-        if (this.keyAgreement == null) {
+        if (this.keyPair == null) {
             throw new IllegalStateException("Must call initialize() first");
         }
-        
-        // Parse the other party's public key
+
+        // Create a fresh KeyAgreement per call - the shared instance is NOT thread-safe.
+        // KeyAgreement.doPhase() + generateSecret() are stateful: doPhase() sets internal
+        // state and generateSecret() consumes and clears it. Concurrent calls on the same
+        // instance interleave their doPhase/generateSecret pairs, producing wrong shared
+        // secrets (-> HMAC failures) or "Key agreement has not been completed yet" errors.
+        KeyAgreement ka = KeyAgreement.getInstance("DH");
+        ka.init(keyPair.getPrivate());
+
         KeyFactory kf = KeyFactory.getInstance("DH");
         X509EncodedKeySpec x509KeySpec = new X509EncodedKeySpec(otherPublicKey);
         PublicKey publicKey = kf.generatePublic(x509KeySpec);
-        
-        // Perform key agreement
-        keyAgreement.doPhase(publicKey, true);
-        byte[] sharedSecret = keyAgreement.generateSecret();
-        
-        // TODO CHECK IF THE HASH IS REALLY SMTH RELEVANT TO DO
-        // Hash the shared secret with SHA-256 before using as AES key
-        // MessageDigest hash = MessageDigest.getInstance("SHA-256");
-        // byte[] hashedSecret = hash.digest(sharedSecret);
-        
-        // // Use first 16 bytes for AES-128
-        // return new SecretKeySpec(hashedSecret, 0, 16, "AES");
+
+        ka.doPhase(publicKey, true);
+        byte[] sharedSecret = ka.generateSecret();
+
         return new SecretKeySpec(sharedSecret, 0, 16, "AES");
     }
 

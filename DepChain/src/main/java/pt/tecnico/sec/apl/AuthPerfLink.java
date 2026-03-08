@@ -354,12 +354,10 @@ public class AuthPerfLink {
 
             // Check if session already exists
             Session existingSession = sessionManager.getSession(senderId);
-            if (existingSession != null) {
-                // Duplicate request - resend ACK (original ACK was probably lost)
-                logger(
-                        "Received duplicate CONNECTION_REQUEST from " + senderId + ", resending ACK");
+            if (existingSession != null && existingSession.isConnectionEstablished()) {
+                // Fully established duplicate request - original ACK was probably lost, resend it.
+                logger("Received duplicate CONNECTION_REQUEST from " + senderId + ", resending ACK");
 
-                // Recreate and resend the ACK
                 byte[] responderDHPublicKey = this.dhKeyAgreement.getEncodedPublicKey();
                 String responderKeyBase64 = Base64.getEncoder().encodeToString(responderDHPublicKey);
                 String signature = Crypto.signMessage(this.ownId + ":" + responderKeyBase64, this.privateKey);
@@ -368,6 +366,12 @@ public class AuthPerfLink {
                 datagramSocket.send(reply.toDatagramPacket(addr));
                 return;
             }
+            // If existingSession != null but NOT yet established, it is a placeholder we
+            // created ourselves when we simultaneously initiated a connection to this same
+            // peer (both sides called startConnection at the same time). Fall through and
+            // complete the handshake as responder: compute the shared secret, update the
+            // existing session, and call markConnectionEstablished() so the initiator
+            // thread waiting in waitForConnectionEstablished() can wake up.
 
             PublicKey senderPublicKey;
             if (!isClient) {
@@ -448,13 +452,13 @@ public class AuthPerfLink {
             SecretKey sessionKey = this.dhKeyAgreement.computeSharedSecret(responderDHPublicKey);
             session.setSessionKey(sessionKey);
 
-            // After handshake, initialize session for data transfer:
-            // - Sender starts at seq 2 for first data packet
-            // - Receiver expects seq 2 as well
-            session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=2, expectedSeqNum=2
-
-            // Mark session as established
-            session.markConnectionEstablished();
+            // If the session was already established (simultaneous connect: we acted as
+            // responder to their incoming CONNECTION_REQUEST before receiving their ACK),
+            // don't reset sequence numbers - data transfer may have already started.
+            if (!session.isConnectionEstablished()) {
+                session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=2, expectedSeqNum=2
+                session.markConnectionEstablished();
+            }
 
             logger("Connection reply verified and session established with: " + addr);
         } catch (Exception e) {
@@ -478,10 +482,10 @@ public class AuthPerfLink {
 
             // Guard: the session placeholder may exist in the map but the DH handshake
             // may not have completed yet (key is still null). Calling verifyHmac with a
-            // null key throws InvalidKeyException. Drop the packet — the sender's
+            // null key throws InvalidKeyException. Drop the packet - the sender's
             // Go-Back-N timer will retransmit once the handshake finishes.
             if (!session.isConnectionEstablished()) {
-                logger("Dropping DATA from " + addr + " — handshake not yet complete for session " + session.getSenderID());
+                logger("Dropping DATA from " + addr + " - handshake not yet complete for session " + session.getSenderID());
                 return;
             }
 
