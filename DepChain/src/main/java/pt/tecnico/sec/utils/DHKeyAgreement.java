@@ -2,7 +2,6 @@ package pt.tecnico.sec.utils;
 
 import java.io.File;
 import java.io.FileReader;
-import java.io.FileWriter;
 import java.math.BigInteger;
 import java.security.*;
 import java.security.spec.*;
@@ -10,7 +9,6 @@ import javax.crypto.*;
 import javax.crypto.spec.*;
 
 import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 
 public class DHKeyAgreement {

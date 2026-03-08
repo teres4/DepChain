@@ -104,7 +104,6 @@ public class Replica {
 
     private void sendResponseToClient(long clientId, long nonce, boolean success, String result) {
         try {
-            String message = success ? "Command executed successfully" : "Command execution failed";
             CommandResponse response = new CommandResponse(clientId, nonce, success, result);
 
             executorService.submit(() -> {

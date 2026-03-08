@@ -9,7 +9,6 @@ import java.util.TimerTask;
 import javax.crypto.SecretKey;
 
 import pt.tecnico.sec.apl.message.DataMessage;
-import pt.tecnico.sec.apl.message.Message;
 
 public class Session {
 
@@ -245,6 +244,10 @@ public class Session {
     public synchronized void cleanup() {
         stopTimer();
         sendBuffer.clear();
+    }
+
+    public synchronized boolean isConnectionEstablished() {
+        return connectionEstablished;
     }
 
     public synchronized boolean waitForConnectionEstablished() {

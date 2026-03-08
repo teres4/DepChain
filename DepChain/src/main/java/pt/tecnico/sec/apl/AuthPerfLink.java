@@ -24,7 +24,6 @@ import pt.tecnico.sec.apl.message.ConnectionRequestMessage;
 import pt.tecnico.sec.apl.message.DataACKMessage;
 import pt.tecnico.sec.apl.message.DataMessage;
 import pt.tecnico.sec.apl.message.Message;
-import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.DHKeyAgreement;
 import pt.tecnico.sec.utils.MemberInfo;
@@ -477,6 +476,15 @@ public class AuthPerfLink {
                 }
             }
 
+            // Guard: the session placeholder may exist in the map but the DH handshake
+            // may not have completed yet (key is still null). Calling verifyHmac with a
+            // null key throws InvalidKeyException. Drop the packet — the sender's
+            // Go-Back-N timer will retransmit once the handshake finishes.
+            if (!session.isConnectionEstablished()) {
+                logger("Dropping DATA from " + addr + " — handshake not yet complete for session " + session.getSenderID());
+                return;
+            }
+
             long expectedSeq = session.getExpectedSequenceNumber();
 
             // go back n only accept packets in order
@@ -539,6 +547,9 @@ public class AuthPerfLink {
         try {
             Session session = getSessionForAddress(addr);
             if (session == null)
+                return;
+
+            if (!session.isConnectionEstablished())
                 return;
 
             if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr))
