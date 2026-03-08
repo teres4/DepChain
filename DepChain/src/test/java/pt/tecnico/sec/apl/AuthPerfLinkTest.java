@@ -211,51 +211,57 @@ public class AuthPerfLinkTest {
     }
 
     // TODO BELOW TESTS ARE FAILING
-    // Test to simulate packet loss and verify retransmission
+    // Tests that messages are retransmitted if data packets are lost at the receiver (simulate packet loss)
     // @Test
-    // @Timeout(120)
-    // public void testReliableDelivery_MultipleMessages() throws Exception {
-    //     int messageCount = 10;
+    // @Timeout(60)
+    // public void testPacketLossSimulation() throws Exception {
+    //     int totalMessages = 3;
     //     CompletableFuture<Void> allMessagesReceived = new CompletableFuture<>();
-    //     List<String> receivedMessages = new ArrayList<>();
+    //     List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
 
-    //     receiver.setMessageListener(content -> {
+    //     receiver.setConsensusMessageListener(content -> {
     //         synchronized (receivedMessages) {
     //             receivedMessages.add(content);
     //             System.out.println("Received message: " + content); // Debug log
 
-    //             if (receivedMessages.size() == messageCount) {
+    //             if (receivedMessages.size() == totalMessages) {
     //                 allMessagesReceived.complete(null);
     //             }
     //         }
     //     });
-        
+
     //     // Establish connection
     //     Session session = sender.startConnection(RECEIVER_ID);
     //     assertNotNull(session);
     //     Thread.sleep(500);
 
-    //     // Send multiple messages
-    //     for (int i = 0; i < messageCount; i++) {
-    //         System.out.println("Sending message: Message " + i); // Debug log
-    //         sender.sendData(RECEIVER_ID, ("Message " + i).getBytes());
+    //     // Send multiple messages with simulated packet loss
+    //     for (int i = 0; i < totalMessages; i++) {
+    //         String message = "Message " + i;
+    //         if (Math.random() > 0.3) {
+    //             System.out.println("Sending message: " + message); // Debug log
+    //             sender.sendData(RECEIVER_ID, message.getBytes());
+    //         } else {
+    //             System.out.println("Dropping message: " + message); // Simulate packet loss
+    //         }
     //     }
 
-    //     // Wait for all messages
-    //     allMessagesReceived.get(120, TimeUnit.SECONDS);
-    //     assertEquals(messageCount, receivedMessages.size(), 
-    //              "Should receive exactly " + messageCount + " messages");
+    //     // Wait for all messages to be received
+    //     allMessagesReceived.get(60, TimeUnit.SECONDS);
+    //     assertEquals(totalMessages, receivedMessages.size(), 
+    //                  "Should receive exactly " + totalMessages + " messages despite packet loss");
     // }
 
-    // Tests that messages are retransmitted if ACKS are lost at the receiver (simulate packet loss)
+    // Tests that messages are retransmitted if ACKS are lost (simulate packet loss)
+    // TODO
     // @Test
-    // @Timeout(50)
+    // @Timeout(120)
     // public void testReliableDelivery_ACKPacketLoss() throws Exception {
-    //     int messageCount = 4;
+    //     int messageCount = 3;
     //     CompletableFuture<Void> allMessagesDelivered = new CompletableFuture<>();
     //     List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
 
-    //     receiver.setMessageListener(content -> {
+    //     receiver.setConsensusMessageListener(content -> {
     //         // Simulate packet loss by randomly ignoring messages
     //         if (Math.random() < 0.5) { // Drop 50% of packets for testing
     //             System.out.println("Dropping packet: " + content);
@@ -282,49 +288,8 @@ public class AuthPerfLinkTest {
     //     }
 
     //     // Wait for all messages to be delivered
-    //     assertDoesNotThrow(() -> allMessagesDelivered.get(50, TimeUnit.SECONDS), 
+    //     assertDoesNotThrow(() -> allMessagesDelivered.get(120, TimeUnit.SECONDS), 
     //                        "All messages should be delivered even with retransmissions");
-
-    //     assertEquals(messageCount, receivedMessages.size(), 
-    //                  "All messages should be delivered exactly once");
-    // }
-
-    // // Tests that messages are retransmitted if data packets are lost at the receiver (simulate packet loss)
-    // @Test
-    // @Timeout(50)
-    // public void testReliableDelivery_ReceiverPacketLoss() throws Exception {
-    //     int messageCount = 4;
-    //     CompletableFuture<Void> allMessagesDelivered = new CompletableFuture<>();
-    //     List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-
-    //     receiver.setMessageListener(content -> {
-    //         receivedMessages.add(content);
-    //         System.out.println("Received message: " + content);
-
-    //         if (receivedMessages.size() == messageCount) {
-    //             allMessagesDelivered.complete(null);
-    //         }
-    //     });
-
-    //     // Establish connection
-    //     Session session = sender.startConnection(RECEIVER_ID);
-    //     assertNotNull(session);
-    //     Thread.sleep(500);
-
-    //     // Send multiple messages
-    //     for (int i = 0; i < messageCount; i++) {
-    //         // Simulate packet loss by dropping packets at the receiver level
-    //         if (Math.random() < 0.5) { // Drop 50% of packets for testing
-    //             System.out.println("Sender dropping message: Message " + i);
-    //             continue;
-    //         }
-    //         String message = "Message " + i;
-    //         sender.sendData(RECEIVER_ID, message.getBytes());
-    //     }
-
-    //     // Wait for all messages to be delivered
-    //     assertDoesNotThrow(() -> allMessagesDelivered.get(50, TimeUnit.SECONDS), 
-    //                        "All messages should be delivered even with receiver packet loss");
 
     //     assertEquals(messageCount, receivedMessages.size(), 
     //                  "All messages should be delivered exactly once");
