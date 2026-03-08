@@ -84,7 +84,11 @@ public class AuthPerfLink {
         this.isReplica = isReplica;
         this.datagramSocket = socket;
         this.executorService = executorService;
-        this.sendExecutorService = Executors.newCachedThreadPool(); // elastic pool for sends
+        // Single-threaded executor guarantees sends are serialized in submission
+        // (i.e. sequence-number) order. Go-Back-N relies on in-order delivery;
+        // a multi-threaded pool lets thread scheduling reorder UDP sends, causing
+        // the receiver to discard valid packets as "out-of-order".
+        this.sendExecutorService = Executors.newSingleThreadExecutor();
         this.sessionManager = sessionManager;
         this.memberManagement = memberManagement;
         this.dhKeyAgreement = dhKeyAgreement;
@@ -113,7 +117,12 @@ public class AuthPerfLink {
             try {
                 datagramSocket.receive(packet);
                 if (running.get()) {
-                    executorService.submit(() -> handlePacket(packet));
+                    // Process packets inline on the receive thread to preserve
+                    // the arrival order that Go-Back-N relies on. Dispatching
+                    // to a thread pool allows thread scheduling to reorder
+                    // processing, causing valid in-order packets to be
+                    // discarded as "out-of-order".
+                    handlePacket(packet);
                 }
             } catch (IOException e) {
                 if (running.get()) {
@@ -270,7 +279,7 @@ public class AuthPerfLink {
             return null;
         }
     }
-    
+
     public MemberInfo[] getMembers() {
         return memberManagement.getMembers();
     }
@@ -486,57 +495,67 @@ public class AuthPerfLink {
                 return;
             }
 
-            long expectedSeq = session.getExpectedSequenceNumber();
+            // Synchronize the entire check-then-act on the session to prevent
+            // a race where two executor threads both read the same expectedSeqNum,
+            // one delivers its packet and advances the counter, while the other
+            // wrongly discards a valid in-order packet based on a stale local copy.
+            synchronized (session) {
+                long expectedSeq = session.getExpectedSequenceNumber();
 
-            // go back n only accept packets in order
-            if (msg.getSequenceNumber() == expectedSeq) { // accept only expected sequence number
-                String jsonWithoutHmac = msg.withoutHmac().toJsonString();
-                if (!verifyHmac(jsonWithoutHmac, msg.getHmac(), session, addr))
-                    return;
+                // go back n only accept packets in order
+                if (msg.getSequenceNumber() == expectedSeq) { // accept only expected sequence number
+                    String jsonWithoutHmac = msg.withoutHmac().toJsonString();
+                    if (!verifyHmac(jsonWithoutHmac, msg.getHmac(), session, addr))
+                        return;
 
-                // check if sender id is really the one it claims to be
-                try {
-                    String contentStr = new String(msg.getContent());
-                    // search for senderId in content and verify it matches session senderId
-                    if (contentStr.contains("senderId")) {
-                        String[] parts = contentStr.split("senderId\":");
-                        if (parts.length > 1) {
-                            String senderIdStr = parts[1].split("[,}]")[0].trim();
-                            long senderId = Long.parseLong(senderIdStr);
-                            if (senderId != session.getSenderID()) {
-                                System.err
-                                        .println("Sender ID in content does not match session sender ID for: " + addr);
-                                return;
+                    // check if sender id is really the one it claims to be
+                    try {
+                        String contentStr = new String(msg.getContent());
+                        // search for senderId in content and verify it matches session senderId
+                        if (contentStr.contains("senderId")) {
+                            String[] parts = contentStr.split("senderId\":");
+                            if (parts.length > 1) {
+                                String senderIdStr = parts[1].split("[,}]")[0].trim();
+                                long senderId = Long.parseLong(senderIdStr);
+                                if (senderId != session.getSenderID()) {
+                                    System.err
+                                            .println(
+                                                    "Sender ID in content does not match session sender ID for: "
+                                                            + addr);
+                                    return;
+                                }
                             }
                         }
+                    } catch (Exception e) {
+                        System.err.println(
+                                "Failed to verify sender ID in content for: " + addr + " - " + e.getMessage());
+                        return;
                     }
-                } catch (Exception e) {
-                    System.err.println("Failed to verify sender ID in content for: " + addr + " - " + e.getMessage());
-                    return;
-                }
-                String contentStr = new String(msg.getContent());
-                if (session.isClientSession()) {
-                    messageListener.onMessage(contentStr);
+                    String contentStr = new String(msg.getContent());
+                    if (session.isClientSession()) {
+                        messageListener.onMessage(contentStr);
+                    } else {
+                        consensusMessageListener.onConsensusMessage(contentStr);
+                    }
+
+                    // Update expected sequence number and send cumulative ACK
+                    session.setExpectedSequenceNumber(expectedSeq + 1);
+                    String contentPreview = contentStr.length() > 50 ? contentStr.substring(0, 50) + "..."
+                            : contentStr;
+                    logger("Received expected packet " + msg.getSequenceNumber() + " from: " + addr
+                            + " (content: " + contentPreview + ") sending ACK for seq " + (expectedSeq + 1));
+
+                    sendDataAck(session, expectedSeq + 1);
+
                 } else {
-                    consensusMessageListener.onConsensusMessage(contentStr);
-                }
+                    // Out-of-order packet - discard and resend ACK for last in-order packet
+                    logger("Received out-of-order packet " + msg.getSequenceNumber() +
+                            " (expected " + expectedSeq + ") from: " + addr + ", discarding");
 
-                // Update expected sequence number and send cumulative ACK
-                session.setExpectedSequenceNumber(expectedSeq + 1);
-                String contentPreview = contentStr.length() > 50 ? contentStr.substring(0, 50) + "..." : contentStr;
-                logger("Received expected packet " + msg.getSequenceNumber() + " from: " + addr
-                        + " (content: " + contentPreview + ") sending ACK for seq " + (expectedSeq + 1));
-
-                sendDataAck(session, expectedSeq + 1);
-
-            } else {
-                // Out-of-order packet - discard and resend ACK for last in-order packet
-                logger("Received out-of-order packet " + msg.getSequenceNumber() +
-                        " (expected " + expectedSeq + ") from: " + addr + ", discarding");
-
-                // Send cumulative ACK for last correctly received packet
-                if (expectedSeq > 0) {
-                    sendDataAck(session, expectedSeq);
+                    // Send cumulative ACK for last correctly received packet
+                    if (expectedSeq > 0) {
+                        sendDataAck(session, expectedSeq);
+                    }
                 }
             }
         } catch (Exception e) {

@@ -16,6 +16,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -81,10 +83,10 @@ public class AuthPerfLinkTest {
         receiverSessionManager = new SessionManager();
 
         // Create member managers
-        senderMemberManager = createMemberManager(RECEIVER_ID, RECEIVER_PORT, 
-                                                   receiverKeyPair.getPublic());
+        senderMemberManager = createMemberManager(RECEIVER_ID, RECEIVER_PORT,
+                receiverKeyPair.getPublic());
         receiverMemberManager = createMemberManager(SENDER_ID, SENDER_PORT,
-                                                     senderKeyPair.getPublic());
+                senderKeyPair.getPublic());
 
         // Create AuthPerfLink instances
         sender = new AuthPerfLink(SENDER_ID, senderKeyPair.getPrivate(), true, senderSocket,
@@ -100,21 +102,27 @@ public class AuthPerfLinkTest {
 
     @AfterEach
     public void teardown() {
-        if (sender != null) sender.shutdown();
-        if (receiver != null) receiver.shutdown();
+        if (sender != null)
+            sender.shutdown();
+        if (receiver != null)
+            receiver.shutdown();
     }
 
-    private MemberManager createMemberManager(long otherId, int otherPort, 
-                                              PublicKey otherPublicKey) {
+    private MemberManager createMemberManager(long otherId, int otherPort,
+            PublicKey otherPublicKey) {
         MemberManager manager = mock(MemberManager.class);
-        InetSocketAddress otherAddr = new InetSocketAddress("localhost", otherPort);
+        // Use IP address directly (not hostname) to match what DatagramPacket returns.
+        // DatagramPacket.getAddress() returns a raw InetAddress without a hostname,
+        // so InetSocketAddress("localhost", port) won't .equals() InetSocketAddress(ip,
+        // port).
+        InetSocketAddress otherAddr = new InetSocketAddress("127.0.0.1", otherPort);
         MemberInfo otherMember = new MemberInfo(otherId, otherPublicKey, "test-key-" + otherId, otherAddr);
-        
+
         // Mock the member manager to return our test member
         when(manager.getMember(otherId)).thenReturn(otherMember);
         when(manager.getMemberByAddress(otherAddr)).thenReturn(otherMember);
-        when(manager.getMembers()).thenReturn(new MemberInfo[]{otherMember});
-        
+        when(manager.getMembers()).thenReturn(new MemberInfo[] { otherMember });
+
         return manager;
     }
 
@@ -131,7 +139,7 @@ public class AuthPerfLinkTest {
         // Establish connections
         Session senderSession = sender.startConnection(RECEIVER_ID);
         Session receiverSession = receiver.startConnection(SENDER_ID);
-        
+
         assertNotNull(senderSession);
         assertNotNull(receiverSession);
         Thread.sleep(500);
@@ -143,13 +151,14 @@ public class AuthPerfLinkTest {
         receiver.sendData(SENDER_ID, toSender.getBytes());
 
         // Both should receive
-        assertTrue(receiverLatch.await(5, TimeUnit.SECONDS), 
-                   "Receiver should get message");
-        assertTrue(senderLatch.await(5, TimeUnit.SECONDS), 
-                   "Sender should get message");
+        assertTrue(receiverLatch.await(5, TimeUnit.SECONDS),
+                "Receiver should get message");
+        assertTrue(senderLatch.await(5, TimeUnit.SECONDS),
+                "Sender should get message");
     }
 
-    // A message sent from a correct sender should be delivered to a correct receiver 
+    // A message sent from a correct sender should be delivered to a correct
+    // receiver
     @Test
     @Timeout(10)
     public void testReliableDelivery_SingleMessage() throws Exception {
@@ -170,7 +179,7 @@ public class AuthPerfLinkTest {
         // Wait for message to be received
         String receivedMessage = future.get(5, TimeUnit.SECONDS);
         assertNotNull(receivedMessage, "Message should be delivered");
-        assertTrue(receivedMessage.contains("Hello, World!"), 
+        assertTrue(receivedMessage.contains("Hello, World!"),
                 "Received message should contain the sent content");
     }
 
@@ -192,7 +201,7 @@ public class AuthPerfLinkTest {
                 }
             }
         });
-        
+
         // Establish connection
         Session session = sender.startConnection(RECEIVER_ID);
         assertNotNull(session);
@@ -206,94 +215,90 @@ public class AuthPerfLinkTest {
 
         // Wait for all messages
         allMessagesReceived.get(60, TimeUnit.SECONDS);
-        assertEquals(messageCount, receivedMessages.size(), 
-                 "Should receive exactly " + messageCount + " messages");
+        assertEquals(messageCount, receivedMessages.size(),
+                "Should receive exactly " + messageCount + " messages");
     }
 
-    // TODO BELOW TESTS ARE FAILING
-    // Tests that messages are retransmitted if data packets are lost at the receiver (simulate packet loss)
-    // @Test
-    // @Timeout(60)
-    // public void testPacketLossSimulation() throws Exception {
-    //     int totalMessages = 3;
-    //     CompletableFuture<Void> allMessagesReceived = new CompletableFuture<>();
-    //     List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+    // Tests that messages are delivered in FIFO order (Go-Back-N guarantees
+    // ordering)
+    @Test
+    @Timeout(30)
+    public void testFIFODeliveryOrder() throws Exception {
+        int totalMessages = 10;
+        CompletableFuture<Void> allMessagesReceived = new CompletableFuture<>();
+        List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
 
-    //     receiver.setConsensusMessageListener(content -> {
-    //         synchronized (receivedMessages) {
-    //             receivedMessages.add(content);
-    //             System.out.println("Received message: " + content); // Debug log
+        receiver.setConsensusMessageListener(content -> {
+            synchronized (receivedMessages) {
+                receivedMessages.add(content);
+                if (receivedMessages.size() == totalMessages) {
+                    allMessagesReceived.complete(null);
+                }
+            }
+        });
 
-    //             if (receivedMessages.size() == totalMessages) {
-    //                 allMessagesReceived.complete(null);
-    //             }
-    //         }
-    //     });
+        // Establish connection
+        Session session = sender.startConnection(RECEIVER_ID);
+        assertNotNull(session);
+        Thread.sleep(500);
 
-    //     // Establish connection
-    //     Session session = sender.startConnection(RECEIVER_ID);
-    //     assertNotNull(session);
-    //     Thread.sleep(500);
+        // Send messages in order
+        for (int i = 0; i < totalMessages; i++) {
+            sender.sendData(RECEIVER_ID, ("Message " + i).getBytes());
+        }
 
-    //     // Send multiple messages with simulated packet loss
-    //     for (int i = 0; i < totalMessages; i++) {
-    //         String message = "Message " + i;
-    //         if (Math.random() > 0.3) {
-    //             System.out.println("Sending message: " + message); // Debug log
-    //             sender.sendData(RECEIVER_ID, message.getBytes());
-    //         } else {
-    //             System.out.println("Dropping message: " + message); // Simulate packet loss
-    //         }
-    //     }
+        // Wait for all messages to be received
+        allMessagesReceived.get(20, TimeUnit.SECONDS);
+        assertEquals(totalMessages, receivedMessages.size());
 
-    //     // Wait for all messages to be received
-    //     allMessagesReceived.get(60, TimeUnit.SECONDS);
-    //     assertEquals(totalMessages, receivedMessages.size(), 
-    //                  "Should receive exactly " + totalMessages + " messages despite packet loss");
-    // }
+        // Verify FIFO order is preserved
+        for (int i = 0; i < totalMessages; i++) {
+            assertTrue(receivedMessages.get(i).contains("Message " + i),
+                    "Message " + i + " should be at position " + i + " but got: " + receivedMessages.get(i));
+        }
+    }
 
-    // Tests that messages are retransmitted if ACKS are lost (simulate packet loss)
-    // TODO
-    // @Test
-    // @Timeout(120)
-    // public void testReliableDelivery_ACKPacketLoss() throws Exception {
-    //     int messageCount = 3;
-    //     CompletableFuture<Void> allMessagesDelivered = new CompletableFuture<>();
-    //     List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+    // Tests that sending more messages than the window size works correctly
+    // (proves ACK processing and window advancement work end-to-end)
+    @Test
+    @Timeout(60)
+    public void testReliableDelivery_ExceedWindowSize() throws Exception {
+        // Window size is 10 by default, send 25 messages to force multiple
+        // rounds of window fill -> ACK -> advance -> fill
+        int messageCount = 25;
+        CompletableFuture<Void> allMessagesDelivered = new CompletableFuture<>();
+        List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
 
-    //     receiver.setConsensusMessageListener(content -> {
-    //         // Simulate packet loss by randomly ignoring messages
-    //         if (Math.random() < 0.5) { // Drop 50% of packets for testing
-    //             System.out.println("Dropping packet: " + content);
-    //             return;
-    //         }
+        receiver.setConsensusMessageListener(content -> {
+            receivedMessages.add(content);
 
-    //         receivedMessages.add(content);
-    //         System.out.println("Received message: " + content);
+            if (receivedMessages.size() == messageCount) {
+                allMessagesDelivered.complete(null);
+            }
+        });
 
-    //         if (receivedMessages.size() == messageCount) {
-    //             allMessagesDelivered.complete(null);
-    //         }
-    //     });
+        // Establish connection
+        Session session = sender.startConnection(RECEIVER_ID);
+        assertNotNull(session);
+        Thread.sleep(500);
 
-    //     // Establish connection
-    //     Session session = sender.startConnection(RECEIVER_ID);
-    //     assertNotNull(session);
-    //     Thread.sleep(500);
+        // Send more messages than window size
+        for (int i = 0; i < messageCount; i++) {
+            sender.sendData(RECEIVER_ID, ("Message " + i).getBytes());
+        }
 
-    //     // Send multiple messages
-    //     for (int i = 0; i < messageCount; i++) {
-    //         String message = "Message " + i;
-    //         sender.sendData(RECEIVER_ID, message.getBytes());
-    //     }
+        // All messages should eventually be delivered
+        allMessagesDelivered.get(30, TimeUnit.SECONDS);
 
-    //     // Wait for all messages to be delivered
-    //     assertDoesNotThrow(() -> allMessagesDelivered.get(120, TimeUnit.SECONDS), 
-    //                        "All messages should be delivered even with retransmissions");
+        assertEquals(messageCount, receivedMessages.size(),
+                "All " + messageCount + " messages should be delivered");
 
-    //     assertEquals(messageCount, receivedMessages.size(), 
-    //                  "All messages should be delivered exactly once");
-    // }
+        // Verify order is preserved
+        for (int i = 0; i < messageCount; i++) {
+            assertTrue(receivedMessages.get(i).contains("Message " + i),
+                    "Message " + i + " should be at position " + i);
+        }
+    }
 
     // Tests that duplicate packets are no delivered twice
     @Test
@@ -307,7 +312,7 @@ public class AuthPerfLinkTest {
         receiver.setConsensusMessageListener(content -> {
             int count = deliveryCount.incrementAndGet();
             deliveredMessages.add(content);
-            
+
             if (count == 1) {
                 firstMessage.countDown();
             } else if (count == 2) {
@@ -341,13 +346,13 @@ public class AuthPerfLinkTest {
 
         // Wait to see if duplicate triggers delivery (it shouldn't)
         boolean duplicateDelivered = secondMessage.await(5, TimeUnit.SECONDS);
-        
+
         assertFalse(duplicateDelivered, "Duplicate should NOT be delivered");
         assertEquals(1, deliveryCount.get(), "Should only have 1 delivery");
         assertEquals(1, deliveredMessages.size(), "Should only have 1 message");
     }
 
-    // Test that HMAC verification 
+    // Test that HMAC verification
     @Test
     @Timeout(10)
     public void testAuthenticity_HMACVerification() throws Exception {
@@ -373,27 +378,27 @@ public class AuthPerfLinkTest {
         int validDeliveries = deliveryCount.get();
         assertTrue(validDeliveries >= 1, "Valid message should be delivered");
 
-        // Create a message with tampered content and wrong HMAC (simulates an attacker modifying the message)
+        // Create a message with tampered content and wrong HMAC (simulates an attacker
+        // modifying the message)
         long seqNum = receiverSession.getExpectedSequenceNumber();
         String tamperedMessage = "Tampered message";
-        
+
         // Create message with wrong HMAC (all zeros)
         byte[] wrongHmac = new byte[32];
         DataMessage tamperedMsg = new DataMessage(seqNum, tamperedMessage.getBytes(), wrongHmac, SENDER_ID);
-        
+
         // Send tampered message from sender's socket to receiver
         senderSocket.send(tamperedMsg.toDatagramPacket(senderSession.getAddr()));
-        
+
         Thread.sleep(1000);
-        
+
         // Tampered message should NOT be delivered (HMAC verification should fail)
-        assertEquals(validDeliveries, deliveryCount.get(), 
-                     "Tampered message should be rejected due to HMAC verification failure");
+        assertEquals(validDeliveries, deliveryCount.get(),
+                "Tampered message should be rejected due to HMAC verification failure");
     }
 
-
-
-    // Tests that messages claiming to be from a different sender are rejected (a sender tries to impersonate another)
+    // Tests that messages claiming to be from a different sender are rejected (a
+    // sender tries to impersonate another)
     @Test
     @Timeout(10)
     public void testAuthenticity_SenderIDVerification() throws Exception {
@@ -419,21 +424,21 @@ public class AuthPerfLinkTest {
         // Try to forge a message with wrong sender ID in the content
         Session receiverSession = receiver.getSession(SENDER_ID);
         long seqNum = receiverSession.getExpectedSequenceNumber();
-        
+
         // Create message claiming to be from different sender (ID mismatch in content)
         long fakeSenderId = 999L;
         String fakeContent = "{\"senderId\":" + fakeSenderId + ",\"data\":\"Fake message\"}";
         byte[] hmac = Crypto.generateHMAC(receiverSession.getSessionKey(), fakeContent.getBytes());
         DataMessage fakeMsg = new DataMessage(seqNum, fakeContent.getBytes(), hmac, fakeSenderId);
-        
+
         // Send forged message from sender to receiver
         senderSocket.send(fakeMsg.toDatagramPacket(senderSession.getAddr()));
-        
+
         Thread.sleep(1000);
-        
+
         // Fake message should be rejected (content senderId doesn't match session)
         assertEquals(legitimateDeliveries, deliveryCount.get(),
-                     "Message with wrong sender ID should be rejected");
+                "Message with wrong sender ID should be rejected");
     }
 
 }

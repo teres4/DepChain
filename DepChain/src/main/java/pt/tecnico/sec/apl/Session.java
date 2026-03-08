@@ -1,10 +1,10 @@
 package pt.tecnico.sec.apl;
 
 import java.net.InetSocketAddress;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.TreeMap;
 
 import javax.crypto.SecretKey;
 
@@ -47,7 +47,7 @@ public class Session {
         this.addr = addr;
         this.windowSize = windowSize;
         this.timeout = timeout;
-        this.sendBuffer = new LinkedHashMap<>();
+        this.sendBuffer = new TreeMap<>();
         this.timer = null;
         this.isClientSession = isClient;
     }
@@ -56,6 +56,10 @@ public class Session {
 
     public synchronized boolean canSend() {
         return this.sendBuffer.size() < this.windowSize;
+    }
+
+    public synchronized long getSendBase() {
+        return this.sendBase;
     }
 
     public synchronized long getNextSequenceNumber() {
@@ -74,9 +78,12 @@ public class Session {
         boolean wasEmpty = sendBuffer.isEmpty();
         sendBuffer.put(seqNum, msg);
 
-        // Start timer when the first packet enters the buffer (window base)
-        if (wasEmpty && this.timer == null) {
+        // Start timer when the first packet enters an empty buffer.
+        // Always stop+start to handle the case where a stale timer object exists
+        // from a previous cycle that already fired.
+        if (wasEmpty) {
             if (timeoutHandler != null) {
+                stopTimer(); // clear any stale timer
                 startTimer(timeoutHandler);
             } else {
                 System.err.println("Warning: Cannot start timer, timeout handler is null");
@@ -93,12 +100,11 @@ public class Session {
             }
             this.sendBase = ackNum;
 
-            if (this.sendBase == this.nextSeqNum) {
-                // All packets acknowledged, stop timer
+            if (sendBuffer.isEmpty()) {
+                // All buffered packets acknowledged, stop timer
                 stopTimer();
             } else {
                 // Still have unacknowledged packets, restart timer
-                // Only restart if we have a handler (timer was previously started)
                 if (this.currentTimeoutHandler != null) {
                     restartTimer();
                 }
@@ -107,7 +113,7 @@ public class Session {
     }
 
     public synchronized Map<Long, DataMessage> getUnacknowledgedPackets() {
-        return new LinkedHashMap<>(this.sendBuffer);
+        return new TreeMap<>(this.sendBuffer);
     }
 
     public synchronized boolean hasUnacknowledgedPackets() {
