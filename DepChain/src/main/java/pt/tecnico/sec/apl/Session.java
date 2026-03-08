@@ -26,7 +26,7 @@ public class Session {
     // Go-Back-N receiver state
     private long expectedSeqNum; // next expected sequence number
 
-    private SecretKey sessionKey;
+    private volatile SecretKey sessionKey;
 
     private boolean connectionEstablished = false; // track if handshake is complete
 

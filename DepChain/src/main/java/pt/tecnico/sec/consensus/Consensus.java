@@ -183,8 +183,10 @@ public class Consensus {
         NewViewMessage newViewMessage = new NewViewMessage(this.viewNumber.get(), tree.getPrepareQC(),
                 this.replicaID);
         if (amLeader(this.viewNumber.get())) {
+            logHotStuff("I am leader for next view, sending message to myself");
             newViewMessages.put(this.replicaID, newViewMessage);
         } else if (router != null) {
+            logHotStuff("Sending message to leader of next view");
             router.sendConsensusMessage(newViewMessage, getLeader(this.viewNumber.get()));
         } else {
             // Fallback for tests - use AuthPerfLink directly

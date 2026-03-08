@@ -8,6 +8,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.Base64;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -170,14 +171,27 @@ public class AuthPerfLink {
 
     public void startConnectionWithAllMembers() {
         MemberInfo[] members = memberManagement.getMembers();
+        List<Thread> threads = new java.util.ArrayList<>();
         for (MemberInfo member : members) {
             if (member.getId() == this.ownId)
                 continue; // skip self
             if (sessionManager.getSession(member.getId()) != null)
-                continue; // already connected
-            System.err.println(
-                    "Attempting to connect to replica ID: " + member.getId() + " at address: " + member.getAddr());
-            startConnection(member.getId());
+                continue; // already connected (established by an incoming request)
+            final long memberId = member.getId();
+            Thread t = new Thread(() -> {
+                System.err.println(
+                        "Attempting to connect to replica ID: " + memberId + " at address: " + member.getAddr());
+                startConnection(memberId);
+            }, "connect-to-" + memberId);
+            threads.add(t);
+            t.start();
+        }
+        for (Thread t : threads) {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
@@ -331,8 +345,11 @@ public class AuthPerfLink {
                     senderId = msg.getClientID();
                     isClient = true;
                 } else {
-                    System.err.println("Unknown sender address for connection request: " + addr);
-                    return;
+                    senderMember = memberManagement.getMember(msg.getSenderId());
+                    if (senderMember == null) {
+                        System.err.println("Unknown sender address for connection request: " + addr);
+                        return;
+                    }
                 }
             }
 
@@ -400,9 +417,12 @@ public class AuthPerfLink {
 
     private void handleConnectionReply(ConnectionACKMessage msg, InetSocketAddress addr) {
         try {
-            Session session = getSessionForAddress(addr);
-            if (session == null)
+            long senderId = msg.getSenderId();
+            Session session = sessionManager.getSession(senderId);
+            if (session == null) {
+                System.err.println("No session found for connection reply from sender " + senderId + " at: " + addr);
                 return;
+            }
 
             // Verify it's the expected handshake ACK (seq 1)
             if (msg.getSequenceNumber() != 1) {
@@ -410,15 +430,15 @@ public class AuthPerfLink {
                 return;
             }
 
-            MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
+            MemberInfo senderMember = memberManagement.getMember(senderId);
             if (senderMember == null) {
-                System.err.println("Unknown sender address for connection reply: " + addr);
+                System.err.println("Unknown sender " + senderId + " for connection reply from: " + addr);
                 return;
             }
 
             PublicKey senderPublicKey = senderMember.getPublicSignatureKey();
             if (!Crypto.verifySignature(msg.getSignableContent().getBytes(), msg.getSignature(), senderPublicKey)) {
-                System.err.println("Failed to verify signature for connection request from: " + addr);
+                System.err.println("Failed to verify signature for connection reply from: " + addr);
                 return;
             }
 

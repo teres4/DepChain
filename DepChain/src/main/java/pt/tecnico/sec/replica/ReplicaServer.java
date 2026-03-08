@@ -49,14 +49,16 @@ public class ReplicaServer {
             System.out.println("Establishing connections with other replicas...");
 
             // Connect to all other replicas
-            // apl.startConnectionWithAllMembers();
+            apl.startConnectionWithAllMembers();
 
             // Wait for connections to establish
-            Thread.sleep(2000);
+            Thread.sleep(1000);
+
+            System.out.println("All connections established. Starting consensus protocol...");
 
             // Send initial NEW_VIEW to start consensus protocol
             // System.out.println("Sending initial NEW_VIEW to leader...");
-            // consensus.startNewView();
+            consensus.startNewView();
 
             System.out.println("Replica " + replicaId + " ready to process commands.");
 

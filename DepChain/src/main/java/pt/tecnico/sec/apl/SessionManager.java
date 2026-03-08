@@ -24,10 +24,13 @@ public class SessionManager {
 
     public Session createSession(long senderID, InetSocketAddress addr, SecretKey sessionKey, boolean isClient)
             throws Exception {
-        // create a new session and add it to the session manager
-        // get socket adress from config
-        Session session = new Session(senderID, 1, sessionKey, addr, isClient);
-        addSession(senderID, session);
+        final SecretKey key = sessionKey;
+        final boolean client = isClient;
+        Session session = sessions.computeIfAbsent(senderID,
+                id -> new Session(id, 1, key, addr, client));
+        if (sessionKey != null && session.getSessionKey() == null) {
+            session.setSessionKey(sessionKey);
+        }
         return session;
     }
 
