@@ -1,6 +1,7 @@
 package pt.tecnico.sec.replica;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
+import pt.tecnico.sec.consensus.ByzantineConsensus;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.utils.Crypto;
@@ -9,7 +10,8 @@ public class ReplicaServer {
     public static void main(String[] args) {
         if (args.length < 1) {
             System.err.println(
-                    "Usage: mvn exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args=\"<replicaId>\"");
+                    "Usage: mvn exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args=\"<replicaId> [byzantineMode]\"");
+            System.err.println("  byzantineMode: 0=honest (default), 1=silent, 2=conflicting, 3=wrongNode, 4=wrongLeader, 5=doubleVote");
             return;
         }
 
@@ -21,6 +23,20 @@ public class ReplicaServer {
             return;
         }
 
+        int byzantineMode = 0;
+        if (args.length >= 2) {
+            try {
+                byzantineMode = Integer.parseInt(args[1]);
+                if (byzantineMode < 0 || byzantineMode > 6) {
+                    System.err.println("Invalid byzantineMode. Must be between 0 and 6.");
+                    return;
+                }
+            } catch (NumberFormatException e) {
+                System.err.println("Invalid byzantineMode. It must be a number.");
+                return;
+            }
+        }
+
         System.out.println("=================================================");
         System.out.println("       Starting Replica " + replicaId);
         System.out.println("=================================================");
@@ -29,10 +45,8 @@ public class ReplicaServer {
             // Initialize AuthPerfLink
             AuthPerfLink apl = new AuthPerfLink(replicaId, Crypto.getReplicaPrivateKey(replicaId), 8080);
 
-            // Initialize Consensus
-            Consensus consensus = new Consensus(
-                    replicaId,
-                    apl.getMembers() != null ? apl.getMembers().length + 1 : 1);
+            // Initialize Consensus (Byzantine if mode > 0)
+            Consensus consensus = createConsensus(replicaId, apl, byzantineMode);
 
             // Initialize Replica State and Replica
             ReplicaState replicaState = new ReplicaState();
@@ -71,5 +85,21 @@ public class ReplicaServer {
             System.err.println("Failed to start replica " + replicaId + ": " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    private static Consensus createConsensus(long replicaId, AuthPerfLink apl, int mode) {
+        int totalReplicas = apl.getMembers() != null ? apl.getMembers().length + 1 : 1;
+        if (mode == 0) {
+            return new Consensus(replicaId, totalReplicas);
+        }
+        ByzantineConsensus bc = new ByzantineConsensus(replicaId, totalReplicas);
+        switch (mode) {
+            case 1 -> bc.setSilent(true);
+            case 2 -> bc.setSendConflicting(true);
+            case 3 -> bc.setVoteForWrongNode(true); // working
+            case 4 -> bc.setSendToWrongLeader(true); // working
+            case 5 -> bc.setDoubleVote(true);
+        }
+        return bc;
     }
 }

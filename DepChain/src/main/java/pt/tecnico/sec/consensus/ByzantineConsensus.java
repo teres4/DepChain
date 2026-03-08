@@ -25,7 +25,7 @@ public class ByzantineConsensus extends Consensus {
     // The protocol should handle duplicate votes gracefully
     private volatile boolean doubleVote = false;
 
-    private static final String ORANGE   = "\u001B[33m";
+    private static final String RED   = "\u001B[31m";
     private static final String RESET = "\u001B[0m";
 
     // CONSTRUCTOR AND SETTERS
@@ -35,7 +35,7 @@ public class ByzantineConsensus extends Consensus {
     }
 
     private void logByzantine(String msg) {
-        System.out.println(ORANGE + "[Byzantine] " + msg + RESET);
+        System.out.println(RED + "[Byzantine] " + msg + RESET);
     }
 
     public void setSilent(boolean value) {
@@ -91,16 +91,11 @@ public class ByzantineConsensus extends Consensus {
         }
 
         super.broadcastMessage(message);
-
-        if (doubleVote && isVoteMessage(message)) {
-            logByzantine("Double-voting: re-sending " + message.getHotStuffType());
-            super.broadcastMessage(message);
-        }
     }
 
     @Override
     public void onReceivePrepareMessage(PrepareMessage prepareMessage) {
-        if (!voteForWrongNode && !sendToWrongLeader) {
+        if (!voteForWrongNode && !sendToWrongLeader && !doubleVote) {
             super.onReceivePrepareMessage(prepareMessage);
             return;
         }
@@ -134,15 +129,28 @@ public class ByzantineConsensus extends Consensus {
                 ? getWrongLeader(prepareMessage.getViewNumber())
                 : getLeader(prepareMessage.getViewNumber());
 
-        logByzantine("PREPARE_VOTE: " + (voteForWrongNode ? "WRONG hash" : "correct hash")
-                + " -> replica " + target);
+        if (voteForWrongNode && sendToWrongLeader)
+            logByzantine("PREPARE_VOTE: WRONG hash + WRONG leader -> replica " + target
+                    + " (correct leader: " + getLeader(prepareMessage.getViewNumber()) + ")");
+        else if (voteForWrongNode)
+            logByzantine("PREPARE_VOTE: WRONG hash -> replica " + target);
+        else if (sendToWrongLeader)
+            logByzantine("PREPARE_VOTE: correct hash -> WRONG leader replica " + target
+                    + " (correct leader: " + getLeader(prepareMessage.getViewNumber()) + ")");
+        else
+            logByzantine("PREPARE_VOTE: correct hash, correct leader -> replica " + target);
 
         dispatchVote(vote, prepareMessage.getViewNumber(), target);
+
+        if (doubleVote) {
+            logByzantine("PREPARE_VOTE: double-voting -> re-sending to replica " + target);
+            dispatchVote(vote, prepareMessage.getViewNumber(), target);
+        }
     }
 
     @Override
     public void onReceivePreCommitMessage(PreCommitMessage preCommitMessage) {
-        if (!voteForWrongNode && !sendToWrongLeader) {
+        if (!voteForWrongNode && !sendToWrongLeader && !doubleVote) {
             super.onReceivePreCommitMessage(preCommitMessage);
             return;
         }
@@ -173,15 +181,28 @@ public class ByzantineConsensus extends Consensus {
                 ? getWrongLeader(preCommitMessage.getViewNumber())
                 : getLeader(preCommitMessage.getViewNumber());
 
-        logByzantine("PRE_COMMIT_VOTE: " + (voteForWrongNode ? "WRONG hash" : "correct hash")
-                + " -> replica " + target);
+        if (voteForWrongNode && sendToWrongLeader)
+            logByzantine("PRE_COMMIT_VOTE: WRONG hash + WRONG leader -> replica " + target
+                    + " (correct leader: " + getLeader(preCommitMessage.getViewNumber()) + ")");
+        else if (voteForWrongNode)
+            logByzantine("PRE_COMMIT_VOTE: WRONG hash -> replica " + target);
+        else if (sendToWrongLeader)
+            logByzantine("PRE_COMMIT_VOTE: correct hash -> WRONG leader replica " + target
+                    + " (correct leader: " + getLeader(preCommitMessage.getViewNumber()) + ")");
+        else
+            logByzantine("PRE_COMMIT_VOTE: correct hash, correct leader -> replica " + target);
 
         dispatchVote(vote, preCommitMessage.getViewNumber(), target);
+
+        if (doubleVote) {
+            logByzantine("PRE_COMMIT_VOTE: double-voting -> re-sending to replica " + target);
+            dispatchVote(vote, preCommitMessage.getViewNumber(), target);
+        }
     }
 
     @Override
     public void onReceiveCommitMessage(CommitMessage commitMessage) {
-        if (!voteForWrongNode && !sendToWrongLeader) {
+        if (!voteForWrongNode && !sendToWrongLeader && !doubleVote) {
             super.onReceiveCommitMessage(commitMessage);
             return;
         }
@@ -212,10 +233,23 @@ public class ByzantineConsensus extends Consensus {
                 ? getWrongLeader(commitMessage.getViewNumber())
                 : getLeader(commitMessage.getViewNumber());
 
-        logByzantine("COMMIT_VOTE: " + (voteForWrongNode ? "WRONG hash" : "correct hash")
-                + " -> replica " + target);
+        if (voteForWrongNode && sendToWrongLeader)
+            logByzantine("COMMIT_VOTE: WRONG hash + WRONG leader -> replica " + target
+                    + " (correct leader: " + getLeader(commitMessage.getViewNumber()) + ")");
+        else if (voteForWrongNode)
+            logByzantine("COMMIT_VOTE: WRONG hash -> replica " + target);
+        else if (sendToWrongLeader)
+            logByzantine("COMMIT_VOTE: correct hash -> WRONG leader replica " + target
+                    + " (correct leader: " + getLeader(commitMessage.getViewNumber()) + ")");
+        else
+            logByzantine("COMMIT_VOTE: correct hash, correct leader -> replica " + target);
 
         dispatchVote(vote, commitMessage.getViewNumber(), target);
+
+        if (doubleVote) {
+            logByzantine("COMMIT_VOTE: double-voting -> re-sending to replica " + target);
+            dispatchVote(vote, commitMessage.getViewNumber(), target);
+        }
     }
 
     // HELPERS
@@ -273,9 +307,4 @@ public class ByzantineConsensus extends Consensus {
         return (correctLeader % getTotalReplicas()) + 1;
     }
 
-    private boolean isVoteMessage(HotStuffMessage msg) {
-        return msg instanceof PrepareVoteMessage
-                || msg instanceof PreCommitVoteMessage
-                || msg instanceof CommitVoteMessage;
-    }
 }

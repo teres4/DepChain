@@ -46,21 +46,14 @@ public class Replica {
             return;
         }
 
-        // add to pending commands of consensus
-        System.out.println("\033[1;34m[REPLICA] Received command from client " + clientID + " with nonce " + nonce
-                + ". Added to pending commands.\033[0m");
         pendingCommands.add(command.toJson());
     }
 
     public String getCommandToPropose() {
-        // System.out.println("\033[1;34m[REPLICA] Pending commands in queue: " +
-        // pendingCommands.size() + "\033[0m");
         return pendingCommands.peek();
     }
 
     public void commandDecided(String commandJson) {
-        System.out.println("\033[1;32m[REPLICA] Command decided: " + commandJson + "\033[0m");
-
         pendingCommands.remove(commandJson);
 
         // Handle NO-OP commands (used when no real command is available)
@@ -94,8 +87,6 @@ public class Replica {
                 return;
             }
 
-            System.out.println("\033[1;32m[REPLICA] Executing decided command from client " + clientID + " with nonce "
-                    + nonce + "\033[0m");
             boolean success = state.executeCommand(commandJson);
 
             // Process result
@@ -114,8 +105,7 @@ public class Replica {
     private void sendResponseToClient(long clientId, long nonce, boolean success, String result) {
         try {
             CommandResponse response = new CommandResponse(clientId, nonce, success, result);
-            System.out.println("\033[1;32m[REPLICA] Sending response to client " + clientId + ": " + response.toJson()
-                    + "\033[0m");
+
             executorService.submit(() -> {
                 try {
                     authPerfLink.sendData(clientId, response.toJson().getBytes());
