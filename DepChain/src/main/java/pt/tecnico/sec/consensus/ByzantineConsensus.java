@@ -36,26 +36,10 @@ public class ByzantineConsensus extends Consensus {
     // correctly validates sender identity and rejects impersonated messages.
     private volatile boolean spoofSenderId = false;
 
-    // Introduce an artificial delay (in ms) before sending every outgoing message.
-    // Tests the timeout / view-change mechanism and protocol liveness under
-    // slow-network conditions. A value of 0 means no delay (disabled).
-    private volatile long delayMs = 0;
-
     // Byzantine leader skips the PRE_COMMIT phase entirely, jumping straight
     // from PREPARE to COMMIT. Tests that replicas enforce correct phase ordering
     // and reject commits that lack a valid prepareQC.
     private volatile boolean skipPhase = false;
-
-    // Send a NEW_VIEW message carrying a fabricated QC with an artificially high
-    // view number pointing to a non-existent node. Tests that the new leader
-    // validates the highQC and doesn't extend from an unsafe/unknown branch.
-    private volatile boolean inflatedNewViewQC = false;
-
-    // Only broadcast messages to the first half of replicas instead of all.
-    // Creates asymmetric information (some honest replicas see the message, others
-    // do not). Unlike silent (which drops everything), this is a partial omission
-    // fault that can cause liveness issues without breaking safety.
-    private volatile boolean selectiveBroadcast = false;
 
     private static final String RED = "\u001B[31m";
     private static final String RESET = "\u001B[0m";
@@ -105,24 +89,9 @@ public class ByzantineConsensus extends Consensus {
         logByzantine("spoofSenderId = " + value);
     }
 
-    public void setDelayMs(long value) {
-        this.delayMs = value;
-        logByzantine("delayMs = " + value);
-    }
-
     public void setSkipPhase(boolean value) {
         this.skipPhase = value;
         logByzantine("skipPhase = " + value);
-    }
-
-    public void setInflatedNewViewQC(boolean value) {
-        this.inflatedNewViewQC = value;
-        logByzantine("inflatedNewViewQC = " + value);
-    }
-
-    public void setSelectiveBroadcast(boolean value) {
-        this.selectiveBroadcast = value;
-        logByzantine("selectiveBroadcast = " + value);
     }
 
     // BYZANTINE OVERRIDES
@@ -145,28 +114,10 @@ public class ByzantineConsensus extends Consensus {
             return;
         }
 
-        // Artificial delay before sending
-        if (delayMs > 0) {
-            logByzantine("Delaying outgoing " + message.getHotStuffType() + " by " + delayMs + "ms");
-            try {
-                Thread.sleep(delayMs);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-        }
-
         if (sendConflicting && message instanceof PrepareMessage prepareMsg) {
             logByzantine("Sending conflicting PREPARE proposals (view "
                     + prepareMsg.getViewNumber() + ")");
             broadcastConflictingPrepare(prepareMsg);
-            return;
-        }
-
-        // Selective broadcast: only send to first half of replicas
-        if (selectiveBroadcast) {
-            logByzantine("Selective broadcast of " + message.getHotStuffType()
-                    + " (sending to first half only)");
-            broadcastSelective(message);
             return;
         }
 
@@ -238,41 +189,7 @@ public class ByzantineConsensus extends Consensus {
         super.precommit(prepareQC);
     }
 
-    // ---- Inflated NEW_VIEW QC: send a NEW_VIEW with fabricated high QC ----
-
-    @Override
-    public void startNewView() throws Exception {
-        if (inflatedNewViewQC) {
-            int fakeViewNumber = viewNumber.get() + 100;
-            String fakeNodeHash = "INFLATED_NODE_VIEW_" + fakeViewNumber;
-            QuorumCertificate inflatedQC = new QuorumCertificate(
-                    fakeViewNumber, fakeNodeHash, "prepare", "INFLATED_FAKE_SIGNATURES");
-            logByzantine("INFLATED NEW_VIEW: Sending NEW_VIEW with fabricated QC at view "
-                    + fakeViewNumber + " (real view " + viewNumber.get() + ")");
-            NewViewMessage fakeNewView = new NewViewMessage(viewNumber.get(), inflatedQC, replicaID);
-            int leader = getLeader(viewNumber.get());
-            if (amLeader(viewNumber.get())) {
-                sendToSelf(fakeNewView);
-            } else {
-                MessageRouter r = getRouter();
-                if (r != null)
-                    r.sendConsensusMessage(fakeNewView, leader);
-            }
-            heartbeat();
-            return;
-        }
-        super.startNewView();
-    }
-
     // ---- Spoofed sender ID: impersonate another replica ----
-
-    @Override
-    public void onReceiveDecideMessage(DecideMessage decideMessage) {
-        // Spoofed sender: on the outbound side we can't easily change sender in
-        // the authenticated link, so instead we test impersonation on NEW_VIEW.
-        // The spoofSenderId flag is handled in startNewView & vote dispatch.
-        super.onReceiveDecideMessage(decideMessage);
-    }
 
     @Override
     public void onReceivePrepareMessage(PrepareMessage prepareMessage) {
@@ -505,35 +422,6 @@ public class ByzantineConsensus extends Consensus {
     private int getWrongLeader(int viewNum) {
         int correctLeader = getLeader(viewNum);
         return (correctLeader % getTotalReplicas()) + 1;
-    }
-
-    /**
-     * Broadcast only to the first half of replicas, creating asymmetric view.
-     */
-    private void broadcastSelective(HotStuffMessage message) throws Exception {
-        int total = getTotalReplicas();
-        int half = total / 2;
-        MessageRouter r = getRouter();
-        for (int i = 1; i <= total; i++) {
-            if (i == replicaID)
-                continue;
-            if (i <= half) {
-                final int targetReplica = i;
-                executorService.submit(() -> {
-                    try {
-                        if (r != null)
-                            r.sendConsensusMessage(message, targetReplica);
-                    } catch (Exception e) {
-                        System.err.println("[Byzantine] Selective send failed to "
-                                + targetReplica + ": " + e.getMessage());
-                    }
-                });
-            } else {
-                logByzantine("Selective broadcast: DROPPING message to replica " + i);
-            }
-        }
-        // Still deliver to self
-        sendToSelf(message);
     }
 
     /**

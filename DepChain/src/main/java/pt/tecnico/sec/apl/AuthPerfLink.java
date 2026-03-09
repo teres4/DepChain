@@ -46,26 +46,24 @@ public class AuthPerfLink {
     private final boolean isReplica;
 
     private final DatagramSocket datagramSocket;
-    private final ExecutorService executorService; // for receiving / handling packets
-    private final ExecutorService sendExecutorService; // dedicated pool for sending (may busy-wait)
+    private final ExecutorService executorService;
+    private final ExecutorService sendExecutorService;
     private final SessionManager sessionManager;
     private final MemberManager memberManagement;
 
-    private final DHKeyAgreement dhKeyAgreement; // persistent DH key pair for this member
+    private final DHKeyAgreement dhKeyAgreement;
 
     private final AtomicBoolean running = new AtomicBoolean(true);
 
     private final ConcurrentLinkedQueue<Message> incomingMessages = new ConcurrentLinkedQueue<>();
 
-    private ConsensusMessageListener consensusMessageListener; // separate listener for consensus messages to avoid
-                                                               // contention
+    private ConsensusMessageListener consensusMessageListener; // separate listener for consensus messages
     // with client commands
-    private MessageListener messageListener; // general listener for all messages, can be used for client
+    private MessageListener messageListener; // general listener for client messages
+    private final boolean logger = false;
 
-    private final boolean logger = false; // set to true to enable debug logging
     // constructors
 
-    // Default constructor for production use
     public AuthPerfLink(long ownId, PrivateKey privateKey, int port) throws IOException, Exception {
         this(ownId, privateKey, true, port);
     }
@@ -85,9 +83,6 @@ public class AuthPerfLink {
         this.datagramSocket = socket;
         this.executorService = executorService;
         // Single-threaded executor guarantees sends are serialized in submission
-        // (i.e. sequence-number) order. Go-Back-N relies on in-order delivery;
-        // a multi-threaded pool lets thread scheduling reorder UDP sends, causing
-        // the receiver to discard valid packets as "out-of-order".
         this.sendExecutorService = Executors.newSingleThreadExecutor();
         this.sessionManager = sessionManager;
         this.memberManagement = memberManagement;
@@ -117,11 +112,6 @@ public class AuthPerfLink {
             try {
                 datagramSocket.receive(packet);
                 if (running.get()) {
-                    // Process packets inline on the receive thread to preserve
-                    // the arrival order that Go-Back-N relies on. Dispatching
-                    // to a thread pool allows thread scheduling to reorder
-                    // processing, causing valid in-order packets to be
-                    // discarded as "out-of-order".
                     handlePacket(packet);
                 }
             } catch (IOException e) {
@@ -135,7 +125,6 @@ public class AuthPerfLink {
     public void shutdown() {
         running.set(false);
 
-        // Cleanup all sessions
         for (Session session : sessionManager.getAllSessions()) {
             session.cleanup();
         }
@@ -159,12 +148,10 @@ public class AuthPerfLink {
 
     public void sendData(long receiverID, byte[] content) {
         try {
-            // sign the message with the session key and then send it
             Session session = sessionManager.getSession(receiverID);
             if (session == null) {
                 session = startConnection(receiverID);
             }
-            // Atomically get sequence number and advance to prevent race conditions
             long seqNum = session.getAndAdvanceSequenceNumber();
             logger("SENDING DATA with seqNum=" + seqNum + " to ID: " + receiverID
                     + " (nextSeqNum was " + seqNum + ", now " + (seqNum + 1) + ")");
@@ -185,7 +172,7 @@ public class AuthPerfLink {
             if (member.getId() == this.ownId)
                 continue; // skip self
             if (sessionManager.getSession(member.getId()) != null)
-                continue; // already connected (established by an incoming request)
+                continue; // already connected
             final long memberId = member.getId();
             Thread t = new Thread(() -> {
                 System.err.println(
@@ -204,7 +191,6 @@ public class AuthPerfLink {
         }
     }
 
-    // this is for the clients
     public void connectToAllReplicas() {
         MemberInfo[] replicas = memberManagement.getMembers();
         System.err.println("Attempting to connect to all replicas. Found " + replicas.length + " members in config.");
@@ -373,10 +359,7 @@ public class AuthPerfLink {
             }
             // If existingSession != null but NOT yet established, it is a placeholder we
             // created ourselves when we simultaneously initiated a connection to this same
-            // peer (both sides called startConnection at the same time). Fall through and
-            // complete the handshake as responder: compute the shared secret, update the
-            // existing session, and call markConnectionEstablished() so the initiator
-            // thread waiting in waitForConnectionEstablished() can wake up.
+            // peer (both sides called startConnection at the same time).
 
             PublicKey senderPublicKey;
             if (!isClient) {
@@ -450,16 +433,13 @@ public class AuthPerfLink {
                 return;
             }
 
-            // Get the responder's DH public key from the ACK message
+            // Get the responder DH public key from the ACK message
             byte[] responderDHPublicKey = msg.getDHPublicKey();
 
             // Compute shared secret
             SecretKey sessionKey = this.dhKeyAgreement.computeSharedSecret(responderDHPublicKey);
             session.setSessionKey(sessionKey);
 
-            // If the session was already established (simultaneous connect: we acted as
-            // responder to their incoming CONNECTION_REQUEST before receiving their ACK),
-            // don't reset sequence numbers - data transfer may have already started.
             if (!session.isConnectionEstablished()) {
                 session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=2, expectedSeqNum=2
                 session.markConnectionEstablished();
@@ -484,21 +464,11 @@ public class AuthPerfLink {
                     return;
                 }
             }
-
-            // Guard: the session placeholder may exist in the map but the DH handshake
-            // may not have completed yet (key is still null). Calling verifyHmac with a
-            // null key throws InvalidKeyException. Drop the packet - the sender's
-            // Go-Back-N timer will retransmit once the handshake finishes.
             if (!session.isConnectionEstablished()) {
                 logger("Dropping DATA from " + addr + " - handshake not yet complete for session "
                         + session.getSenderID());
                 return;
             }
-
-            // Synchronize the entire check-then-act on the session to prevent
-            // a race where two executor threads both read the same expectedSeqNum,
-            // one delivers its packet and advances the counter, while the other
-            // wrongly discards a valid in-order packet based on a stale local copy.
             synchronized (session) {
                 long expectedSeq = session.getExpectedSequenceNumber();
 
@@ -508,7 +478,7 @@ public class AuthPerfLink {
                     if (!verifyHmac(jsonWithoutHmac, msg.getHmac(), session, addr))
                         return;
 
-                    // check if sender id is really the one it claims to be
+                    // check if sender id is really the one it claims to be in the content
                     try {
                         String contentStr = new String(msg.getContent());
                         // search for senderId in content and verify it matches session senderId
@@ -548,11 +518,10 @@ public class AuthPerfLink {
                     sendDataAck(session, expectedSeq + 1);
 
                 } else {
-                    // Out-of-order packet - discard and resend ACK for last in-order packet
+                    // discard and resend ACK for last in-order packet
                     logger("Received out-of-order packet " + msg.getSequenceNumber() +
                             " (expected " + expectedSeq + ") from: " + addr + ", discarding");
 
-                    // Send cumulative ACK for last correctly received packet
                     if (expectedSeq > 0) {
                         sendDataAck(session, expectedSeq);
                     }
@@ -567,8 +536,7 @@ public class AuthPerfLink {
         try {
             Session session = getSessionForAddress(addr);
             if (session == null) {
-                // Fallback for clients: they aren't in the members list,
-                // so look up the session by the sender ID in the message.
+                // Fallback for clients: they arent in the members list
                 long senderId = msg.getSenderId();
                 session = sessionManager.getSession(senderId);
                 if (session == null)
@@ -638,8 +606,6 @@ public class AuthPerfLink {
                 System.err.println("Failed to send message: " + e.getMessage());
             }
         } else {
-            // Handshake and other messages - send immediately without buffering
-            // Use waitForConnectionEstablished() to handle handshake timeouts
             try {
                 DatagramPacket packet = message.toDatagramPacket(session.getAddr());
                 datagramSocket.send(packet);
@@ -664,9 +630,6 @@ public class AuthPerfLink {
                 System.err.println("Failed to retransmit packet: " + e.getMessage());
             }
         }
-
-        // Restart timer for the retransmitted packets
-        // The timer handler is preserved from when the window was first created
         session.restartTimerIfNeeded();
     }
 

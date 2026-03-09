@@ -69,9 +69,8 @@ public class ClientOperations {
     // waits for f+1 matching successful responses from replicas to ensure
     // at least one honest replica executed the command
     private void waitForResponses(long nonce) throws Exception {
-        int requiredResponses = this.f + 1; // Need f+1 = 2 responses
+        int requiredResponses = this.f + 1;
 
-        // Wait until we get enough responses
         while (currentResponses.size() < requiredResponses) {
             Thread.sleep(100);
         }

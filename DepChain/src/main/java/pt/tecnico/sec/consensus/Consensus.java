@@ -56,7 +56,8 @@ public class Consensus {
     private final Queue<PreCommitVoteMessage> preCommitVotes = new ConcurrentLinkedQueue<>();
     private final Queue<CommitVoteMessage> commitVotes = new ConcurrentLinkedQueue<>();
 
-    // Track which senders have already voted in each phase to reject duplicate votes
+    // Track which senders have already voted in each phase to reject duplicate
+    // votes
     private final java.util.Set<Long> prepareVoters = ConcurrentHashMap.newKeySet();
     private final java.util.Set<Long> preCommitVoters = ConcurrentHashMap.newKeySet();
     private final java.util.Set<Long> commitVoters = ConcurrentHashMap.newKeySet();
@@ -74,10 +75,12 @@ public class Consensus {
 
     private Phase currentPhase;
 
-    // will be used to check if the proposal is the same for all votes in the same phase
+    // will be used to check if the proposal is the same for all votes in the same
+    // phase
     volatile Node curProposal = null;
 
-    // tracks whether this replica has already voted in each phase for the current view
+    // tracks whether this replica has already voted in each phase for the current
+    // view
     private volatile boolean prepareVoted = false;
     private volatile boolean preCommitVoted = false;
     private volatile boolean commitVoted = false;
@@ -137,23 +140,6 @@ public class Consensus {
     protected int getTotalReplicas() {
         return totalReplicas;
     }
-
-    // ==================== INITIALIZATION ====================
-
-    // public void consensusLoop() {
-    // executorService.submit(() -> authPerfLink.receive());
-
-    // authPerfLink.setMessageListener((content) -> {
-    // System.out.println("Received message: " + new String(content));
-    // try {
-    // HotStuffMessage msg = HotStuffMessage.fromJson(content);
-    // executorService.submit(() -> handleMessage(msg));
-    // } catch (Exception e) {
-    // System.err.println("Failed to handle consensus message: " + e.getMessage());
-    // }
-    // });
-
-    // }
 
     // ==================== COMMON UTILITY METHODS ====================
 
@@ -566,8 +552,6 @@ public class Consensus {
             // choose highest prepareQC from collected new-view messages
             QuorumCertificate highQC = getHighestQC(newViewMessages.values().stream().toList());
 
-            // Set viewNumber BEFORE prepare() so that PrepareMessage carries the correct
-            // view
             int newView = newViewMessage.getViewNumber();
             this.viewNumber.set(newView);
 
@@ -764,7 +748,6 @@ public class Consensus {
 
     // ==================== REPLICA METHODS ====================
 
-    // TODO ADD QUEUE OF COMMANDS OF CLIENT ?
     public void onReceiveNewCommandMessage(NewCommandMessage newCommandMessage) throws Exception {
         // Only leader can receive new command messages from clients
         if (!amLeader(newCommandMessage.getViewNumber())) {
@@ -975,11 +958,7 @@ public class Consensus {
             return;
         }
 
-        // TODO: upcall to blockchain layer
-        // for now we should just print the decided command or store in an append only
-        // array/log
         logHotStuff("View " + decideMessage.getViewNumber() + " - DECIDED on command: " + decidedNode.getCommand());
-        // onDecide(decidedNode);
 
         tree.pruneConflictingBranches(decidedNode);
 
@@ -992,9 +971,7 @@ public class Consensus {
 
         router.commandDecided(decidedNode.getCommand());
 
-        // Drain buffered messages for the new view BEFORE sending NEW_VIEW.
-        // If any PREPARE or vote messages arrived early they are processed now,
-        // giving the new leader a head-start.
+        // Drain buffered messages for the new view BEFORE sending NEW_VIEW
         drainFutureMessages(nextView);
 
         try {
@@ -1025,7 +1002,6 @@ public class Consensus {
         this.commitVoted = false;
         try {
             logHotStuff("⚠ Leader is INACTIVE/FAULTY! Starting new view " + nextView);
-            // Drain any messages that arrived early for this new view
             drainFutureMessages(nextView);
             startNewView();
         } catch (Exception e) {

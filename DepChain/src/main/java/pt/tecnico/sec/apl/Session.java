@@ -78,9 +78,7 @@ public class Session {
         boolean wasEmpty = sendBuffer.isEmpty();
         sendBuffer.put(seqNum, msg);
 
-        // Start timer when the first packet enters an empty buffer.
-        // Always stop+start to handle the case where a stale timer object exists
-        // from a previous cycle that already fired.
+        // Start timer when the first packet enters an empty buffer
         if (wasEmpty) {
             if (timeoutHandler != null) {
                 stopTimer(); // clear any stale timer
@@ -101,7 +99,6 @@ public class Session {
             this.sendBase = ackNum;
 
             if (sendBuffer.isEmpty()) {
-                // All buffered packets acknowledged, stop timer
                 stopTimer();
             } else {
                 // Still have unacknowledged packets, restart timer
@@ -121,7 +118,7 @@ public class Session {
     }
 
     /**
-     * Restart the timer manually (e.g., after retransmission).
+     * Restart the timer on a retransmission
      * Only works if there are unacknowledged packets and a timeout handler is set.
      */
     public synchronized void restartTimerIfNeeded() {
@@ -182,19 +179,10 @@ public class Session {
 
     // Initialization and compatibility methods
 
-    /**
-     * Get the last acknowledged sequence number.
-     * Used for connection handshake and monitoring.
-     */
     public long getSequenceNumber() {
         return Math.max(this.sendBase - 1, this.expectedSeqNum - 1);
     }
 
-    /**
-     * Initialize session state after handshake or reset.
-     * Sets both sender and receiver to be ready for data transfer.
-     * Use this only during connection establishment.
-     */
     public synchronized void setSequenceNumber(long sequenceNumber) {
         // Update both sender and receiver state
         this.sendBase = sequenceNumber;
@@ -204,28 +192,10 @@ public class Session {
                 + sendBase + ", nextSeqNum=" + nextSeqNum + ", expectedSeqNum=" + expectedSeqNum + "\u001B[0m");
     }
 
-    /**
-     * Atomically get the current sequence number and advance to the next one.
-     * This prevents race conditions where two threads could get the same sequence
-     * number.
-     * 
-     * @return the sequence number to use for the next packet
-     */
     public synchronized long getAndAdvanceSequenceNumber() {
         long seqNum = this.nextSeqNum;
         this.nextSeqNum++;
         return seqNum;
-    }
-
-    @Deprecated
-    public synchronized boolean isWaitingForReply() {
-        return this.sendBase < this.nextSeqNum; // have unacknowledged packets
-    }
-
-    @Deprecated
-    public synchronized void replyReceived() {
-        // For backward compatibility - treat as ACK for next packet
-        handleAck(this.sendBase + 1);
     }
 
     public SecretKey getSessionKey() {

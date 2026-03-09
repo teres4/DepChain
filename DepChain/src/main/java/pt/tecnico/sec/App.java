@@ -59,11 +59,8 @@ public class App {
             System.out.println("5.  Double vote (replay votes)");
             System.out.println("6.  Forged QC (leader fabricates quorum certificates with fake signatures)");
             System.out.println("7.  Spoof sender ID (impersonate another replica)");
-            System.out.println("8.  Delayed messages (slow down all outgoing messages)");
-            System.out.println("9.  Skip phase (leader skips PRE_COMMIT, jumps PREPARE -> COMMIT)");
-            System.out.println("10. Inflated NEW_VIEW QC (send NEW_VIEW with fabricated high QC)");
-            System.out.println("11. Selective broadcast (only send to half the replicas)");
-            System.out.println("12. Start as honest node");
+            System.out.println("8.  Skip phase (leader skips PRE_COMMIT, jumps PREPARE -> COMMIT)");
+            System.out.println("9.  Start as honest node");
             System.out.print("Select byzantine behaviour: ");
             System.out.println("\u001B[0m");
 
@@ -98,22 +95,10 @@ public class App {
                     System.out.println("[BYZANTINE] spoofSenderId");
                 }
                 case "8" -> {
-                    byz.setDelayMs(10000);
-                    System.out.println("[BYZANTINE] delayMessages (10s)");
-                }
-                case "9" -> {
                     byz.setSkipPhase(true);
                     System.out.println("[BYZANTINE] skipPhase");
                 }
-                case "10" -> {
-                    byz.setInflatedNewViewQC(true);
-                    System.out.println("[BYZANTINE] inflatedNewViewQC");
-                }
-                case "11" -> {
-                    byz.setSelectiveBroadcast(true);
-                    System.out.println("[BYZANTINE] selectiveBroadcast");
-                }
-                case "12" -> {
+                case "9" -> {
                     /* Start as honest node */ }
                 default -> System.err.println("Invalid choice, starting as honest node.");
             }
