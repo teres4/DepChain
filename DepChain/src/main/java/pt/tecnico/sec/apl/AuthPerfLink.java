@@ -721,12 +721,10 @@ public class AuthPerfLink {
     private Session getSessionForAddress(InetSocketAddress addr) {
         MemberInfo senderMember = memberManagement.getMemberByAddress(addr);
         if (senderMember == null) {
-            System.err.println("Unknown sender address: " + addr);
             return null;
         }
         Session session = sessionManager.getSession(senderMember.getId());
         if (session == null) {
-            System.err.println("No session found for sender ID: " + senderMember.getId());
             return null;
         }
         return session;
