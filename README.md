@@ -15,11 +15,11 @@ All commands should be run inside the `/DepChain` directory.
 
 - `AuthPerfLinkTest` - message authentication, delivery guarantees, and replay/drop handling at the network layer.
 - `ConsensusTest` - six sections covering the HotStuff protocol:
-  1. NEW\_VIEW collection - quorum threshold and highest-QC selection.
-  2. Vote accumulation - full PREPARE -> PRE\_COMMIT -> COMMIT -> DECIDE pipeline.
+  1. NEW_VIEW collection - quorum threshold and highest-QC selection.
+  2. Vote accumulation - full PREPARE -> PRE_COMMIT -> COMMIT -> DECIDE pipeline.
   3. View change - stale vote rejection after the view advances, replica ignores PREPARE from a crashed leader.
   4. Safety - conflicting node pruned from the local tree after a competing node is decided.
-  5. Byzantine - PRE\_COMMIT for an unknown node rejected; DECIDE with forged QC signature rejected; PREPARE failing safe-node check rejected; replayed DECIDE from old view ignored.
+  5. Byzantine - PRE_COMMIT for an unknown node rejected; DECIDE with forged QC signature rejected; PREPARE failing safe-node check rejected; replayed DECIDE from old view ignored.
   6. Future message buffering - out-of-order messages buffered and replayed in protocol order when the view advances, messages beyond the lookahead window dropped.
 
 ```bash
@@ -58,6 +58,9 @@ Each replica accepts an optional second argument that selects its Byzantine beha
 - `3` wrongNode - casts votes for a node different from the proposed one.
 - `4` wrongLeader - sends vote messages to the wrong leader.
 - `5` doubleVote - sends the same vote twice in the same phase.
+- `6` forgedQC - sends a QC with a forged signature.
+- `7` spoofSenderId - impersonates another replica by forging the sender ID in messages.
+- `8` skipPhase - skips an entire phase and proceeds to the next phase.
 
 To test Byzantine behaviour, change the second argument of the desired replica in `init.sh` to the corresponding flag before running the script.
 
