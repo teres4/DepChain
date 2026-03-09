@@ -73,7 +73,7 @@ public class Consensus {
         NEW_VIEW, PREPARE, PRE_COMMIT, COMMIT, DECIDE
     };
 
-    private Phase currentPhase;
+    Phase currentPhase;
 
     // will be used to check if the proposal is the same for all votes in the same
     // phase
@@ -81,9 +81,9 @@ public class Consensus {
 
     // tracks whether this replica has already voted in each phase for the current
     // view
-    private volatile boolean prepareVoted = false;
-    private volatile boolean preCommitVoted = false;
-    private volatile boolean commitVoted = false;
+    volatile boolean prepareVoted = false;
+    volatile boolean preCommitVoted = false;
+    volatile boolean commitVoted = false;
 
     ExecutorService executorService = java.util.concurrent.Executors.newFixedThreadPool(10);
 
@@ -188,6 +188,12 @@ public class Consensus {
             System.out.println("No router set, cannot send new-view message to leader");
         }
         heartbeat();
+    }
+
+    public void resetFlagsForNewView() {
+        this.prepareVoted = false;
+        this.preCommitVoted = false;
+        this.commitVoted = false;
     }
 
     // ==================== FUTURE MESSAGE BUFFERING ====================
@@ -557,6 +563,7 @@ public class Consensus {
 
             // clear collected new-view messages for this view
             newViewMessages.clear();
+            resetFlagsForNewView();
 
             String command = getCommandWithTimeout();
             prepare(highQC, command);
@@ -965,9 +972,7 @@ public class Consensus {
         heartbeat();
         int nextView = this.viewNumber.incrementAndGet();
         this.curProposal = null;
-        this.prepareVoted = false;
-        this.preCommitVoted = false;
-        this.commitVoted = false;
+        resetFlagsForNewView();
 
         router.commandDecided(decidedNode.getCommand());
 
@@ -997,9 +1002,7 @@ public class Consensus {
 
     private void onLeaderInactive() {
         int nextView = this.viewNumber.incrementAndGet();
-        this.prepareVoted = false;
-        this.preCommitVoted = false;
-        this.commitVoted = false;
+        resetFlagsForNewView();
         try {
             logHotStuff("⚠ Leader is INACTIVE/FAULTY! Starting new view " + nextView);
             drainFutureMessages(nextView);

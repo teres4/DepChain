@@ -20,12 +20,12 @@ import static org.mockito.Mockito.*;
  * Unit tests for the Basic HotStuff consensus algorithm.
  *
  * Sections:
- *  1. NEW_VIEW - quorum threshold and highest-QC selection
- *  2. Vote accumulation - full phase pipeline
- *  3. View change - leader crash, stale-message rejection
- *  4. Safety - conflicting node pruned after competing node is decided
- *  5. Byzantine - forged/tampered messages
- *  6. Future message buffering
+ * 1. NEW_VIEW - quorum threshold and highest-QC selection
+ * 2. Vote accumulation - full phase pipeline
+ * 3. View change - leader crash, stale-message rejection
+ * 4. Safety - conflicting node pruned after competing node is decided
+ * 5. Byzantine - forged/tampered messages
+ * 6. Future message buffering
  */
 @ExtendWith(MockitoExtension.class)
 class ConsensusTest {
@@ -42,24 +42,45 @@ class ConsensusTest {
 
         @Override
         public boolean tverify(String signaturesField, String message, long senderId) {
-            if (signaturesField == null) return false;
+            if (signaturesField == null)
+                return false;
             return signaturesField.startsWith("SIG:");
         }
 
-        /** Bypass tcombine() - returns a fake but well-formed QC for phase transitions. */
+        /**
+         * Bypass tcombine() - returns a fake but well-formed QC for phase transitions.
+         */
         @Override
         public QuorumCertificate QC(Node node, java.util.Queue<HotStuffMessage> votes) {
             HotStuffMessage first = votes.peek();
             int viewNum = first != null ? first.getViewNumber() : viewNumber.get();
-            String qcType = first instanceof PrepareVoteMessage   ? "prepare"
-                          : first instanceof PreCommitVoteMessage ? "pre-commit"
-                          : first instanceof CommitVoteMessage    ? "commit"
-                          : "unknown";
+            String qcType = first instanceof PrepareVoteMessage ? "prepare"
+                    : first instanceof PreCommitVoteMessage ? "pre-commit"
+                            : first instanceof CommitVoteMessage ? "commit"
+                                    : "unknown";
             return new QuorumCertificate(viewNum, node.getHash(), qcType, "SIG:fake-combined");
         }
 
-        int getViewNumberInt() { return viewNumber.get(); }
-        Phase getPhase()       { return getCurrentPhase(); }
+        int getViewNumberInt() {
+            return viewNumber.get();
+        }
+
+        Phase getPhase() {
+            return getCurrentPhase();
+        }
+
+        /**
+         * Simulates a view change (e.g. leader timeout) without triggering
+         * startNewView() / drainFutureMessages(). Resets the per-view vote
+         * flags exactly as onLeaderInactive() and onReceiveDecideMessage() do.
+         */
+        void simulateViewChange(int newView) {
+            viewNumber.set(newView);
+            prepareVoted = false;
+            preCommitVoted = false;
+            commitVoted = false;
+            currentPhase = null;
+        }
 
         /** Seeds the tree root so createLeaf() has a non-null parent. */
         void seedRoot(String rootHash) {
@@ -76,9 +97,12 @@ class ConsensusTest {
     private static final int N = 4;
     private static final int QUORUM = N - (N - 1) / 3; // = 3
 
-    @Mock MemberManager memberManager;
-    @Mock ReplicaState  replicaState;
-    @Mock MessageRouter router;
+    @Mock
+    MemberManager memberManager;
+    @Mock
+    ReplicaState replicaState;
+    @Mock
+    MessageRouter router;
 
     private TestableConsensus consensus(long replicaID) {
         TestableConsensus c = new TestableConsensus(replicaID, N);
@@ -134,7 +158,7 @@ class ConsensusTest {
             TestableConsensus c = consensus(2);
             c.seedRoot("rootHash");
 
-            Node lowNode  = new Node("hash-low",  "cmd", "rootHash", null);
+            Node lowNode = new Node("hash-low", "cmd", "rootHash", null);
             Node highNode = new Node("hash-high", "cmd", "rootHash", null);
             c.tree.addNode(lowNode);
             c.tree.addNode(highNode);
@@ -143,7 +167,7 @@ class ConsensusTest {
             doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
             // Sender 1 carries QC from view 1, sender 3 carries QC from view 5
-            c.onReceiveNewViewMessage(newViewWithQC(1, 1, qc(1, "hash-low",  "prepare")));
+            c.onReceiveNewViewMessage(newViewWithQC(1, 1, qc(1, "hash-low", "prepare")));
             c.onReceiveNewViewMessage(newViewWithQC(1, 3, qc(5, "hash-high", "prepare")));
             c.onReceiveNewViewMessage(newView(1, 4));
 
@@ -304,19 +328,19 @@ class ConsensusTest {
 
         /**
          * Scenario:
-         *  View 1 - Leader proposes node A (extends root). Replica accepts the PREPARE
-         *           and adds A to its local tree. Leader crashes - no quorum, A is never decided.
+         * View 1 - Leader proposes node A (extends root). Replica accepts the PREPARE
+         * and adds A to its local tree. Leader crashes - no quorum, A is never decided.
          *
-         *  View 2 - New leader proposes node B (also extends root, conflicts with A).
-         *           Replica goes through full PREPARE -> PRE_COMMIT -> COMMIT -> DECIDE for B.
+         * View 2 - New leader proposes node B (also extends root, conflicts with A).
+         * Replica goes through full PREPARE -> PRE_COMMIT -> COMMIT -> DECIDE for B.
          *
-         *  After DECIDE - A must be pruned from the local tree; B must still be present.
+         * After DECIDE - A must be pruned from the local tree; B must still be present.
          */
         @Test
         @DisplayName("Node A pruned from local tree after conflicting node B is decided in the next view")
         void safety_conflictingNodePrunedAfterDecide() throws Exception {
             // Replica 4 is never a leader in views 1 or 2 - pure voter.
-            // Leader view 1 = (1%4)+1 = 2;  leader view 2 = (2%4)+1 = 3.
+            // Leader view 1 = (1%4)+1 = 2; leader view 2 = (2%4)+1 = 3.
             TestableConsensus c = consensus(4);
             doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
@@ -331,7 +355,7 @@ class ConsensusTest {
             assertNotNull(c.tree.getNode("hashA"), "Node A must be in tree after PREPARE");
 
             // Leader of view 1 crashes: replica times out, moves to view 2
-            c.viewNumber.set(2);
+            c.simulateViewChange(2);
 
             // View 2: new leader proposes node B (also extends root)
             Node nodeB = new Node("hashB", "cmdB", "rootHash", null);
@@ -410,7 +434,7 @@ class ConsensusTest {
             TestableConsensus c = consensus(4);
             c.viewNumber.set(2);
 
-            Node root  = new Node("rootHash", "genesis", null, null);
+            Node root = new Node("rootHash", "genesis", null, null);
             Node nodeX = new Node("hashX", "cmdX", "rootHash", null);
             c.tree.addNode(root);
             c.tree.setRoot(root);
