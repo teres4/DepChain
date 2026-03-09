@@ -9,6 +9,7 @@ import java.util.TreeMap;
 import javax.crypto.SecretKey;
 
 import pt.tecnico.sec.apl.message.DataMessage;
+import pt.tecnico.sec.utils.DHKeyAgreement;
 
 public class Session {
 
@@ -26,6 +27,7 @@ public class Session {
     private long expectedSeqNum; // next expected sequence number
 
     private volatile SecretKey sessionKey;
+    private volatile DHKeyAgreement ephemeralDH; // per-session ephemeral DH key pair
 
     private boolean connectionEstablished = false; // track if handshake is complete
 
@@ -33,11 +35,11 @@ public class Session {
 
     private boolean isClientSession;
 
-    Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr, boolean isClient) {
-        this(senderID, sequenceNumber, sessionKey, addr, 10, 5000, isClient); // default window size=10, timeout=5s
+    Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr, DHKeyAgreement dh, boolean isClient) {
+        this(senderID, sequenceNumber, sessionKey, addr, dh, 10, 5000, isClient); // default window size=10, timeout=5s
     }
 
-    Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr, int windowSize,
+    Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr, DHKeyAgreement dh, int windowSize,
             long timeout, boolean isClient) {
         this.senderID = senderID;
         this.sendBase = sequenceNumber;
@@ -45,6 +47,7 @@ public class Session {
         this.expectedSeqNum = sequenceNumber + 1; // receiver expects first data packet
         this.sessionKey = sessionKey;
         this.addr = addr;
+        this.ephemeralDH = dh;
         this.windowSize = windowSize;
         this.timeout = timeout;
         this.sendBuffer = new TreeMap<>();
@@ -204,6 +207,14 @@ public class Session {
 
     public void setSessionKey(SecretKey sessionKey) {
         this.sessionKey = sessionKey;
+    }
+
+    public DHKeyAgreement getEphemeralDH() {
+        return this.ephemeralDH;
+    }
+
+    public void setEphemeralDH(DHKeyAgreement dh) {
+        this.ephemeralDH = dh;
     }
 
     public InetSocketAddress getAddr() {

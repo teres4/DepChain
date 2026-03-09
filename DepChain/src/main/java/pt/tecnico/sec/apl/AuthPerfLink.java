@@ -51,8 +51,6 @@ public class AuthPerfLink {
     private final SessionManager sessionManager;
     private final MemberManager memberManagement;
 
-    private final DHKeyAgreement dhKeyAgreement;
-
     private final AtomicBoolean running = new AtomicBoolean(true);
 
     private final ConcurrentLinkedQueue<Message> incomingMessages = new ConcurrentLinkedQueue<>();
@@ -70,13 +68,13 @@ public class AuthPerfLink {
 
     public AuthPerfLink(long ownId, PrivateKey privateKey, boolean isReplica, int port) throws IOException, Exception {
         this(ownId, privateKey, isReplica, new DatagramSocket(port), Executors.newFixedThreadPool(50),
-                new SessionManager(), new MemberManager(ownId, isReplica), initializeDHKeyAgreement());
+                new SessionManager(), new MemberManager(ownId, isReplica));
     }
 
     // Constructor with dependency injection for testing
     public AuthPerfLink(long ownId, PrivateKey privateKey, boolean isReplica, DatagramSocket socket,
             ExecutorService executorService, SessionManager sessionManager,
-            MemberManager memberManagement, DHKeyAgreement dhKeyAgreement) {
+            MemberManager memberManagement) {
         this.ownId = ownId;
         this.privateKey = privateKey;
         this.isReplica = isReplica;
@@ -86,13 +84,6 @@ public class AuthPerfLink {
         this.sendExecutorService = Executors.newSingleThreadExecutor();
         this.sessionManager = sessionManager;
         this.memberManagement = memberManagement;
-        this.dhKeyAgreement = dhKeyAgreement;
-    }
-
-    private static DHKeyAgreement initializeDHKeyAgreement() throws Exception {
-        DHKeyAgreement dh = new DHKeyAgreement();
-        dh.initialize();
-        return dh;
     }
 
     // public methods
@@ -215,7 +206,18 @@ public class AuthPerfLink {
 
             System.err.println(
                     "Starting connection to member ID: " + receiverID + " at address: " + receiverInfo.getAddr());
-            byte[] publicKey = this.dhKeyAgreement.getEncodedPublicKey();
+
+            // If a session is already fully established 
+            Session existingEstablished = sessionManager.getSession(receiverID);
+            if (existingEstablished != null && existingEstablished.isConnectionEstablished()) {
+                logger("Session already established with: " + receiverID + ", reusing");
+                return existingEstablished;
+            }
+
+            // create ephemeral DH key pair for this session
+            DHKeyAgreement dh = new DHKeyAgreement();
+            dh.initialize();
+            byte[] publicKey = dh.getEncodedPublicKey();
 
             // Sign the message
             String publicKeyBase64 = Base64.getEncoder().encodeToString(publicKey);
@@ -234,6 +236,7 @@ public class AuthPerfLink {
             if (session == null) {
                 session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), null, false);
             }
+            session.setEphemeralDH(dh);
 
             // Retry handshake with timeout
             int maxRetries = 3;
@@ -349,7 +352,12 @@ public class AuthPerfLink {
                 // it.
                 logger("Received duplicate CONNECTION_REQUEST from " + senderId + ", resending ACK");
 
-                byte[] responderDHPublicKey = this.dhKeyAgreement.getEncodedPublicKey();
+                DHKeyAgreement existingDH = existingSession.getEphemeralDH();
+                if (existingDH == null) {
+                    System.err.println("No ephemeral DH found for established session with " + senderId + ", cannot resend ACK");
+                    return;
+                }
+                byte[] responderDHPublicKey = existingDH.getEncodedPublicKey();
                 String responderKeyBase64 = Base64.getEncoder().encodeToString(responderDHPublicKey);
                 String signature = Crypto.signMessage(this.ownId + ":" + responderKeyBase64, this.privateKey);
 
@@ -375,14 +383,31 @@ public class AuthPerfLink {
             // Get the DH public key from the initiator
             byte[] initiatorDHPublicKey = msg.getDhPublicKey();
 
-            // compute shared secret
-            byte[] responderDHPublicKey = this.dhKeyAgreement.getEncodedPublicKey();
-            SecretKey sessionKey = this.dhKeyAgreement.computeSharedSecret(initiatorDHPublicKey);
+            DHKeyAgreement responderDH;
+            if (existingSession != null && existingSession.getEphemeralDH() != null) {
+                logger("Simultaneous connect with " + senderId + ", reusing our ephemeral DH");
+                responderDH = existingSession.getEphemeralDH();
+            } else {
+                responderDH = new DHKeyAgreement();
+                responderDH.initialize();
+            }
+
+            byte[] responderDHPublicKey = responderDH.getEncodedPublicKey();
+            SecretKey sessionKey = responderDH.computeSharedSecret(initiatorDHPublicKey);
 
             String responderKeyBase64 = Base64.getEncoder().encodeToString(responderDHPublicKey);
             String signature = Crypto.signMessage(this.ownId + ":" + responderKeyBase64, this.privateKey);
 
-            Session session = sessionManager.createSession(senderId, addr, sessionKey, isClient);
+            Session session;
+            if (existingSession != null) {
+                // Update existing placeholder session
+                session = existingSession;
+                session.setSessionKey(sessionKey);
+            } else {
+                // Create new session
+                session = sessionManager.createSession(senderId, addr, sessionKey, isClient);
+                session.setEphemeralDH(responderDH);
+            }
 
             // Handshake: reply with seq 1 (request was seq 0)
             long replySeqNum = 1;
@@ -437,7 +462,12 @@ public class AuthPerfLink {
             byte[] responderDHPublicKey = msg.getDHPublicKey();
 
             // Compute shared secret
-            SecretKey sessionKey = this.dhKeyAgreement.computeSharedSecret(responderDHPublicKey);
+            DHKeyAgreement dh = session.getEphemeralDH();
+            if (dh == null) {
+                System.err.println("No ephemeral DH key found for session with sender " + senderId + " at: " + addr);
+                return;
+            }
+            SecretKey sessionKey = dh.computeSharedSecret(responderDHPublicKey);
             session.setSessionKey(sessionKey);
 
             if (!session.isConnectionEstablished()) {

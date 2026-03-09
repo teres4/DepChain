@@ -16,8 +16,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
-
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -64,12 +62,6 @@ public class AuthPerfLinkTest {
         senderKeyPair = keyGen.generateKeyPair();
         receiverKeyPair = keyGen.generateKeyPair();
 
-        // Initialize DH key agreements
-        senderDH = new DHKeyAgreement();
-        senderDH.initialize();
-        receiverDH = new DHKeyAgreement();
-        receiverDH.initialize();
-
         // Create sockets
         senderSocket = new DatagramSocket(SENDER_PORT);
         receiverSocket = new DatagramSocket(RECEIVER_PORT);
@@ -90,10 +82,10 @@ public class AuthPerfLinkTest {
 
         // Create AuthPerfLink instances
         sender = new AuthPerfLink(SENDER_ID, senderKeyPair.getPrivate(), true, senderSocket,
-                senderExecutor, senderSessionManager, senderMemberManager, senderDH);
+                senderExecutor, senderSessionManager, senderMemberManager);
 
         receiver = new AuthPerfLink(RECEIVER_ID, receiverKeyPair.getPrivate(), true, receiverSocket,
-                receiverExecutor, receiverSessionManager, receiverMemberManager, receiverDH);
+                receiverExecutor, receiverSessionManager, receiverMemberManager);
 
         // Start receive threads
         new Thread(() -> sender.receive()).start();
@@ -115,7 +107,7 @@ public class AuthPerfLinkTest {
         // DatagramPacket.getAddress() returns a raw InetAddress without a hostname,
         // so InetSocketAddress("localhost", port) won't .equals() InetSocketAddress(ip,
         // port).
-        InetSocketAddress otherAddr = new InetSocketAddress("127.0.0.1", otherPort);
+        InetSocketAddress otherAddr = new InetSocketAddress("localhost", otherPort);
         MemberInfo otherMember = new MemberInfo(otherId, otherPublicKey, "test-key-" + otherId, otherAddr);
 
         // Mock the member manager to return our test member
