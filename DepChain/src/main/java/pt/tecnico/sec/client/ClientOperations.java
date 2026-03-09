@@ -1,7 +1,9 @@
 package pt.tecnico.sec.client;
 
 import java.security.PrivateKey;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.client.message.Command;
@@ -66,31 +68,33 @@ public class ClientOperations {
         }
     }
 
-    // waits for f+1 matching successful responses from replicas to ensure
+    // waits for f+1 equal successful responses from replicas to ensure
     // at least one honest replica executed the command
     private void waitForResponses(long nonce) throws Exception {
-        int requiredResponses = this.f + 1;
+        int requiredResponses = this.f + 1; // Need f+1 responses
 
-        while (currentResponses.size() < requiredResponses) {
+        // Wait until f+1 responses share the same result
+        while (true) {
+            Map<String, Long> resultCounts = currentResponses.stream()
+                    .filter(response -> response.getNonce() == nonce && response.isSuccess())
+                    .collect(Collectors.groupingBy(CommandResponse::getResult, Collectors.counting()));
+
+            if (resultCounts.values().stream().anyMatch(count -> count >= requiredResponses)) {
+                break;
+            }
             Thread.sleep(100);
         }
 
-        // Check if we have f+1 successful responses
-        long successfulResponses = currentResponses.stream()
-                .filter(CommandResponse::isSuccess)
-                .count();
-
-        if (successfulResponses < requiredResponses) {
-            throw new Exception("Not enough successful responses. Got " + successfulResponses + " successful, need "
-                    + requiredResponses);
-        }
-
-        // Print the result from one successful response
-        CommandResponse successResponse = currentResponses.stream()
-                .filter(CommandResponse::isSuccess)
+        // Find the result agreed upon by f+1 replicas
+        String matchingResult = currentResponses.stream()
+                .filter(response -> response.getNonce() == nonce && response.isSuccess())
+                .collect(Collectors.groupingBy(CommandResponse::getResult, Collectors.counting()))
+                .entrySet().stream()
+                .filter(entry -> entry.getValue() >= requiredResponses)
+                .map(Map.Entry::getKey)
                 .findFirst()
                 .orElseThrow();
 
-        System.out.println("Command executed successfully. Result: " + successResponse.getResult());
+        System.out.println("Command executed successfully. Result: " + matchingResult);
     }
 }
