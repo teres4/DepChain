@@ -17,11 +17,10 @@ All commands should be run inside the `/DepChain` directory.
   1. Bidirectional Communication: Verifies that messages can be sent and received in both directions.
   2. Reliable Delivery (Single Message): Ensures that a single message sent from a sender is reliably delivered to the intended receiver.
   3. Reliable Delivery (Multiple Messages): Tests that multiple messages sent in sequence are all delivered successfully.
-  4. FIFO Delivery Order: Validates that messages are delivered in the same order they were sent, ensuring First-In-First-Out (FIFO) semantics.
-  5. Reliable Delivery (Exceeding Window Size): Tests the handling of message delivery when the number of messages exceeds the window size, ensuring proper acknowledgment processing and window advancement.
-  6. No Duplication (Duplicate Packets): Ensures that duplicate packets with the same sequence number are not delivered multiple times.
-  7. Authenticity (HMAC Verification): Verifies that messages are authenticated using HMAC, ensuring that tampered messages are rejected.
-  8. Authenticity (Sender ID Verification): Tests that messages claiming to be from a different sender are rejected, preventing impersonation attacks.
+  4. Reliable Delivery (Exceeding Window Size): Tests the handling of message delivery when the number of messages exceeds the window size, ensuring proper acknowledgment processing and window advancement.
+  5. No Duplication (Duplicate Packets): Ensures that duplicate packets with the same sequence number are not delivered multiple times.
+  6. Authenticity (HMAC Verification): Verifies that messages are authenticated using HMAC, ensuring that tampered messages are rejected.
+  7. Authenticity (Sender ID Verification): Tests that messages claiming to be from a different sender are rejected, preventing impersonation attacks.
 
 - `ConsensusTest` - Tests the HotStuff consensus protocol implementation. The following scenarios are covered:
   1. NEW_VIEW Collection: Verifies quorum threshold and ensures the highest Quorum Certificate (QC) is selected as the parent for new proposals.

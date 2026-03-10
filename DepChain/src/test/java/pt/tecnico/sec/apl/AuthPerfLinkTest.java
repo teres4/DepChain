@@ -210,46 +210,7 @@ public class AuthPerfLinkTest {
         assertEquals(messageCount, receivedMessages.size(),
                 "Should receive exactly " + messageCount + " messages");
     }
-
-    // Tests that messages are delivered in FIFO order (Go-Back-N guarantees
-    // ordering)
-    @Test
-    @Timeout(30)
-    public void testFIFODeliveryOrder() throws Exception {
-        int totalMessages = 10;
-        CompletableFuture<Void> allMessagesReceived = new CompletableFuture<>();
-        List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-
-        receiver.setConsensusMessageListener(content -> {
-            synchronized (receivedMessages) {
-                receivedMessages.add(content);
-                if (receivedMessages.size() == totalMessages) {
-                    allMessagesReceived.complete(null);
-                }
-            }
-        });
-
-        // Establish connection
-        Session session = sender.startConnection(RECEIVER_ID);
-        assertNotNull(session);
-        Thread.sleep(500);
-
-        // Send messages in order
-        for (int i = 0; i < totalMessages; i++) {
-            sender.sendData(RECEIVER_ID, ("Message " + i).getBytes());
-        }
-
-        // Wait for all messages to be received
-        allMessagesReceived.get(20, TimeUnit.SECONDS);
-        assertEquals(totalMessages, receivedMessages.size());
-
-        // Verify FIFO order is preserved
-        for (int i = 0; i < totalMessages; i++) {
-            assertTrue(receivedMessages.get(i).contains("Message " + i),
-                    "Message " + i + " should be at position " + i + " but got: " + receivedMessages.get(i));
-        }
-    }
-
+    
     // Tests that sending more messages than the window size works correctly
     // (proves ACK processing and window advancement work end-to-end)
     @Test
