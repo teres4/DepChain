@@ -16,7 +16,7 @@ All commands should be run inside the `/DepChain` directory.
 Before running the system, ensure that the necessary keys and parameters are set up. If they are not already set up, you can generate them by running the following command:
 
 ```bash
-mvn exec:java -Dexec.mainClass="pt.tecnico.sec.utils.KeySetup" -Dexec.args="<numReplicas> <threshold>"
+mvn exec:java -Dexec.mainClass="pt.tecnico.sec.utils.Setup" -Dexec.args="<numReplicas> <threshold>"
 ```
 
 This command will:
