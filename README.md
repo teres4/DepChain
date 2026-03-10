@@ -13,14 +13,23 @@ All commands should be run inside the `/DepChain` directory.
 
 ## Unit Tests
 
-- `AuthPerfLinkTest` - message authentication, delivery guarantees, and replay/drop handling at the network layer.
-- `ConsensusTest` - six sections covering the HotStuff protocol:
-  1. NEW_VIEW collection - quorum threshold and highest-QC selection.
-  2. Vote accumulation - full PREPARE -> PRE_COMMIT -> COMMIT -> DECIDE pipeline.
-  3. View change - stale vote rejection after the view advances, replica ignores PREPARE from a crashed leader.
-  4. Safety - conflicting node pruned from the local tree after a competing node is decided.
-  5. Byzantine - PRE_COMMIT for an unknown node rejected; DECIDE with forged QC signature rejected; PREPARE failing safe-node check rejected; replayed DECIDE from old view ignored.
-  6. Future message buffering - out-of-order messages buffered and replayed in protocol order when the view advances, messages beyond the lookahead window dropped.
+- `AuthPerfLinkTest` - Tests the Authenticated Perfect Links implementation for message authentication, delivery guarantees, and replay/drop handling at the network layer. The following scenarios are covered:
+  1. Bidirectional Communication: Verifies that messages can be sent and received in both directions.
+  2. Reliable Delivery (Single Message): Ensures that a single message sent from a sender is reliably delivered to the intended receiver.
+  3. Reliable Delivery (Multiple Messages): Tests that multiple messages sent in sequence are all delivered successfully.
+  4. FIFO Delivery Order: Validates that messages are delivered in the same order they were sent, ensuring First-In-First-Out (FIFO) semantics.
+  5. Reliable Delivery (Exceeding Window Size): Tests the handling of message delivery when the number of messages exceeds the window size, ensuring proper acknowledgment processing and window advancement.
+  6. No Duplication (Duplicate Packets): Ensures that duplicate packets with the same sequence number are not delivered multiple times.
+  7. Authenticity (HMAC Verification): Verifies that messages are authenticated using HMAC, ensuring that tampered messages are rejected.
+  8. Authenticity (Sender ID Verification): Tests that messages claiming to be from a different sender are rejected, preventing impersonation attacks.
+
+- `ConsensusTest` - Tests the HotStuff consensus protocol implementation. The following scenarios are covered:
+  1. NEW_VIEW Collection: Verifies quorum threshold and ensures the highest Quorum Certificate (QC) is selected as the parent for new proposals.
+  2. Vote Accumulation: Tests the full PREPARE -> PRE_COMMIT -> COMMIT -> DECIDE pipeline and ensures extra votes beyond quorum do not cause double transitions.
+  3. View Change: Ensures stale votes are rejected after the view advances and that replicas ignore PREPARE messages from a crashed leader.
+  4. Safety: Validates that conflicting nodes are pruned from the local tree after a competing node is decided.
+  5. Byzantine Behavior: Tests that forged or tampered messages are rejected, including PRE_COMMIT for unknown nodes, DECIDE with forged QC signatures, and replayed messages.
+  6. Future Message Buffering: Ensures out-of-order messages are buffered and replayed in protocol order when the view advances, while messages beyond the lookahead window are dropped.
 
 ```bash
 mvn test
