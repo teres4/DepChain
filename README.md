@@ -11,6 +11,21 @@ All commands should be run inside the `/DepChain` directory.
 
 ---
 
+## Setup Keys
+
+Before running the system, ensure that the necessary keys and parameters are set up. If they are not already set up, you can generate them by running the following command:
+
+```bash
+mvn exec:java -Dexec.mainClass="pt.tecnico.sec.utils.KeySetup" -Dexec.args="<numReplicas> <threshold>"
+```
+
+This command will:
+- Generate RSA keys for replicas (IDs 1-4) and clients (IDs 100-102).
+- Generate Diffie-Hellman (DH) parameters.
+- Generate threshold keys for the specified number of replicas (4) and threshold (3).
+
+---
+
 ## Unit Tests
 
 - `AuthPerfLinkTest` - Tests the Authenticated Perfect Links implementation for message authentication, delivery guarantees, and replay/drop handling at the network layer. The following scenarios are covered:

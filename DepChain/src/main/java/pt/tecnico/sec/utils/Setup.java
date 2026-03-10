@@ -22,7 +22,7 @@ import pt.tecnico.sec.utils.threshsig.Dealer;
 import pt.tecnico.sec.utils.threshsig.GroupKey;
 import pt.tecnico.sec.utils.threshsig.KeyShare;
 
-public class KeySetup {
+public class Setup {
 
     private static final String REPLICA_KEYS_DIR = "config/keys/replicas";
     private static final String CLIENT_KEYS_DIR = "config/keys/clients";
