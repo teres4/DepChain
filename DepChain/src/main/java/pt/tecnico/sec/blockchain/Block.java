@@ -11,15 +11,17 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 
+import org.hyperledger.besu.evm.account.Account;
+
 public class Block {
     private final String previousBlockHash;
     private final long blockNumber;
     private final List<Transaction> transactions;
-    private final Map<String, AccountState> state;
+    private final Map<String, Account> state;
     private final String blockHash;
 
     public Block(String previousBlockHash, long blockNumber,
-                 List<Transaction> transactions, Map<String, AccountState> state) {
+                 List<Transaction> transactions, Map<String, Account> state) {
         this.previousBlockHash = previousBlockHash;
         this.blockNumber = blockNumber;
         // sort by fee descending: fee = gasPrice * gasLimit
@@ -65,6 +67,6 @@ public class Block {
     public String getPreviousBlockHash() { return previousBlockHash; }
     public long getBlockNumber() { return blockNumber; }
     public List<Transaction> getTransactions() { return Collections.unmodifiableList(transactions); }
-    public Map<String, AccountState> getState() { return Collections.unmodifiableMap(state); }
+    public Map<String, Account> getState() { return Collections.unmodifiableMap(state); }
     public String getBlockHash() { return blockHash; }
 }
