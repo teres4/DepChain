@@ -1,27 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity >=0.8.0 <0.9.0;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "./AccessControl.sol";
 
 contract ISTCoin is ERC20 {
-    constructor() ERC20("IST Coin", "IST") {
-        // 100 million units and 2 decimals, so 100 million * 10^2 
+    AccessControl private accessControl;
+
+    constructor(address accessControlAddress) ERC20("IST Coin", "IST") {
+        accessControl = AccessControl(accessControlAddress);
         _mint(msg.sender, 100000000 * 10 ** decimals());
     }
 
-    function decimals() public pure override returns (uint8) {
-        return 2;
-    }
-
     function transfer(address recipient, uint256 amount) public override returns (bool) {
-        // TODO perform proper access control, for now placeholder
-        require(amount % 100 == 0, "ISTCoin: amount must be multiple of 100");
+        require(accessControl.isAllowed(msg.sender), "ISTCoin: sender not allowed");
         return super.transfer(recipient, amount);
     }
 
-    function transferFrom(address sender, uint256 amount) public override returns (bool) {
-        // TODO perform proper access control, for now placeholder
-        require(amount % 100 == 0, "ISTCoin: amount must be multiple of 100");
-        return super.transferFrom(sender, _msgSender(), amount);
+    function transferFrom(address sender, address recipient, uint256 amount) public override returns (bool) {
+        require(accessControl.isAllowed(sender), "ISTCoin: sender not allowed");
+        return super.transferFrom(sender, recipient, amount);
     }
 
     /**
