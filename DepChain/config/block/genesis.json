@@ -9,11 +9,11 @@
         }
     ],
     "state": {
-        "<EOA account address A>": {
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
             "balance": 1000000000000000000,
             "nonce": 0
         },
-        "<EOA account address B>": {
+        "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
             "balance": 5000000000000000000,
             "nonce": 0
         }

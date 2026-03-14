@@ -1,5 +1,8 @@
 package pt.tecnico.sec.blockchain;
 
+import java.io.FileWriter;
+import java.io.IOException;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -11,7 +14,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 
-import org.hyperledger.besu.evm.account.Account;
+import pt.tecnico.sec.account.Account;
 
 public class Block {
     private final String previousBlockHash;
@@ -28,6 +31,16 @@ public class Block {
         this.transactions = sortByFee(transactions);
         this.state = state;
         this.blockHash = computeHash();
+    }
+
+
+    public Block(String previousBlockHash, String blockHash, long blockNumber,
+                 List<Transaction> transactions, Map<String, Account> state) {
+        this.previousBlockHash = previousBlockHash;
+        this.blockHash = blockHash;
+        this.blockNumber = blockNumber;
+        this.transactions = sortByFee(transactions);
+        this.state = state;
     }
 
     private List<Transaction> sortByFee(List<Transaction> txs) {
@@ -62,6 +75,12 @@ public class Block {
     public static Block fromJson(String json) {
         Gson gson = new Gson();
         return gson.fromJson(json, Block.class);
+    }
+
+    public void persistToFile(String filePath) throws IOException {
+        try (FileWriter writer = new FileWriter(filePath)) {
+            writer.write(toJson());
+        }    
     }
 
     public String getPreviousBlockHash() { return previousBlockHash; }
