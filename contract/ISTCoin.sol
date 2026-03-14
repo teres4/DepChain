@@ -11,6 +11,10 @@ contract ISTCoin is ERC20 {
         _mint(msg.sender, 100000000 * 10 ** decimals());
     }
 
+    function decimals() public pure override returns (uint8) {
+        return 2;
+    }
+
     function transfer(address recipient, uint256 amount) public override returns (bool) {
         require(accessControl.isAllowed(msg.sender), "ISTCoin: sender not allowed");
         return super.transfer(recipient, amount);
