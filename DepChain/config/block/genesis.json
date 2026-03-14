@@ -1,0 +1,22 @@
+{
+    "block_hash": "0x",
+    "previous_block_hash": "null",
+    "timestamp": 0,
+    "transactions": [
+        {
+            "from": "EOA account address A",
+            "to": "0x",
+            "Input": "TODO"
+        }
+    ],
+    "state": {
+        "<EOA account address A>": {
+            "balance": 1000000000000000000,
+            "nonce": 0
+        },
+        "<EOA account address B>": {
+            "balance": 5000000000000000000,
+            "nonce": 0
+        }
+    }
+}
