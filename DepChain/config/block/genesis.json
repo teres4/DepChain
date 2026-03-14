@@ -1,7 +1,6 @@
 {
     "block_hash": "0x",
     "previous_block_hash": "null",
-    "timestamp": 0,
     "transactions": [
         {
             "from": "EOA account address A",
