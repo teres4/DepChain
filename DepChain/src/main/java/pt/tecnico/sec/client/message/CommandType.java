@@ -4,6 +4,6 @@ public enum CommandType {
     APPEND, // deperecated
     TRANSFERDEPCOIN,
     GETBALANCE,
-    TRANSFERISTCOIN
+    GETHISTORY
 
 }

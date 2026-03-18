@@ -97,4 +97,30 @@ public class ClientOperations {
 
         System.out.println("Command executed successfully. Result: " + matchingResult);
     }
+
+    public void transferDepCoin(int recipientId, int amount, long gasPrice, long gasLimit) throws Exception {
+        System.out.println("Transferring " + amount + " DepCoin to client " + recipientId);
+        System.out.println("OOPS! this functionality is not implemented yet. Gomanasai!");
+    }
+
+    public void transferISTCoin(int recipientId, int amount, long gasPrice, long gasLimit) throws Exception {
+        // this should just call transferDepCoin but the recipient is the smart contract
+        // or smr
+        System.out.println("Transferring " + amount + " IST Coin to client " + recipientId);
+        System.out.println("OOPS! this functionality is not implemented yet. Gomanasai!");
+    }
+
+    // private final String from;
+    // private final String to; // null for contract deployment
+    // private final long amount; // DepCoin amount, 0 for contract calls
+
+    // // contract call or deployment bytecode, empty for plain DepCoin transfers
+    // private final byte[] input;
+
+    // // price per gas unit
+    // private final long gasPrice;
+
+    // // max gas units willing to spend
+    // private final long gasLimit;
+
 }
