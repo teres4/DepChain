@@ -782,6 +782,19 @@ public class Consensus {
         if (highQC == null) {
             ancestorNode = tree.getRoot();
         } else {
+            // TODO should we check the highQC type? 
+            if (!highQC.getType().equals("prepare")) {
+                System.err.println("Prepare message has highQC of wrong type: " + highQC.getType());
+                return;
+            }
+
+            // verify the QC signature is legitimate
+            String expectedMsg = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, highQC.getViewNumber(),
+                    highQC.getNodeHash());
+            if (!tverify(highQC.getSignatures(), expectedMsg, prepareMessage.getSenderId())) {
+                System.err.println("Prepare message has invalid QC signature, ignoring");
+                return;
+            }
             ancestorNode = tree.getNode(highQC.getNodeHash());
         }
 
