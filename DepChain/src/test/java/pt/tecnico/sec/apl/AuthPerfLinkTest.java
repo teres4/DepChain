@@ -8,6 +8,7 @@ import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -210,7 +211,7 @@ public class AuthPerfLinkTest {
         assertEquals(messageCount, receivedMessages.size(),
                 "Should receive exactly " + messageCount + " messages");
     }
-    
+
     // Tests that sending more messages than the window size works correctly
     // (proves ACK processing and window advancement work end-to-end)
     @Test
@@ -250,6 +251,88 @@ public class AuthPerfLinkTest {
         for (int i = 0; i < messageCount; i++) {
             assertTrue(receivedMessages.get(i).contains("Message " + i),
                     "Message " + i + " should be at position " + i);
+        }
+    }
+
+    // Test Selective Repeat: Window management allows many more messages than
+    // Go-Back-N
+    // This indirectly tests that Selective Repeat is working because individual
+    // packets can be ACKed out of order without blocking the sender's window
+    @Test
+    @Timeout(30)
+    public void testSelectiveRepeat_WindowManagement() throws Exception {
+        // This test is equivalent to testReliableDelivery_ExceedWindowSize
+        // but emphasizes that in Selective Repeat, out-of-order ACKs unblock the window
+        int messageCount = 50; // Send double the window size
+        CompletableFuture<Void> allMessagesDelivered = new CompletableFuture<>();
+        List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+
+        receiver.setConsensusMessageListener(content -> {
+            receivedMessages.add(content);
+            if (receivedMessages.size() == messageCount) {
+                allMessagesDelivered.complete(null);
+            }
+        });
+
+        // Establish connection
+        Session session = sender.startConnection(RECEIVER_ID);
+        assertNotNull(session);
+        Thread.sleep(500);
+
+        // Send many messages - with Selective Repeat, window advances with individual
+        // ACKs
+        for (int i = 0; i < messageCount; i++) {
+            sender.sendData(RECEIVER_ID, ("Message " + i).getBytes());
+        }
+
+        // All messages should be delivered in order
+        allMessagesDelivered.get(20, TimeUnit.SECONDS);
+        assertEquals(messageCount, receivedMessages.size(),
+                "All " + messageCount + " messages should be delivered");
+
+        // Verify order is preserved
+        for (int i = 0; i < messageCount; i++) {
+            assertTrue(receivedMessages.get(i).contains("Message " + i),
+                    "Message " + i + " should be at position " + i);
+        }
+    }
+
+    // Test Selective Repeat: Session receives packets correctly
+    // Tests that addReceivedPacket returns empty list for duplicates
+    @Test
+    @Timeout(10)
+    public void testSelectiveRepeat_ReceiveBufferManagement() throws Exception {
+        // Establish connection between sender and receiver
+        Session session = sender.startConnection(RECEIVER_ID);
+        assertNotNull(session);
+        Thread.sleep(500);
+
+        Session receiverSession = receiver.getSession(SENDER_ID);
+        assertNotNull(receiverSession);
+
+        // Create test messages
+        long baseSeq = receiverSession.getExpectedSequenceNumber();
+        byte[] content1 = "Test 1".getBytes();
+        DataMessage msg1 = new DataMessage(baseSeq, content1, null, SENDER_ID);
+        byte[] content2 = "Test 2".getBytes();
+        DataMessage msg2 = new DataMessage(baseSeq + 1, content2, null, SENDER_ID);
+
+        // Test: adding in-order packet returns it for delivery
+        synchronized (receiverSession) {
+            List<DataMessage> result1 = receiverSession.addReceivedPacket(msg1);
+            assertEquals(1, result1.size(), "In-order packet should be returned for delivery");
+            assertEquals(baseSeq + 1, receiverSession.getExpectedSequenceNumber(),
+                    "Expected seq should advance after delivery");
+
+            // Test: adding next in-order packet returns it
+            List<DataMessage> result2 = receiverSession.addReceivedPacket(msg2);
+            assertEquals(1, result2.size(), "Next in-order packet should be returned");
+            assertEquals(baseSeq + 2, receiverSession.getExpectedSequenceNumber(),
+                    "Expected seq should advance again");
+
+            // Test: adding duplicate (old packet) returns empty list
+            List<DataMessage> resultDuplicate = receiverSession.addReceivedPacket(msg1);
+            assertEquals(0, resultDuplicate.size(), "Duplicate (old) packet should not be delivered");
         }
     }
 

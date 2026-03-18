@@ -1,12 +1,15 @@
 package pt.tecnico.sec.apl;
 
 import java.net.InetSocketAddress;
+import java.sql.Time;
+import java.util.List;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.TreeMap;
 
 import javax.crypto.SecretKey;
+import javax.xml.crypto.Data;
 
 import pt.tecnico.sec.apl.message.DataMessage;
 import pt.tecnico.sec.utils.DHKeyAgreement;
@@ -15,16 +18,17 @@ public class Session {
 
     private final long senderID; // replica ID of the other party in the session
 
-    // Go-Back-N sender state
+    // Selective Repeat sender state
     private long sendBase; // oldest unacknowledged packet
     private long nextSeqNum; // next sequence number to use
-    private final int windowSize; // N in Go-Back-N
+    private final int windowSize; // size of the sender's window
     private final Map<Long, DataMessage> sendBuffer; // buffer for unacknowledged packets
-    private Timer timer; // retransmission timer
+    private final Map<Long, DataMessage> receiveBuffer = new TreeMap<>(); // buffer for out-of-order received packets
+    private final Map<Long, Timer> sendTimers = new TreeMap<>(); // timers for received packets (for ACKs)
+    private final Map<Long, Runnable> timeoutHandlers = new TreeMap<>(); // timeout handlers for each sequence number
     private final long timeout; // timeout in milliseconds
 
-    // Go-Back-N receiver state
-    private long expectedSeqNum; // next expected sequence number
+    private long expectedSeqNum; // last in-order received packet + 1 (the next expected sequence number)
 
     private volatile SecretKey sessionKey;
     private volatile DHKeyAgreement ephemeralDH; // per-session ephemeral DH key pair
@@ -35,11 +39,13 @@ public class Session {
 
     private boolean isClientSession;
 
-    Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr, DHKeyAgreement dh, boolean isClient) {
+    Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr, DHKeyAgreement dh,
+            boolean isClient) {
         this(senderID, sequenceNumber, sessionKey, addr, dh, 10, 5000, isClient); // default window size=10, timeout=5s
     }
 
-    Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr, DHKeyAgreement dh, int windowSize,
+    Session(long senderID, long sequenceNumber, SecretKey sessionKey, InetSocketAddress addr, DHKeyAgreement dh,
+            int windowSize,
             long timeout, boolean isClient) {
         this.senderID = senderID;
         this.sendBase = sequenceNumber;
@@ -51,7 +57,6 @@ public class Session {
         this.windowSize = windowSize;
         this.timeout = timeout;
         this.sendBuffer = new TreeMap<>();
-        this.timer = null;
         this.isClientSession = isClient;
     }
 
@@ -78,37 +83,34 @@ public class Session {
     }
 
     public synchronized void bufferPacket(long seqNum, DataMessage msg, Runnable timeoutHandler) {
-        boolean wasEmpty = sendBuffer.isEmpty();
         sendBuffer.put(seqNum, msg);
 
-        // Start timer when the first packet enters an empty buffer
-        if (wasEmpty) {
-            if (timeoutHandler != null) {
-                stopTimer(); // clear any stale timer
-                startTimer(timeoutHandler);
-            } else {
-                System.err.println("Warning: Cannot start timer, timeout handler is null");
-            }
+        // Store the timeout handler for this sequence number
+        if (timeoutHandler != null) {
+            timeoutHandlers.put(seqNum, timeoutHandler);
+        } else {
+            System.err.println("Warning: Null timeout handler for seqNum " + seqNum);
         }
+
+        // Start timer for this specific packet
+        stopTimer(seqNum);
+        startTimer(seqNum);
     }
 
     public synchronized void handleAck(long ackNum) {
-        // Cumulative ACK: ackNum acknowledges all packets up to and including ackNum-1
+        // ACKnowleges only 1 packet (comulative ack was in phase 1)
         if (ackNum > this.sendBase) {
-            // Remove acknowledged packets from buffer
-            for (long i = this.sendBase; i < ackNum; i++) {
-                sendBuffer.remove(i);
-            }
-            this.sendBase = ackNum;
-
-            if (sendBuffer.isEmpty()) {
-                stopTimer();
-            } else {
-                // Still have unacknowledged packets, restart timer
-                if (this.currentTimeoutHandler != null) {
-                    restartTimer();
+            // remove acknowleged packet from buffer
+            sendBuffer.remove(ackNum);
+            if (ackNum == this.sendBase) {
+                // Move sendBase forward to the next unacknowledged packet
+                while (!sendBuffer.containsKey(this.sendBase) && this.sendBase < this.nextSeqNum) {
+                    this.sendBase++;
                 }
             }
+
+            // stop timer
+            stopTimer(ackNum);
         }
     }
 
@@ -121,52 +123,52 @@ public class Session {
     }
 
     /**
-     * Restart the timer on a retransmission
-     * Only works if there are unacknowledged packets and a timeout handler is set.
+     * Restart the timer for a specific sequence number after retransmission
+     * Used in Selective Repeat when retransmitting a specific timed-out packet
      */
-    public synchronized void restartTimerIfNeeded() {
-        if (hasUnacknowledgedPackets() && this.currentTimeoutHandler != null) {
-            restartTimer();
+    public synchronized void restartTimerIfNeeded(long seqNum) {
+        if (sendBuffer.containsKey(seqNum) && timeoutHandlers.containsKey(seqNum)) {
+            restartTimer(seqNum);
         }
     }
 
-    private Runnable currentTimeoutHandler;
-
-    private synchronized void startTimer(Runnable timeoutHandler) {
-        if (timeoutHandler == null) {
-            System.err.println("Warning: Attempted to start timer with null handler");
-            return;
-        }
-
-        if (this.timer != null) {
-            timer.cancel();
-        }
-        this.timer = new Timer();
-        this.currentTimeoutHandler = timeoutHandler;
+    private synchronized void startTimer(Long ackNum) {
+        stopTimer(ackNum); // Ensure no existing timer for this ackNum
+        Timer timer = new Timer();
         timer.schedule(new TimerTask() {
             @Override
             public void run() {
-                // Defensive check in case handler was cleared between schedule and fire
-                if (timeoutHandler != null) {
-                    timeoutHandler.run();
+                synchronized (Session.this) {
+                    if (sendBuffer.containsKey(ackNum)) {
+                        System.out.println("\u001B[31m[Session " + senderID + "] Timeout for seqNum=" + ackNum
+                                + ", retransmitting...\u001B[0m");
+                        // Call the timeout handler for this sequence number
+                        Runnable handler = timeoutHandlers.get(ackNum);
+                        if (handler != null) {
+                            handler.run();
+                        } else {
+                            System.err.println("Warning: No timeout handler found for seqNum=" + ackNum);
+                        }
+                    }
                 }
             }
-        }, this.timeout);
+        }, timeout);
+        sendTimers.put(ackNum, timer);
     }
 
-    private synchronized void stopTimer() {
-        if (this.timer != null) {
+    private synchronized void stopTimer(Long ackNum) {
+        Timer timer = sendTimers.remove(ackNum);
+        if (timer != null) {
             timer.cancel();
-            this.timer = null;
-            this.currentTimeoutHandler = null;
         }
     }
 
-    private synchronized void restartTimer() {
-        if (this.currentTimeoutHandler != null) {
-            Runnable handler = this.currentTimeoutHandler; // Save handler before stopping
-            stopTimer();
-            startTimer(handler); // Use saved handler
+    private synchronized void restartTimer(Long ackNum) {
+        Timer timer = sendTimers.get(ackNum);
+        if (timer != null) {
+            timer.cancel();
+            // Retrieve and use the stored timeout handler for this packet
+            startTimer(ackNum);
         }
     }
 
@@ -230,8 +232,13 @@ public class Session {
     }
 
     public synchronized void cleanup() {
-        stopTimer();
+        for (Timer timer : sendTimers.values()) {
+            timer.cancel();
+        }
+        sendTimers.clear();
+        timeoutHandlers.clear();
         sendBuffer.clear();
+        receiveBuffer.clear();
     }
 
     public synchronized boolean isConnectionEstablished() {
@@ -260,5 +267,42 @@ public class Session {
         System.out.println("Connection established with senderID=" + senderID);
         this.connectionEstablished = true;
         notifyAll();
+    }
+
+    /**
+     * Important function for Selective repeat
+     * Returns a list of ordered deliverable packets when receiving a new packet
+     * IMPORTANT: this function updates expectedseqnumber
+     * 
+     * @param msg
+     * @return list of in-order packets (previously processed and verified) that can
+     *         be delivered to the application
+     *         layer
+     */
+    public synchronized List<DataMessage> addReceivedPacket(DataMessage msg) {
+        long seqNum = msg.getSequenceNumber();
+        List<DataMessage> deliverable = new java.util.ArrayList<>();
+
+        // If it's an old packet (already delivered), discard it
+        if (seqNum < expectedSeqNum) {
+            return deliverable; // empty list
+        }
+
+        // If it's within the receiving window
+        if (seqNum >= expectedSeqNum && seqNum < expectedSeqNum + windowSize) {
+            // Add to receive buffer
+            receiveBuffer.put(seqNum, msg);
+
+            // Check if we can deliver any in-order packets starting from expectedSeqNum
+            while (receiveBuffer.containsKey(expectedSeqNum)) {
+                deliverable.add(receiveBuffer.remove(expectedSeqNum));
+                expectedSeqNum++;
+            }
+
+            return deliverable;
+        }
+
+        // If it's beyond the window, drop it
+        return deliverable;
     }
 }
