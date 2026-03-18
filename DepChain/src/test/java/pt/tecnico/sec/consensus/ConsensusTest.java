@@ -502,7 +502,6 @@ class ConsensusTest {
         void futureMessage_replayedInOrderOnViewAdvance() throws Exception {
             TestableConsensus c = consensus(3); // leader for view 2
             c.viewNumber.set(1);
-            doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
             Node node = new Node("nodeHash", "cmd", "root", null);
             c.tree.addNode(node);
