@@ -2,10 +2,6 @@ package pt.tecnico.sec.blockchain;
 
 import java.io.FileWriter;
 import java.io.IOException;
-
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
@@ -13,6 +9,9 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 import pt.tecnico.sec.account.Account;
 
@@ -50,7 +49,7 @@ public class Block {
         return txs;
     }
 
-    private String computeHash() {
+    public String computeHash() {
         try {
             Gson gson = new Gson();
             String content = gson.toJson(previousBlockHash)
@@ -83,9 +82,23 @@ public class Block {
         }    
     }
 
-    public String getPreviousBlockHash() { return previousBlockHash; }
-    public long getBlockNumber() { return blockNumber; }
-    public List<Transaction> getTransactions() { return Collections.unmodifiableList(transactions); }
-    public Map<String, Account> getState() { return Collections.unmodifiableMap(state); }
-    public String getBlockHash() { return blockHash; }
+    public String getPreviousBlockHash() { 
+        return previousBlockHash; 
+    }
+
+    public long getBlockNumber() { 
+        return blockNumber; 
+    }
+
+    public List<Transaction> getTransactions() { 
+        return sortByFee(this.transactions); 
+    }
+    
+    public Map<String, Account> getState() { 
+        return Collections.unmodifiableMap(state); 
+    }
+    
+    public String getBlockHash() { 
+        return blockHash; 
+    }
 }

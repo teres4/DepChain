@@ -91,6 +91,10 @@ public class Blockchain {
 
     public void addBlock(Block block) {
         validateBlock(block);
+        
+        // execute all transactions in the block to update state
+        executeBlock(block);
+        
         chain.add(block);
 
         String blockFileName = storageDir + "/block_" + (chain.size() - 1) + ".json";        
@@ -98,6 +102,25 @@ public class Blockchain {
             block.persistToFile(blockFileName);
         } catch (IOException e) {
             throw new RuntimeException("Error writing block to file: " + blockFileName, e);
+        }
+    }
+
+    private void executeBlock(Block block) {
+        // Execute transactions in order (sorted by fee descending)
+        List<Transaction> transactions = block.getTransactions();
+
+        for (Transaction tx : transactions) {
+            // TODO only allow transaction if block's gas limit is not exceeded with this new transaction
+
+            ExecutionContext executionContext = new ExecutionContext(tx.getGasLimit(), tx.getGasPrice());
+            TransactionExecutor executor = new TransactionExecutor(tx, accounts, executionContext);
+            boolean success = executor.execute();
+
+            // TODO what happens is a transaction fails? 
+            // Do we revert state changes and skip the transaction, or do we include failed transactions in the block with an error message? 
+            if (!success) {
+                System.out.println("Transaction failed: " + tx.getHash());
+            }
         }
     }
 

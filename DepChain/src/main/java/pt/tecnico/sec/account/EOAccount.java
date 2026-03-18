@@ -12,8 +12,7 @@ public class EOAccount extends Account {
 
     public EOAccount(String address, long balance, PublicKey publicKey, long nonce) {
         super(address, balance, nonce);
-        if (publicKey == null)
-            throw new IllegalArgumentException("Public key cannot be null");
+        // PublicKey can be null for simulations or accounts from genesis state
         this.publicKey = publicKey;
     }
 
