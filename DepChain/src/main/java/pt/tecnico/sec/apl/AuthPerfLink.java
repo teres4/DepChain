@@ -606,7 +606,8 @@ public class AuthPerfLink {
             session = startConnection(id);
         }
 
-        // Selective Repeat: buffer data messages for retransmission with per-packet timers
+        // Selective Repeat: buffer data messages for retransmission with per-packet
+        // timers
         if (message instanceof DataMessage) {
             DataMessage dataMsg = (DataMessage) message;
 
@@ -614,7 +615,7 @@ public class AuthPerfLink {
             synchronized (session) {
                 long waitStart = System.currentTimeMillis();
                 long maxWaitMs = 30_000; // 30 seconds max wait
-                
+
                 while (!session.canSend()) {
                     if (System.currentTimeMillis() - waitStart > maxWaitMs) {
                         System.err.println("Window full timeout after " + maxWaitMs
@@ -630,7 +631,7 @@ public class AuthPerfLink {
                         return;
                     }
                 }
-                
+
                 // Now we have window space - buffer the packet while holding the lock
                 try {
                     final Session finalSession = session;
