@@ -105,7 +105,7 @@ class ConsensusTest {
     MessageRouter router;
 
     private TestableConsensus consensus(long replicaID) {
-        TestableConsensus c = new TestableConsensus(replicaID, N);
+        TestableConsensus c = new TestableConsensus(replicaID, N, cmd -> true);
         c.setRouter(router);
         return c;
     }
