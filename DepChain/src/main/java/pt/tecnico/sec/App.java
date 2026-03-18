@@ -3,12 +3,12 @@ package pt.tecnico.sec;
 import java.util.Scanner;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
-import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.consensus.ByzantineConsensus;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.message.NewCommandMessage;
 import pt.tecnico.sec.replica.Replica;
 import pt.tecnico.sec.replica.ReplicaState;
+import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
 
@@ -48,7 +48,7 @@ public class App {
 
         Consensus consensus;
         if (byzantine) {
-            ByzantineConsensus byz = new ByzantineConsensus(ownId, totalReplicas);
+            ByzantineConsensus byz = new ByzantineConsensus(ownId, totalReplicas, null);
 
             System.out.println("\u001B[31m");
             System.out.println("BYZANTINE MODE SELECTOR:");
@@ -104,11 +104,11 @@ public class App {
             }
             consensus = byz;
         } else {
-            consensus = new Consensus(ownId, totalReplicas);
+            consensus = new Consensus(ownId, totalReplicas, null);
         }
 
         ReplicaState replicaState = new ReplicaState();
-        Replica replica = new Replica(ownId, apl, consensus, replicaState);
+        Replica replica = new Replica(ownId, apl, replicaState);
 
         MessageRouter router = new MessageRouter(apl, consensus, replica);
         consensus.setRouter(router);

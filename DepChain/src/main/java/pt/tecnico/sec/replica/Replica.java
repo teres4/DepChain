@@ -9,23 +9,20 @@ import java.util.concurrent.Executors;
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.client.message.Command;
 import pt.tecnico.sec.client.message.CommandResponse;
-import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.utils.Crypto;
 
 public class Replica {
     private final long replicaId;
     private final AuthPerfLink authPerfLink;
-    private final Consensus consensus;
     private final ReplicaState state;
 
     private final ConcurrentLinkedQueue<String> pendingCommands = new ConcurrentLinkedQueue<>();
     private final ConcurrentHashMap<Long, Long> clientNonces = new ConcurrentHashMap<>();
     private final ExecutorService executorService = Executors.newFixedThreadPool(100);
 
-    public Replica(long replicaId, AuthPerfLink authPerfLink, Consensus consensus, ReplicaState state) {
+    public Replica(long replicaId, AuthPerfLink authPerfLink, ReplicaState state) {
         this.replicaId = replicaId;
         this.authPerfLink = authPerfLink;
-        this.consensus = consensus;
         this.state = state;
     }
 
@@ -36,8 +33,6 @@ public class Replica {
         if (clientNonces.containsKey(clientID) && nonce <= clientNonces.get(clientID)) {
             System.out.println("Rejected replayed command from client " + clientID + " with nonce " + nonce);
             return;
-        } else {
-            clientNonces.put(clientID, nonce); // Update latest nonce for this client
         }
 
         // check signature
@@ -45,7 +40,7 @@ public class Replica {
             System.out.println("Rejected command with invalid signature from client " + clientID);
             return;
         }
-
+        clientNonces.put(clientID, nonce); // Update latest nonce for this client
         pendingCommands.add(command.toJson());
     }
 
@@ -63,31 +58,14 @@ public class Replica {
         }
 
         try {
+            if (!validateCommand(commandJson, true)) 
+                return; // Invalid command, response already sent in validateCommand
+        
+            boolean success = state.executeCommand(commandJson);
+
             Command command = Command.fromJson(commandJson);
             Long clientID = command.getSenderId();
             Long nonce = command.getNonce();
-
-            // Validate format
-            if (!checkCommandFormat(commandJson)) {
-                System.out.println("Decided command has invalid format");
-                sendResponseToClient(clientID, nonce, false, "Invalid command format");
-                return;
-            }
-
-            // Validate signature (defense in depth)
-            if (!checkCommandSignature(command)) {
-                System.out.println("Decided command has invalid signature");
-                sendResponseToClient(clientID, nonce, false, "Invalid signature");
-                return;
-            }
-
-            if (clientNonces.containsKey(clientID) && nonce < clientNonces.get(clientID)) {
-                System.out.println("Rejected replayed command from client " + clientID + " with nonce " + nonce);
-                sendResponseToClient(clientID, nonce, false, "Replay attack detected");
-                return;
-            }
-
-            boolean success = state.executeCommand(commandJson);
 
             // Process result
             if (success) {
@@ -138,6 +116,40 @@ public class Replica {
             System.err.println("Failed to verify command signature: " + e.getMessage());
             return false;
         }
+    }
+
+    public boolean validateCommand(String commandJson, boolean sendResponse) {
+        Command command = Command.fromJson(commandJson);
+        Long clientID = command.getSenderId();
+        Long nonce = command.getNonce();
+
+        // Validate format
+        if (!checkCommandFormat(commandJson)) {
+            System.out.println("Command has invalid format");
+            if (sendResponse) {
+                sendResponseToClient(clientID, nonce, false, "Invalid command format");
+            }
+            return false;
+        }
+
+        // Validate signature (defense in depth)
+        if (!checkCommandSignature(command)) {
+            System.out.println("Command has invalid signature");
+            if (sendResponse) {
+                sendResponseToClient(clientID, nonce, false, "Invalid signature");
+            }
+            return false;
+        }
+
+        // Check for replay attacks
+        if (clientNonces.containsKey(clientID) && nonce < clientNonces.get(clientID)) {
+            System.out.println("Rejected replayed command from client " + clientID + " with nonce " + nonce);
+            if (sendResponse) {
+                sendResponseToClient(clientID, nonce, false, "Replay attack detected");
+            }
+            return false;
+        }
+        return true;
     }
 
     public long getReplicaId() {

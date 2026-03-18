@@ -101,16 +101,24 @@ public class Consensus {
     private static final String YELLOW = "\u001B[33m";
     private static final String RESET = "\u001B[0m";
 
+    @FunctionalInterface
+    public interface CommandValidator {
+        boolean validate(String commandJson);
+    }
+
+    private final CommandValidator commandValidator;
+
     private void logHotStuff(String message) {
         System.out.println(YELLOW + "[HotStuff] " + message + RESET);
     }
 
-    public Consensus(long replicaID, int totalReplicas) {
+    public Consensus(long replicaID, int totalReplicas, CommandValidator commandValidator) {
         this.replicaID = replicaID;
         this.totalReplicas = totalReplicas;
         this.quorumSize = totalReplicas - (totalReplicas - 1) / 3; // n-f where f = (n-1)/3
         this.tree = new Tree();
         this.viewNumber = new AtomicInteger(1);
+        this.commandValidator = commandValidator;
 
         // Load threshold signature keys
         try {
@@ -771,9 +779,22 @@ public class Consensus {
 
     // prepare message from leader received
     public void onReceivePrepareMessage(PrepareMessage prepareMessage) {
-
         if (!checkView(prepareMessage, this.viewNumber.get())
                 || !checkisLeaderMessage(prepareMessage, this.viewNumber.get())) {
+            return;
+        }
+        
+        // Check command validity
+        if (!validCommand(prepareMessage.getNode().getCommand())) {
+            logHotStuff("Invalid command detected in PREPARE, starting new view");
+            try {
+                // if we receive a prepare message with an invalid command, 
+                // the leader is probably byzantine and injected a command, so we trigger a view change
+                System.err.println("Received PREPARE with invalid command: " + prepareMessage.getNode().getCommand());
+                onLeaderInactive(); 
+            } catch (Exception e) {
+                System.err.println("Failed to start new view after detecting invalid command: " + e.getMessage());
+            }
             return;
         }
 
@@ -1023,5 +1044,16 @@ public class Consensus {
         } catch (Exception e) {
             System.err.println("Failed to start new view: " + e.getMessage());
         }
+    }
+
+    private boolean validCommand(String command) {
+        if (command.equals("NO-OP"))
+            return true;
+
+        if (!commandValidator.validate(command)) {
+            System.err.println("Command validation failed in PREPARE phase");
+            return false;
+        }
+        return true;
     }
 }

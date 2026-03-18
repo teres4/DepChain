@@ -3,6 +3,7 @@ package pt.tecnico.sec.replica;
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.consensus.ByzantineConsensus;
 import pt.tecnico.sec.consensus.Consensus;
+import pt.tecnico.sec.consensus.Consensus.CommandValidator;
 import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.utils.Crypto;
 
@@ -46,12 +47,12 @@ public class ReplicaServer {
             // Initialize AuthPerfLink
             AuthPerfLink apl = new AuthPerfLink(replicaId, Crypto.getReplicaPrivateKey(replicaId), 8080);
 
-            // Initialize Consensus (Byzantine if mode > 0)
-            Consensus consensus = createConsensus(replicaId, apl, byzantineMode);
-
             // Initialize Replica State and Replica
             ReplicaState replicaState = new ReplicaState();
-            Replica replica = new Replica(replicaId, apl, consensus, replicaState);
+            Replica replica = new Replica(replicaId, apl, replicaState);
+
+            // Initialize Consensus (Byzantine if mode > 0)
+            Consensus consensus = createConsensus(replicaId, apl, byzantineMode, cmd -> replica.validateCommand(cmd, false));
 
             // Initialize MessageRouter
             MessageRouter router = new MessageRouter(apl, consensus, replica);
@@ -81,12 +82,12 @@ public class ReplicaServer {
         }
     }
 
-    private static Consensus createConsensus(long replicaId, AuthPerfLink apl, int mode) {
+    private static Consensus createConsensus(long replicaId, AuthPerfLink apl, int mode, CommandValidator commandValidator) {
         int totalReplicas = apl.getMembers() != null ? apl.getMembers().length + 1 : 1;
         if (mode == 0) {
-            return new Consensus(replicaId, totalReplicas);
+            return new Consensus(replicaId, totalReplicas, commandValidator);
         }
-        ByzantineConsensus bc = new ByzantineConsensus(replicaId, totalReplicas);
+        ByzantineConsensus bc = new ByzantineConsensus(replicaId, totalReplicas, commandValidator);
         switch (mode) {
             case 1 -> bc.setSilent(true); // working
             case 2 -> bc.setSendConflicting(true);

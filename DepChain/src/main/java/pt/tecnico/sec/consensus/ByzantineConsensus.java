@@ -46,8 +46,8 @@ public class ByzantineConsensus extends Consensus {
 
     // CONSTRUCTOR AND SETTERS
 
-    public ByzantineConsensus(long replicaID, int totalReplicas) {
-        super(replicaID, totalReplicas);
+    public ByzantineConsensus(long replicaID, int totalReplicas, CommandValidator commandValidator) {
+        super(replicaID, totalReplicas, commandValidator);
     }
 
     private void logByzantine(String msg) {

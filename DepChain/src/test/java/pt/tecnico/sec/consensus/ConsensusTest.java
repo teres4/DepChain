@@ -31,8 +31,8 @@ import static org.mockito.Mockito.*;
 class ConsensusTest {
     static class TestableConsensus extends Consensus {
 
-        TestableConsensus(long replicaID, int totalReplicas) {
-            super(replicaID, totalReplicas);
+        TestableConsensus(long replicaID, int totalReplicas, Consensus.CommandValidator commandValidator) {
+            super(replicaID, totalReplicas, commandValidator);
         }
 
         @Override
