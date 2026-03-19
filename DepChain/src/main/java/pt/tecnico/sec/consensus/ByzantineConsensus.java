@@ -1,7 +1,5 @@
 package pt.tecnico.sec.consensus;
 
-import java.util.Base64;
-
 import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.router.MessageRouter;
 
@@ -140,6 +138,32 @@ public class ByzantineConsensus extends Consensus {
             precommit(fakeQC);
             return;
         }
+
+        if (sendConflicting && amLeader(voteMessage.getViewNumber()) && getCurrentPhase() == Phase.PREPARE) {
+            if (voteMessage.getViewNumber() != this.viewNumber.get()) {
+                return;
+            }
+
+            if (!prepareVoters.add(voteMessage.getSenderId())) {
+                logByzantine("Duplicate PREPARE_VOTE from replica " + voteMessage.getSenderId() + ", ignoring");
+                return;
+            }
+
+            prepareVotes.add(voteMessage);
+            logByzantine("Collected " + prepareVotes.size() + "/" + this.quorumSize + " prepare votes");
+
+            if (prepareVotes.size() >= this.quorumSize) {
+                logByzantine("CONFLICTING: Fabricating prepareQC with forged signature");
+                QuorumCertificate fakeQC = new QuorumCertificate(
+                        voteMessage.getViewNumber(),
+                        curProposal != null ? curProposal.getHash() : voteMessage.getNode().getHash(),
+                        "prepare",
+                        "FORGED_SIGNATURE_DATA");
+                precommit(fakeQC);
+            }
+            return;
+        }
+
         super.onReceivePrepareVoteMessage(voteMessage);
     }
 
@@ -369,42 +393,35 @@ public class ByzantineConsensus extends Consensus {
 
     private void broadcastConflictingPrepare(PrepareMessage original) throws Exception {
         Node origNode = original.getNode();
-
-        // Alternative node: same parent, different command and hash
-        Node altNode = new Node(
-                "BYZANTINE_ALT_" + origNode.getHash(),
-                origNode.getCommand() + "_CONFLICTING",
-                origNode.getParentHash(),
-                new QuorumCertificate(
-                    original.getHighQC().getViewNumber(),
-                    original.getHighQC().getNodeHash(),
-                    original.getHighQC().getType(),
-                    Base64.getEncoder().encodeToString("FORGED".getBytes())));
-        tree.addNode(altNode);
-
-        PrepareMessage altMsg = new PrepareMessage(
-                original.getViewNumber(), altNode, original.getHighQC(), replicaID);
-
         int total = getTotalReplicas();
-        int half = total / 2;
         MessageRouter r = getRouter();
 
         for (int i = 1; i <= total; i++) {
             if (i == replicaID)
                 continue;
             final int targetReplica = i;
-            final PrepareMessage toSend = (targetReplica <= half) ? original : altMsg;
+
+            Node altNode = new Node(
+                "BYZANTINE_ALT_" + targetReplica + "_" + origNode.getHash(),
+                origNode.getCommand(),  // same valid command
+                origNode.getParentHash(),
+                origNode.getJustifyQC());
+            tree.addNode(altNode);
+
+            PrepareMessage altMsg = new PrepareMessage(
+                    original.getViewNumber(), altNode, original.getHighQC(), replicaID);
+
             executorService.submit(() -> {
                 try {
                     if (r != null)
-                        r.sendConsensusMessage(toSend, targetReplica);
+                        r.sendConsensusMessage(altMsg, targetReplica);
                 } catch (Exception e) {
                     System.err.println("[Byzantine] Conflicting send failed to "
                             + targetReplica + ": " + e.getMessage());
                 }
             });
         }
-        // The leader itself always uses the original proposal internally
+
         sendToSelf(original);
     }
 

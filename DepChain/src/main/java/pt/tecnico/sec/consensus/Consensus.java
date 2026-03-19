@@ -37,7 +37,7 @@ public class Consensus {
     protected final long replicaID;
 
     // Quorum size
-    private final int quorumSize;
+    protected final int quorumSize;
 
     // total number of replicas
     private final int totalReplicas;
@@ -53,13 +53,13 @@ public class Consensus {
     // New-view message collection for leader
     private final Map<Long, NewViewMessage> newViewMessages = new ConcurrentHashMap<>();
 
-    private final Queue<PrepareVoteMessage> prepareVotes = new ConcurrentLinkedQueue<>();
+    protected final Queue<PrepareVoteMessage> prepareVotes = new ConcurrentLinkedQueue<>();
     private final Queue<PreCommitVoteMessage> preCommitVotes = new ConcurrentLinkedQueue<>();
     private final Queue<CommitVoteMessage> commitVotes = new ConcurrentLinkedQueue<>();
 
     // Track which senders have already voted in each phase to reject duplicate
     // votes
-    private final java.util.Set<Long> prepareVoters = ConcurrentHashMap.newKeySet();
+    protected final java.util.Set<Long> prepareVoters = ConcurrentHashMap.newKeySet();
     private final java.util.Set<Long> preCommitVoters = ConcurrentHashMap.newKeySet();
     private final java.util.Set<Long> commitVoters = ConcurrentHashMap.newKeySet();
 
@@ -792,6 +792,7 @@ public class Consensus {
                     highQC.getNodeHash());
             if (!tverify(highQC.getW(), expectedMsg)) {
                 System.err.println("Prepare message has invalid QC signature, ignoring");
+                onLeaderInactive();
                 return;
             }
             ancestorNode = tree.getNode(highQC.getNodeHash());
@@ -854,6 +855,7 @@ public class Consensus {
                 prepareQC.getNodeHash());
         if (!tverify(prepareQC.getW(), expectedMsg)) {
             System.err.println("Pre-commit message has invalid QC signature, ignoring");
+            onLeaderInactive();
             return;
         }
 
@@ -911,6 +913,7 @@ public class Consensus {
                 preCommitQC.getNodeHash());
         if (!tverify(preCommitQC.getW(), expectedMsg)) {
             System.err.println("Commit message has invalid QC signature, ignoring");
+            onLeaderInactive();
             return;
         }
 
@@ -967,6 +970,7 @@ public class Consensus {
                 commitQC.getNodeHash());
         if (!tverify(commitQC.getW(), expectedMsg)) {
             System.err.println("Decide message has invalid QC signature, ignoring");
+            onLeaderInactive();
             return;
         }
 
