@@ -70,7 +70,7 @@ public class Client {
             System.out.println("4. Get Balance");
             System.out.println("5. Get History");
             System.out.println("=================================================");
-            System.out.println("6. Change gas price and limit");
+            System.out.println("6. Change default gas price and limit");
             System.out.println("=================================================");
             System.out.println("7. Exit");
             System.out.print("Your choice: ");

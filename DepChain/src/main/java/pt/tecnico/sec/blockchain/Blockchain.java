@@ -1,29 +1,30 @@
-
 package pt.tecnico.sec.blockchain;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 
 import pt.tecnico.sec.account.Account;
+import pt.tecnico.sec.account.ContractAccount;
 import pt.tecnico.sec.account.EOAccount;
 
 public class Blockchain {
+    public static final long BLOCK_GAS_LIMIT = 50_000_000L;
 
     private final List<Block> chain = new ArrayList<>();
 
-    // keep track of all accounts for transaction execution
+    // all accounts and their current balances / nonces / code
     private final Map<String, Account> accounts = new HashMap<>();
-    
+
     private final File storageDir;
     private static final String GENESIS_PATH = "config/block/genesis.json";
 
@@ -51,39 +52,49 @@ public class Blockchain {
             // load transactions from genesis file
             List<Transaction> transactions = new ArrayList<>();
             for (JsonNode txNode : genesisNode.get("transactions")) {
-                String from = txNode.get("from").asText();
-                String to = txNode.get("to").asText(null);
-                byte[] input = txNode.get("input").binaryValue();
+                String from = getText(txNode, "from");
+                String to = getText(txNode, "to");
 
-                // TODO THESE FIELDS ARE NOT IN THE GENESIS FILE. 
-                // UNSURE IF THEY SHOULD BE ADDED TO THE FILE OR REMOVED FROM THE TRANSACTION CLASS
-                long amount = txNode.get("amount").asLong();
-                long gasPrice = txNode.get("gas_price").asLong();
-                long gasLimit = txNode.get("gas_limit").asLong();
-                long nonce = txNode.get("nonce").asLong();
+                long amount = getLong(txNode, "amount");
+                long gasPrice = getLong(txNode, "gas_price");
+                long gasLimit = getLong(txNode, "gas_limit");
+                long nonce = getLong(txNode, "nonce");
+
+                byte[] input = decodeHex(getText(txNode, "input"));
+
                 transactions.add(new Transaction(from, to, amount, input, gasPrice, gasLimit, nonce, null));
             }
 
             // load accounts from genesis file
             JsonNode stateNode = genesisNode.get("state");
-            Map<String, JsonNode> stateMap = mapper.convertValue(stateNode, new TypeReference<Map<String, JsonNode>>() {});
+            Iterator<String> addresses = stateNode.fieldNames();
+            while (addresses.hasNext()) {
+                String address = addresses.next();
+                JsonNode accNode = stateNode.get(address);
+                long balance = getLong(accNode, "balance");
+                long nonce = getLong(accNode, "nonce");
+                
+                if (accNode.has("code")) { // Contract account
+                    // Contract account
+                    String codeHex = getText(accNode, "code");
+                    byte[] code = decodeHex(codeHex);
 
-            for (Map.Entry<String, JsonNode> entry : stateMap.entrySet()) {
-                String address = entry.getKey();
-                JsonNode accountNode = entry.getValue();
-
-                long balance = accountNode.get("balance").asLong();
-                long nonce = accountNode.get("nonce").asLong();
-
-                // TODO passing null public key for now since it's not in the genesis file 
-                // also creating EOAccounts for all accounts since we don't know which ones are externally owned vs contract accounts at this point
-                accounts.put(address, new EOAccount(address, balance, null, nonce));
+                    Map<String, String> storage = new HashMap<>();
+                    JsonNode storageNode = accNode.get("storage");
+                    if (storageNode != null) {
+                        // TODO do stuff. idk what goes into the storage field
+                    }
+                    accounts.put(address, new ContractAccount(address, balance, code, storage, nonce));
+                } else {
+                    // EO account
+                    // TODO how to put the public key in here?
+                    accounts.put(address, new EOAccount(address, balance, null, nonce));
+                }
             }
 
             Block genesisBlock = new Block(previousHash, blockHash, 0, transactions, accounts);
             chain.add(genesisBlock);
             genesisBlock.persistToFile(storageDir + "/block_0.json");
-
         } catch (IOException e) {
             throw new RuntimeException("Error loading genesis block: " + GENESIS_PATH, e);
         }
@@ -154,5 +165,28 @@ public class Blockchain {
     public int getChainHeight() {
         return chain.size();
     }
+
+    private String getText(JsonNode node, String field) {
+        JsonNode v = node.get(field);
+        return (v != null && !v.isNull()) ? v.asText() : null;
+    }
+
+    private long getLong(JsonNode node, String field) {
+        JsonNode v = node.get(field);
+        return (v != null && v.isNumber()) ? v.asLong() : 0L;
+    }
+
+    private byte[] decodeHex(String hex) {
+        if (hex == null) return new byte[0];
+
+        try {
+            if (hex.startsWith("0x")) {
+                hex = hex.substring(2);
+            }
+            return HexFormat.of().parseHex(hex);
+        } catch (Exception e) {
+            return new byte[0];
+        }
+}
 
 }

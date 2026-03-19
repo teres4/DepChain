@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import "./AccessControl.sol";
 
 contract ISTCoin is ERC20 {
-    constructor(address accessControlAddress) ERC20("IST Coin", "IST") {
+    constructor(address address) ERC20("IST Coin", "IST") {
         _mint(msg.sender, 100000000 * 10 ** decimals());
     }
 

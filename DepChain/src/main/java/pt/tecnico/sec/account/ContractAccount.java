@@ -6,7 +6,7 @@ import java.util.Map;
 
 public class ContractAccount extends Account {
 
-    private final byte[] evmCode;
+    private final byte[] code;
 
     private final Map<String, String> storage;
 
@@ -20,12 +20,12 @@ public class ContractAccount extends Account {
         if (code == null)
             throw new IllegalArgumentException("Contract code cannot be null");
 
-        this.evmCode = Arrays.copyOf(code, code.length); 
+        this.code = Arrays.copyOf(code, code.length); 
         this.storage = new HashMap<>(storage);
     }
 
-    public byte[] getEvmCode() { 
-        return Arrays.copyOf(evmCode, evmCode.length); 
+    public byte[] getCode() { 
+        return Arrays.copyOf(code, code.length); 
     }
     public Map<String, String> getStorage() {
         return new HashMap<>(storage); 
