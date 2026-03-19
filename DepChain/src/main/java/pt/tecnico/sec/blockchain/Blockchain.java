@@ -116,20 +116,27 @@ public class Blockchain {
     }
 
     private void executeBlock(Block block) {
-        // Execute transactions in order (sorted by fee descending)
-        List<Transaction> transactions = block.getTransactions();
+        List<Transaction> transactions = block.getTransactions(); // gets transactions in descending gas price order
+        long blockGasUsed = 0;
 
         for (Transaction tx : transactions) {
-            // TODO only allow transaction if block's gas limit is not exceeded with this new transaction
+            // Skip if adding this transaction's gas_limit would exceed what's left
+            if (blockGasUsed + tx.getGasLimit() > BLOCK_GAS_LIMIT) {
+                System.err.printf("[Block] TX %s skipped: would exceed block gas limit%n", tx.getHash());
+                continue;
+            }
 
             ExecutionContext executionContext = new ExecutionContext(tx.getGasLimit(), tx.getGasPrice());
-            TransactionExecutor executor = new TransactionExecutor(tx, accounts, executionContext);
+            TransactionExecutor executor = new TransactionExecutor(tx, block.getState(), executionContext);
             boolean success = executor.execute();
 
-            // TODO what happens is a transaction fails? 
-            // Do we revert state changes and skip the transaction, or do we include failed transactions in the block with an error message? 
+            // accumulate actual gas used toward the block total
+            blockGasUsed += executionContext.getGasUsed();
+
+            // TODO if transaction is not successful, what happens to it? 
+            // is it discarded and not added to the block at all? or is it included but marked as failed
             if (!success) {
-                System.out.println("Transaction failed: " + tx.getHash());
+                System.err.printf("[Block] TX %s failed (gas consumed: %d)%n", tx.getHash(), executionContext.getGasUsed());
             }
         }
     }

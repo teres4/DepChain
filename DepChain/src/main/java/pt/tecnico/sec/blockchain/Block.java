@@ -18,20 +18,18 @@ import pt.tecnico.sec.account.Account;
 public class Block {
     private final String previousBlockHash;
     private final long blockNumber;
+    private final String blockHash;
     private final List<Transaction> transactions;
     private final Map<String, Account> state;
-    private final String blockHash;
 
     public Block(String previousBlockHash, long blockNumber,
                  List<Transaction> transactions, Map<String, Account> state) {
         this.previousBlockHash = previousBlockHash;
         this.blockNumber = blockNumber;
-        // sort by fee descending: fee = gasPrice * gasLimit
         this.transactions = sortByFee(transactions);
         this.state = state;
         this.blockHash = computeHash();
     }
-
 
     public Block(String previousBlockHash, String blockHash, long blockNumber,
                  List<Transaction> transactions, Map<String, Account> state) {

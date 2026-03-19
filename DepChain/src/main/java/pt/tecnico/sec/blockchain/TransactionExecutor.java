@@ -18,30 +18,28 @@ public class TransactionExecutor {
     }
 
     public boolean execute() {
+        String senderAddress = transaction.getFrom().toLowerCase();
+        Account sender = accounts.get(senderAddress);
+        if (sender == null) {
+            throw new IllegalStateException("Sender account not found: " + senderAddress);
+        }
+        
+        if (transaction.getNonce() != sender.getNonce()) {
+            throw new IllegalArgumentException(
+                "Invalid nonce: expected " + sender.getNonce() + ", got " + transaction.getNonce());
+        }
+        
+        // ensure sender can pay for gas
+        long maxGasCost = transaction.getGasPrice() * transaction.getGasLimit();
+        if (sender.getBalance() < maxGasCost) {
+            throw new IllegalStateException("Insufficient balance for gas: has " + sender.getBalance() + ", needs " + maxGasCost);
+        }
+
+        boolean success = false;
         try {
-            String senderAddress = transaction.getFrom().toLowerCase();
-            Account sender = accounts.get(senderAddress);
-            if (sender == null) {
-                throw new IllegalStateException("Sender account not found: " + senderAddress);
-            }
-            
-            // validate nonce
-            if (transaction.getNonce() != sender.getNonce()) {
-                throw new IllegalArgumentException(
-                    "Invalid nonce: expected " + sender.getNonce() + ", got " + transaction.getNonce());
-            }
-            
-            // ensure sender can pay for gas
-            long maxGasCost = transaction.getGasPrice() * transaction.getGasLimit();
-            if (sender.getBalance() < maxGasCost) {
-                throw new IllegalStateException(
-                    "Insufficient balance for gas: has " + sender.getBalance() + ", needs " + maxGasCost);
-            }
-            
             // deduct max gas cost 
             sender.deductBalance(maxGasCost);
-            
-            boolean success;
+
             if (transaction.isDepCoinTransfer()) {
                 success = executeDepCoinTransfer();
             } else if (transaction.isContractDeployment()) {
@@ -52,20 +50,24 @@ public class TransactionExecutor {
                 throw new IllegalArgumentException("Unknown transaction type");
             }
             
-            // calculate refund and refund unused gas
-            long gasRefund = transaction.getGasPrice() * (transaction.getGasLimit() - executionContext.getGasUsed());
-            sender.addBalance(gasRefund);
-            
-            // increment nonce for next transaction
-            sender.incrementNonce();
-            
-            return success;
-            
         } catch (Exception e) {
-            // In case of failure, the full gas cost is not refunded
-            // The transaction fee is paid, but no state changes occur
-            return false;
+            System.err.println("[TX] Execution error: " + e.getMessage());
+            success = false;
         }
+
+        if (success) {
+            long actualGasUsed = executionContext.getTransactionFee();
+            long gasRefund = maxGasCost - actualGasUsed;
+
+            if (gasRefund > 0) {
+                sender.addBalance(gasRefund);
+            }
+        }
+
+        // increment nonce for next transaction
+        sender.incrementNonce();
+        
+        return success;
     }
     
     private boolean executeDepCoinTransfer() {
