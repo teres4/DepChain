@@ -14,6 +14,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 import java.io.FileInputStream;
 import java.io.ObjectInputStream;
+import java.math.BigInteger;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -166,13 +167,24 @@ public interface Crypto {
         return keyShare.sign(message);
     }
 
-    public static boolean combineAndVerify(SigShare[] sigShares, int k, int l,
-                                        GroupKey groupKey, byte[] message)
+    public static BigInteger combineShares(SigShare[] sigShares, int k, int l,
+                                       GroupKey groupKey, byte[] message)
         throws ThresholdSigException {
-        return SigShare.verify(
+        return SigShare.combine(
             message,
             sigShares,
             k,
+            l,
+            groupKey.getModulus(),
+            groupKey.getExponent()
+        );
+    }
+
+    public static boolean verifyThresholdSignature(byte[] message, BigInteger w,
+                                                int l, GroupKey groupKey) {
+        return SigShare.verifyW(
+            message,
+            w,
             l,
             groupKey.getModulus(),
             groupKey.getExponent()

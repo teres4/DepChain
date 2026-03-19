@@ -9,12 +9,19 @@ import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.replica.ReplicaState;
 import pt.tecnico.sec.utils.MemberManager;
+import pt.tecnico.sec.utils.threshsig.Dealer;
+import pt.tecnico.sec.utils.threshsig.GroupKey;
+import pt.tecnico.sec.utils.threshsig.KeyShare;
+import pt.tecnico.sec.utils.threshsig.SigShare;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 /**
  * Unit tests for the Basic HotStuff consensus algorithm.
@@ -41,7 +48,7 @@ class ConsensusTest {
         }
 
         @Override
-        public boolean tverify(String signaturesField, String message, long senderId) {
+        public boolean tverify(String signaturesField, String message) {
             if (signaturesField == null)
                 return false;
             return signaturesField.startsWith("SIG:");
@@ -568,6 +575,226 @@ class ConsensusTest {
             c.drainFutureMessages(2);
 
             verify(router).commandDecided("cmd");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 7. Threshold signatures - real crypto (tsign / tcombine / tverify)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Uses a subclass that loads keys injected in the constructor rather than
+     * from disk, so these tests run without any config/keys directory.
+     * tsign / tcombine / tverify are NOT overridden - they run real crypto.
+     */
+    @Nested
+    @DisplayName("7. Threshold signatures")
+    class ThresholdSignatures {
+        private static final int L = 4;
+        private static final int K = 3;
+
+        private static GroupKey groupKey;
+        private static KeyShare[] keyShares;
+
+        @BeforeAll
+        static void generateKeys() throws Exception {
+            Dealer dealer = new Dealer(512);
+            dealer.generateKeys(K, L);
+            groupKey  = dealer.getGroupKey();
+            KeyShare[] shares = dealer.getShares();
+            keyShares = new KeyShare[L + 1];
+            for (int i = 0; i < shares.length; i++) {
+                keyShares[i + 1] = shares[i];
+            }
+        }
+
+        class RealCryptoConsensus extends Consensus {
+            RealCryptoConsensus(long replicaID, KeyShare privateKeyShare, GroupKey publicKey) {
+                super(replicaID, L, cmd -> true);
+                this.privateKeyShare = privateKeyShare;
+                this.publicKey = publicKey;
+            }
+        }
+
+        private RealCryptoConsensus replica(int id) {
+            RealCryptoConsensus c = new RealCryptoConsensus(id, keyShares[id], groupKey);
+            c.setRouter(router);
+            return c;
+        }
+
+        // tsign
+
+        @Test
+        @DisplayName("tsign returns a non-null, non-empty base64 string")
+        void tsign_returnsBase64() {
+            RealCryptoConsensus c = replica(1);
+            String sig = c.tsign(HotStuffMessageType.PREPARE_VOTE, 1, "someHash");
+            assertNotNull(sig);
+            assertFalse(sig.isEmpty());
+            // Must be valid base64 (no exception on decode)
+            assertDoesNotThrow(() -> Base64.getDecoder().decode(sig));
+        }
+
+        @Test
+        @DisplayName("tsign produces different output for different vote types")
+        void tsign_differentTypesProduceDifferentSigs() {
+            RealCryptoConsensus c = replica(1);
+            String sig1 = c.tsign(HotStuffMessageType.PREPARE_VOTE,    1, "hash");
+            String sig2 = c.tsign(HotStuffMessageType.PRE_COMMIT_VOTE,  1, "hash");
+            assertNotEquals(sig1, sig2);
+        }
+
+        @Test
+        @DisplayName("tsign produces different output for different view numbers")
+        void tsign_differentViewsProduceDifferentSigs() {
+            RealCryptoConsensus c = replica(1);
+            String sig1 = c.tsign(HotStuffMessageType.PREPARE_VOTE, 1, "hash");
+            String sig2 = c.tsign(HotStuffMessageType.PREPARE_VOTE, 2, "hash");
+            assertNotEquals(sig1, sig2);
+        }
+
+        // tcombine + tverify
+
+        @Test
+        @DisplayName("tcombine + tverify: k valid shares verify correctly")
+        void tcombine_tverify_roundTrip() throws Exception {
+            // Build a queue of k PrepareVoteMessages signed by replicas 1,2,3
+            int view = 1;
+            String nodeHash = "testNodeHash";
+            String expectedMsg = buildVoteMessage(HotStuffMessageType.PREPARE_VOTE, view, nodeHash);
+
+            java.util.Queue<HotStuffMessage> votes = buildVoteQueue(
+                    HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[]{1, 2, 3});
+
+            RealCryptoConsensus leader = replica(1);
+            byte[] msgBytes = expectedMsg.getBytes(StandardCharsets.UTF_8);
+
+            String wBase64 = leader.tcombine(votes, msgBytes);
+
+            assertNotNull(wBase64, "tcombine must return a non-null w");
+            assertFalse(wBase64.isEmpty());
+
+            assertTrue(
+                leader.tverify(wBase64, expectedMsg),
+                "tverify must accept the legitimately combined w"
+            );
+        }
+
+        @Test
+        @DisplayName("tverify rejects w combined from a different message")
+        void tverify_rejectsWFromDifferentMessage() throws Exception {
+            int view = 1;
+            String nodeHash = "testNodeHash";
+
+            // Combine over PREPARE_VOTE message
+            String signedMsg = buildVoteMessage(HotStuffMessageType.PREPARE_VOTE, view, nodeHash);
+            java.util.Queue<HotStuffMessage> votes = buildVoteQueue(
+                    HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[]{1, 2, 3});
+
+            RealCryptoConsensus leader = replica(1);
+            String wBase64 = leader.tcombine(votes, signedMsg.getBytes(StandardCharsets.UTF_8));
+
+            // Verify against a DIFFERENT message (different view)
+            String differentMsg = buildVoteMessage(HotStuffMessageType.PREPARE_VOTE, 99, nodeHash);
+            assertFalse(
+                leader.tverify(wBase64, differentMsg),
+                "tverify must reject w that was combined over a different message"
+            );
+        }
+
+        @Test
+        @DisplayName("tverify rejects a forged (random) w value")
+        void tverify_rejectsForgedW() {
+            RealCryptoConsensus c = replica(1);
+            String forgedW = Base64.getEncoder().encodeToString("FORGED".getBytes());
+            String msg = buildVoteMessage(HotStuffMessageType.PREPARE_VOTE, 1, "hash");
+            assertFalse(c.tverify(forgedW, msg));
+        }
+
+        @Test
+        @DisplayName("tverify returns false for null w")
+        void tverify_nullReturnsFalse() {
+            RealCryptoConsensus c = replica(1);
+            assertFalse(c.tverify(null, "anything"));
+        }
+
+        @Test
+        @DisplayName("tverify returns false for empty w")
+        void tverify_emptyReturnsFalse() {
+            RealCryptoConsensus c = replica(1);
+            assertFalse(c.tverify("", "anything"));
+        }
+
+        @Test
+        @DisplayName("w combined by different leader replicas from the same votes verifies identically")
+        void tcombine_deterministicAcrossLeaders() throws Exception {
+            int view = 1;
+            String nodeHash = "deterministicHash";
+            String msg = buildVoteMessage(HotStuffMessageType.PREPARE_VOTE, view, nodeHash);
+            byte[] msgBytes = msg.getBytes(StandardCharsets.UTF_8);
+
+            String w1 = replica(1).tcombine(
+                buildVoteQueue(HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[]{1,2,3}),
+                msgBytes);
+            String w2 = replica(2).tcombine(
+                buildVoteQueue(HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[]{1,2,3}),
+                msgBytes);
+
+            assertEquals(w1, w2, "Combining the same shares must yield the same w regardless of who combines");
+        }
+
+        @Test
+        @DisplayName("w from PRE_COMMIT_VOTE shares does not verify against a PREPARE_VOTE message")
+        void tverify_crossPhaseRejected() throws Exception {
+            int view = 1;
+            String nodeHash = "crossPhaseHash";
+
+            // Combine over PRE_COMMIT_VOTE
+            String preCommitMsg = buildVoteMessage(HotStuffMessageType.PRE_COMMIT_VOTE, view, nodeHash);
+            java.util.Queue<HotStuffMessage> votes = buildVoteQueue(
+                    HotStuffMessageType.PRE_COMMIT_VOTE, view, nodeHash, new int[]{1, 2, 3});
+
+            RealCryptoConsensus leader = replica(1);
+            String wBase64 = leader.tcombine(votes, preCommitMsg.getBytes(StandardCharsets.UTF_8));
+
+            // Try to verify as PREPARE_VOTE
+            String prepareMsg = buildVoteMessage(HotStuffMessageType.PREPARE_VOTE, view, nodeHash);
+            assertFalse(
+                leader.tverify(wBase64, prepareMsg),
+                "w from PRE_COMMIT_VOTE must not verify against PREPARE_VOTE message"
+            );
+        }
+
+        private String buildVoteMessage(HotStuffMessageType type, int view, String nodeHash) {
+            return String.format("VOTE|type=%s|view=%d|node=%s", type, view, nodeHash);
+        }
+
+        private java.util.Queue<HotStuffMessage> buildVoteQueue(
+                HotStuffMessageType type, int view, String nodeHash, int[] replicaIds)
+                throws Exception {
+
+            java.util.Queue<HotStuffMessage> queue = new java.util.LinkedList<>();
+            Node node = new Node(nodeHash, "cmd", "parentHash", null);
+            String msg = buildVoteMessage(type, view, nodeHash);
+            byte[] msgBytes = msg.getBytes(StandardCharsets.UTF_8);
+
+            for (int id : replicaIds) {
+                SigShare share = keyShares[id].sign(msgBytes);
+
+                // Serialise share to base64 exactly as tsign() does
+                java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+                new java.io.ObjectOutputStream(bos).writeObject(share);
+                String partialSigBase64 = Base64.getEncoder().encodeToString(bos.toByteArray());
+
+                HotStuffMessage vote = switch (type) {
+                    case PREPARE_VOTE    -> new PrepareVoteMessage(view, node, id, partialSigBase64);
+                    case PRE_COMMIT_VOTE -> new PreCommitVoteMessage(view, node, id, partialSigBase64);
+                    case COMMIT_VOTE     -> new CommitVoteMessage(view, node, id, partialSigBase64);
+                    default -> throw new IllegalArgumentException("Unsupported vote type: " + type);
+                };
+                queue.add(vote);
+            }
+            return queue;
         }
     }
 }

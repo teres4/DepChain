@@ -131,7 +131,7 @@ public class Client {
     public static void append(String message) {
         System.out.println("Client sending append request: " + message);
         try {
-            this.clientOps.append(message);
+            clientOps.append(message);
             System.out.println("Append request sent successfully.");
         } catch (Exception e) {
             System.err.println("Error sending append request: " + e.getMessage());

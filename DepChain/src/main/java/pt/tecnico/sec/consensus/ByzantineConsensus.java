@@ -1,5 +1,7 @@
 package pt.tecnico.sec.consensus;
 
+import java.util.Base64;
+
 import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.router.MessageRouter;
 
@@ -182,7 +184,7 @@ public class ByzantineConsensus extends Consensus {
                     prepareQC.getViewNumber(),
                     prepareQC.getNodeHash(),
                     "pre-commit",
-                    prepareQC.getSignatures());
+                    prepareQC.getW());
             commit(fakePreCommitQC);
             return;
         }
@@ -373,7 +375,11 @@ public class ByzantineConsensus extends Consensus {
                 "BYZANTINE_ALT_" + origNode.getHash(),
                 origNode.getCommand() + "_CONFLICTING",
                 origNode.getParentHash(),
-                null);
+                new QuorumCertificate(
+                    original.getHighQC().getViewNumber(),
+                    original.getHighQC().getNodeHash(),
+                    original.getHighQC().getType(),
+                    Base64.getEncoder().encodeToString("FORGED".getBytes())));
         tree.addNode(altNode);
 
         PrepareMessage altMsg = new PrepareMessage(

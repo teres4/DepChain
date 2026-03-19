@@ -5,13 +5,13 @@ public class QuorumCertificate {
     private int viewNumber;
     private String nodeHash; // hash of the node that this QC certifies
     private String type; // "prepare", "pre-commit", "commit"
-    private String signatures;
+    private String w; // threshold signatures combined value to check
 
-    public QuorumCertificate(int viewNumber, String nodeHash, String type, String signatures) {
+    public QuorumCertificate(int viewNumber, String nodeHash, String type, String w) {
         this.viewNumber = viewNumber;
         this.nodeHash = nodeHash;
         this.type = type;
-        this.signatures = signatures;
+        this.w = w;
     }
 
     public int getViewNumber() {
@@ -26,7 +26,7 @@ public class QuorumCertificate {
         return type;
     }
 
-    public String getSignatures() {
-        return signatures;
+    public String getW() {
+        return w;
     }
 }

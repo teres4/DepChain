@@ -4,6 +4,7 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -95,8 +96,8 @@ public class Consensus {
     private static final Duration COMMAND_WAIT_TIMEOUT = Duration.ofSeconds(5); // Timeout to wait for pending commands
 
     // Threshold signature keys
-    private KeyShare privateKeyShare;
-    private GroupKey publicKey;
+    protected KeyShare privateKeyShare;
+    protected GroupKey publicKey;
 
     private static final String YELLOW = "\u001B[33m";
     private static final String RESET = "\u001B[0m";
@@ -311,54 +312,46 @@ public class Consensus {
 
     public QuorumCertificate QC(Node node, Queue<HotStuffMessage> votes) {
         try {
-            String combinedSigBase64 = tcombine(votes);
-            if (combinedSigBase64 == null) {
-                return null;
-            }
-
             HotStuffMessage firstVote = votes.peek();
             int viewNum = firstVote != null ? firstVote.getViewNumber() : this.viewNumber.get();
             String qcType = firstVote instanceof PrepareVoteMessage ? "prepare"
-                    : firstVote instanceof PreCommitVoteMessage ? "pre-commit"
-                            : firstVote instanceof CommitVoteMessage ? "commit" : "unknown";
+                          : firstVote instanceof PreCommitVoteMessage ? "pre-commit"
+                          : firstVote instanceof CommitVoteMessage ? "commit" : "unknown";
 
-            return new QuorumCertificate(
-                    viewNum,
-                    node.getHash(),
-                    qcType,
-                    combinedSigBase64);
+            HotStuffMessageType voteType = firstVote instanceof PrepareVoteMessage ? HotStuffMessageType.PREPARE_VOTE
+                                         : firstVote instanceof PreCommitVoteMessage ? HotStuffMessageType.PRE_COMMIT_VOTE
+                                         : HotStuffMessageType.COMMIT_VOTE;
+
+            String message = createVoteMessage(voteType, viewNum, node.getHash());
+            byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
+
+            String wBase64 = tcombine(votes, messageBytes);
+            if (wBase64 == null) return null;
+
+            return new QuorumCertificate(viewNum, node.getHash(), qcType, wBase64);
+
         } catch (Exception e) {
             System.err.println("Failed to create QC: " + e.getMessage());
             return null;
         }
     }
 
-    public String tcombine(Queue<HotStuffMessage> votes) {
+    public String tcombine(Queue<HotStuffMessage> votes, byte[] messageBytes) {
         try {
             SigShare[] sigShares = new SigShare[votes.size()];
             int i = 0;
             for (HotStuffMessage vote : votes) {
                 String partialSigBase64 = extractPartialSig(vote);
-                if (partialSigBase64 == null)
-                    continue;
+                if (partialSigBase64 == null) continue;
 
                 byte[] sigBytes = Base64.getDecoder().decode(partialSigBase64);
-                ObjectInputStream ois = new ObjectInputStream(
-                        new ByteArrayInputStream(sigBytes));
+                ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(sigBytes));
                 sigShares[i++] = (SigShare) ois.readObject();
             }
 
-            // store full serialized SigShares as comma-separated base64
-            // tverify() will reconstruct them and verify later
-            StringBuilder sb = new StringBuilder();
-            for (int j = 0; j < sigShares.length; j++) {
-                if (j > 0)
-                    sb.append(",");
-                ByteArrayOutputStream bos = new ByteArrayOutputStream();
-                new ObjectOutputStream(bos).writeObject(sigShares[j]);
-                sb.append(Base64.getEncoder().encodeToString(bos.toByteArray()));
-            }
-            return sb.toString();
+            BigInteger w = Crypto.combineShares(sigShares, this.quorumSize, this.totalReplicas,
+                                                this.publicKey, messageBytes);
+            return Base64.getEncoder().encodeToString(w.toByteArray());
 
         } catch (Exception e) {
             System.err.println("Failed to combine signatures: " + e.getMessage());
@@ -374,10 +367,8 @@ public class Consensus {
 
             SigShare sigShare = Crypto.thresholdSign(this.privateKeyShare, messageBytes);
 
-            // serialize SigShare to bytes then base64 for transport
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
-            ObjectOutputStream oos = new ObjectOutputStream(bos);
-            oos.writeObject(sigShare);
+            new ObjectOutputStream(bos).writeObject(sigShare);
             return Base64.getEncoder().encodeToString(bos.toByteArray());
         } catch (Exception e) {
             System.err.println("Failed to create threshold signature: " + e.getMessage());
@@ -385,27 +376,14 @@ public class Consensus {
         }
     }
 
-    public boolean tverify(String signaturesField, String message, long senderId) {
+    public boolean tverify(String wBase64, String message) {
         try {
-            if (signaturesField == null || signaturesField.isEmpty())
-                return false;
+            if (wBase64 == null || wBase64.isEmpty()) return false;
 
-            String[] parts = signaturesField.split(",");
-            SigShare[] sigShares = new SigShare[parts.length];
-            for (int i = 0; i < parts.length; i++) {
-                byte[] sigBytes = Base64.getDecoder().decode(parts[i]);
-                ObjectInputStream ois = new ObjectInputStream(
-                        new ByteArrayInputStream(sigBytes));
-                sigShares[i] = (SigShare) ois.readObject();
-            }
-
+            BigInteger w = new BigInteger(Base64.getDecoder().decode(wBase64));
             byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
-            return Crypto.combineAndVerify(
-                    sigShares,
-                    this.quorumSize,
-                    this.totalReplicas,
-                    this.publicKey,
-                    messageBytes);
+
+            return Crypto.verifyThresholdSignature(messageBytes, w, this.totalReplicas, this.publicKey);
         } catch (Exception e) {
             System.err.println("Failed to verify threshold signature: " + e.getMessage());
             return false;
@@ -812,7 +790,7 @@ public class Consensus {
             // verify the QC signature is legitimate
             String expectedMsg = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, highQC.getViewNumber(),
                     highQC.getNodeHash());
-            if (!tverify(highQC.getSignatures(), expectedMsg, prepareMessage.getSenderId())) {
+            if (!tverify(highQC.getW(), expectedMsg)) {
                 System.err.println("Prepare message has invalid QC signature, ignoring");
                 return;
             }
@@ -874,7 +852,7 @@ public class Consensus {
         // verify the QC signature is legitimate
         String expectedMsg = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, prepareQC.getViewNumber(),
                 prepareQC.getNodeHash());
-        if (!tverify(prepareQC.getSignatures(), expectedMsg, preCommitMessage.getSenderId())) {
+        if (!tverify(prepareQC.getW(), expectedMsg)) {
             System.err.println("Pre-commit message has invalid QC signature, ignoring");
             return;
         }
@@ -931,7 +909,7 @@ public class Consensus {
         // verify the QC signature is legitimate
         String expectedMsg = createVoteMessage(HotStuffMessageType.PRE_COMMIT_VOTE, preCommitQC.getViewNumber(),
                 preCommitQC.getNodeHash());
-        if (!tverify(preCommitQC.getSignatures(), expectedMsg, commitMessage.getSenderId())) {
+        if (!tverify(preCommitQC.getW(), expectedMsg)) {
             System.err.println("Commit message has invalid QC signature, ignoring");
             return;
         }
@@ -987,7 +965,7 @@ public class Consensus {
         // verify the QC signature is legitimate
         String expectedMsg = createVoteMessage(HotStuffMessageType.COMMIT_VOTE, commitQC.getViewNumber(),
                 commitQC.getNodeHash());
-        if (!tverify(commitQC.getSignatures(), expectedMsg, decideMessage.getSenderId())) {
+        if (!tverify(commitQC.getW(), expectedMsg)) {
             System.err.println("Decide message has invalid QC signature, ignoring");
             return;
         }
