@@ -93,6 +93,7 @@ public class Blockchain {
             }
 
             Block genesisBlock = new Block(previousHash, blockHash, 0, transactions, accounts);
+            executeBlock(genesisBlock);
             chain.add(genesisBlock);
             genesisBlock.persistToFile(storageDir + "/block_0.json");
         } catch (IOException e) {
@@ -100,19 +101,17 @@ public class Blockchain {
         }
     }
 
+    // validate and append a block that has been decided by consensus
     public void addBlock(Block block) {
         validateBlock(block);
-        
-        // execute all transactions in the block to update state
         executeBlock(block);
-        
         chain.add(block);
 
-        String blockFileName = storageDir + "/block_" + (chain.size() - 1) + ".json";        
+        String fileName = storageDir + "/block_" + (chain.size() - 1) + ".json";
         try {
-            block.persistToFile(blockFileName);
+            block.persistToFile(fileName);
         } catch (IOException e) {
-            throw new RuntimeException("Error writing block to file: " + blockFileName, e);
+            throw new RuntimeException("Error writing block to file: " + fileName, e);
         }
     }
 
@@ -136,7 +135,29 @@ public class Blockchain {
     }
 
     private void validateBlock(Block block) {
-        // TODO VALIDATE block structure, transactions, and state transitions before adding to chain
+        Block lastBlock = chain.get(chain.size() - 1);
+
+        if (!lastBlock.getBlockHash().equals(block.getPreviousBlockHash())) {
+            throw new IllegalArgumentException("Block's previousBlockHash does not match hash of last block in chain");
+        }
+
+        if (block.getBlockNumber() != lastBlock.getBlockNumber() + 1) {
+            throw new IllegalArgumentException("Block number not sequential: expected "
+                            + (lastBlock.getBlockNumber() + 1) + ", got " + block.getBlockNumber());
+        }
+
+        if (!block.getBlockHash().equals(block.computeHash())) {
+            throw new IllegalArgumentException("Block hash is invalid");
+        }
+
+        // the sum of the transactions' gas limits must not exceed the block gas limit 
+        long totalGasLimit = 0;
+        for (Transaction tx : block.getTransactions()) {
+            totalGasLimit += tx.getGasLimit();
+        }
+        if (totalGasLimit > BLOCK_GAS_LIMIT) {
+            throw new IllegalArgumentException("Sum of transactions' gas limits exceeds block gas limit");
+        }
     }
 
     public Account getAccount(String address) {
