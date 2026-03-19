@@ -89,7 +89,7 @@ public class Block {
     }
 
     public List<Transaction> getTransactions() { 
-        return sortByFee(this.transactions); 
+        return Collections.unmodifiableList(transactions);
     }
     
     public Map<String, Account> getState() { 

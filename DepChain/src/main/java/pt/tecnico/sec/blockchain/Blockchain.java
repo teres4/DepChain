@@ -120,14 +120,8 @@ public class Blockchain {
         long blockGasUsed = 0;
 
         for (Transaction tx : transactions) {
-            // Skip if adding this transaction's gas_limit would exceed what's left
-            if (blockGasUsed + tx.getGasLimit() > BLOCK_GAS_LIMIT) {
-                System.err.printf("[Block] TX %s skipped: would exceed block gas limit%n", tx.getHash());
-                continue;
-            }
-
             ExecutionContext executionContext = new ExecutionContext(tx.getGasLimit(), tx.getGasPrice());
-            TransactionExecutor executor = new TransactionExecutor(tx, block.getState(), executionContext);
+            TransactionExecutor executor = new TransactionExecutor(tx, accounts, executionContext);
             boolean success = executor.execute();
 
             // accumulate actual gas used toward the block total
@@ -136,7 +130,7 @@ public class Blockchain {
             // TODO if transaction is not successful, what happens to it? 
             // is it discarded and not added to the block at all? or is it included but marked as failed
             if (!success) {
-                System.err.printf("[Block] TX %s failed (gas consumed: %d)%n", tx.getHash(), executionContext.getGasUsed());
+                System.err.printf("TX %s failed (gas consumed: %d)%n", tx.getHash(), executionContext.getGasUsed());
             }
         }
     }
@@ -155,15 +149,6 @@ public class Blockchain {
 
         if (!block.getBlockHash().equals(block.computeHash())) {
             throw new IllegalArgumentException("Block hash is invalid");
-        }
-
-        // the sum of the transactions' gas limits must not exceed the block gas limit 
-        long totalGasLimit = 0;
-        for (Transaction tx : block.getTransactions()) {
-            totalGasLimit += tx.getGasLimit();
-        }
-        if (totalGasLimit > BLOCK_GAS_LIMIT) {
-            throw new IllegalArgumentException("Sum of transactions' gas limits exceeds block gas limit");
         }
     }
 

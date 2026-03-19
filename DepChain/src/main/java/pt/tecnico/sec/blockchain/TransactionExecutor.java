@@ -21,18 +21,21 @@ public class TransactionExecutor {
         String senderAddress = transaction.getFrom().toLowerCase();
         Account sender = accounts.get(senderAddress);
         if (sender == null) {
-            throw new IllegalStateException("Sender account not found: " + senderAddress);
+            System.err.println("Sender not found: " + senderAddress);
+            return false;
         }
-        
+
         if (transaction.getNonce() != sender.getNonce()) {
-            throw new IllegalArgumentException(
-                "Invalid nonce: expected " + sender.getNonce() + ", got " + transaction.getNonce());
+            System.err.printf("Nonce mismatch for %s: expected %d, got %d%n",
+                    senderAddress, sender.getNonce(), transaction.getNonce());
+            return false;
         }
         
         // ensure sender can pay for gas
         long maxGasCost = transaction.getGasPrice() * transaction.getGasLimit();
         if (sender.getBalance() < maxGasCost) {
-            throw new IllegalStateException("Insufficient balance for gas: has " + sender.getBalance() + ", needs " + maxGasCost);
+            System.err.printf("Insufficient balance for gas: has %d, needs %d%n", sender.getBalance(), maxGasCost);
+            return false;
         }
 
         boolean success = false;
@@ -51,13 +54,13 @@ public class TransactionExecutor {
             }
             
         } catch (Exception e) {
-            System.err.println("[TX] Execution error: " + e.getMessage());
+            System.err.println("Execution error: " + e.getMessage());
             success = false;
         }
 
         if (success) {
-            long actualGasUsed = executionContext.getTransactionFee();
-            long gasRefund = maxGasCost - actualGasUsed;
+            long actualFee = executionContext.getTransactionFee();
+            long gasRefund = maxGasCost - actualFee;
 
             if (gasRefund > 0) {
                 sender.addBalance(gasRefund);
@@ -71,6 +74,9 @@ public class TransactionExecutor {
     }
     
     private boolean executeDepCoinTransfer() {
+        String senderAddress = transaction.getFrom().toLowerCase();
+        Account sender = accounts.get(senderAddress);
+
         String receiverAddress = transaction.getTo().toLowerCase();
         long amount = transaction.getAmount();
         
@@ -79,12 +85,18 @@ public class TransactionExecutor {
         if (receiver == null) {
             throw new IllegalStateException("Receiver account not found: " + receiverAddress);
         }
+
+        if (senderAddress.equals(receiverAddress)) {
+            throw new IllegalArgumentException("Sender and receiver cannot be the same");
+        }
+
+        if (amount < 0) {
+            throw new IllegalArgumentException("Transfer amount cannot be negative");
+        }
         
-        Account sender = accounts.get(transaction.getFrom().toLowerCase());
         if (sender.getBalance() < amount) {
             throw new IllegalStateException(
-                "Insufficient balance for transfer: has " + sender.getBalance() + 
-                ", needs " + amount);
+                "Insufficient balance for transfer: has " + sender.getBalance() + ", needs " + amount);
         }
         
         sender.deductBalance(amount);
@@ -93,14 +105,14 @@ public class TransactionExecutor {
         return true;
     }
     
-    // TODO
+    // TODO run the bytecode, use EVM
     private boolean executeContractDeployment() {
         byte[] bytecode = transaction.getInput();
         
         return true;
     }
     
-    // TODO
+    // TODO call deployed contract
     private boolean executeContractCall() {
         return true;
     }
