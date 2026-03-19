@@ -236,7 +236,23 @@ public class AuthPerfLink {
             if (session == null) {
                 session = sessionManager.createSession(receiverID, receiverInfo.getAddr(), null, false);
             }
-            session.setEphemeralDH(dh);
+
+            // Re-check under session lock to avoid races with concurrent inbound handshake
+            // completion.
+            synchronized (session) {
+                if (session.isConnectionEstablished()) {
+                    logger("Session became established concurrently with: " + receiverID + ", reusing");
+                    return session;
+                }
+
+                // Do not overwrite an existing ephemeral DH (important for simultaneous
+                // connections and retries).
+                if (session.getEphemeralDH() == null) {
+                    session.setEphemeralDH(dh);
+                } else {
+                    logger("Reusing existing ephemeral DH for " + receiverID);
+                }
+            }
 
             // Retry handshake with timeout
             int maxRetries = 3;
@@ -456,6 +472,14 @@ public class AuthPerfLink {
             PublicKey senderPublicKey = senderMember.getPublicSignatureKey();
             if (!Crypto.verifySignature(msg.getSignableContent().getBytes(), msg.getSignature(), senderPublicKey)) {
                 System.err.println("Failed to verify signature for connection reply from: " + addr);
+                return;
+            }
+
+            // Late/duplicate ACK for an already-established session should not overwrite
+            // the
+            // current key/state.
+            if (session.isConnectionEstablished()) {
+                logger("Ignoring duplicate CONNECTION_ACK for already-established session with: " + senderId);
                 return;
             }
 

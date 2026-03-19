@@ -17,11 +17,13 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.AfterEach;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import static org.mockito.Mockito.mock;
@@ -148,6 +150,59 @@ public class AuthPerfLinkTest {
                 "Receiver should get message");
         assertTrue(senderLatch.await(5, TimeUnit.SECONDS),
                 "Sender should get message");
+    }
+
+    // Regression test for intermittent handshake race:
+    // both peers start connection at the same time, then exchange authenticated
+    // data.
+    @RepeatedTest(15)
+    @Timeout(20)
+    public void testSimultaneousStartConnection_DoesNotBreakSessionKeyOrHmac() throws Exception {
+        CountDownLatch senderLatch = new CountDownLatch(1);
+        CountDownLatch receiverLatch = new CountDownLatch(1);
+
+        sender.setConsensusMessageListener(content -> senderLatch.countDown());
+        receiver.setConsensusMessageListener(content -> receiverLatch.countDown());
+
+        ExecutorService racePool = Executors.newFixedThreadPool(2);
+        try {
+            CompletableFuture<Session> senderConnect = CompletableFuture.supplyAsync(
+                    () -> sender.startConnection(RECEIVER_ID),
+                    racePool);
+            CompletableFuture<Session> receiverConnect = CompletableFuture
+                    .supplyAsync(() -> receiver.startConnection(SENDER_ID), racePool);
+
+            Session senderSession = senderConnect.get(8, TimeUnit.SECONDS);
+            Session receiverSession = receiverConnect.get(8, TimeUnit.SECONDS);
+
+            assertNotNull(senderSession, "Sender session must be established");
+            assertNotNull(receiverSession, "Receiver session must be established");
+            assertTrue(senderSession.isConnectionEstablished(), "Sender session should be marked established");
+            assertTrue(receiverSession.isConnectionEstablished(), "Receiver session should be marked established");
+
+            // Verify both sides converged to the same shared key material.
+            Session senderViewOnReceiver = receiver.getSession(SENDER_ID);
+            Session receiverViewOnSender = sender.getSession(RECEIVER_ID);
+            assertNotNull(senderViewOnReceiver, "Receiver must have session for sender");
+            assertNotNull(receiverViewOnSender, "Sender must have session for receiver");
+            assertNotNull(senderViewOnReceiver.getSessionKey(), "Receiver-side session key must be set");
+            assertNotNull(receiverViewOnSender.getSessionKey(), "Sender-side session key must be set");
+            assertArrayEquals(senderViewOnReceiver.getSessionKey().getEncoded(),
+                    receiverViewOnSender.getSessionKey().getEncoded(),
+                    "Both peers must derive the same session key after simultaneous connect");
+
+            // Exchange messages in both directions; HMAC verification must succeed.
+            sender.sendData(RECEIVER_ID, "race-msg-sender".getBytes());
+            receiver.sendData(SENDER_ID, "race-msg-receiver".getBytes());
+
+            assertTrue(receiverLatch.await(5, TimeUnit.SECONDS),
+                    "Receiver should receive sender message after race handshake");
+            assertTrue(senderLatch.await(5, TimeUnit.SECONDS),
+                    "Sender should receive receiver message after race handshake");
+        } finally {
+            racePool.shutdownNow();
+            racePool.awaitTermination(2, TimeUnit.SECONDS);
+        }
     }
 
     // A message sent from a correct sender should be delivered to a correct
