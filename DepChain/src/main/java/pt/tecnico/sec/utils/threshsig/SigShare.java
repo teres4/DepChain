@@ -264,12 +264,6 @@ public class SigShare implements Serializable{
       }
       w = w.mod(n);
 
-      // Optionally verify before returning, throw if invalid
-      final BigInteger eprime = delta.multiply(delta).shiftLeft(2);
-      final BigInteger xeprime = (new BigInteger(data)).mod(n).modPow(eprime, n);
-      final BigInteger we = w.modPow(e, n);
-      if (xeprime.compareTo(we) != 0) throw new ThresholdSigException("Combined signature invalid");
-
       return w;
   }
 
