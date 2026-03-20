@@ -16,15 +16,15 @@
     ],
     "state": {
         "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": {
-            "balance": 100000,
+            "balance": 1000000000000000000,
             "nonce": 0
         },
         "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb": {
-            "balance": 50000,
+            "balance": 5000000000000000000,
             "nonce": 0
         },
         "0xcccccccccccccccccccccccccccccccccccccccc": { 
-            "balance": 20000,
+            "balance": 200000000000000000,
             "nonce": 0
         },
         "0xdddddddddddddddddddddddddddddddddddddddd": { 

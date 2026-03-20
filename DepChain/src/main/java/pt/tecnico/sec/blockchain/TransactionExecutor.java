@@ -18,6 +18,9 @@ import pt.tecnico.sec.account.ContractAccount;
 public class TransactionExecutor {
 
     private static final long BASE_TRANSFER_COST = 21000; // same as ETH
+    private static final long BASE_CONTRACT_DEPLOYMENT_COST = 32000; // same as ETH, not including code size cost
+    private static final long BASE_CONTRACT_CALL_COST = 50000;
+    private static final long GAS_PER_INPUT_BYTE = 16; 
 
     private final Map<String, Account> accounts;
     private final ExecutionContext executionContext;
@@ -114,12 +117,16 @@ public class TransactionExecutor {
     // TODO run the bytecode, use EVM
     private boolean executeContractDeployment() {
         byte[] bytecode = transaction.getInput();
-        
+
+        executionContext.consumeGas(BASE_CONTRACT_DEPLOYMENT_COST);
+        executionContext.consumeGas(GAS_PER_INPUT_BYTE * bytecode.length);
+
         return true;
     }
     
-    // TODO: should there be a base fee also charged here? is it the same as the base fee in DepCoinTransfer?
     private boolean executeContractCall() {
+        executionContext.consumeGas(BASE_CONTRACT_CALL_COST);
+        executionContext.consumeGas(GAS_PER_INPUT_BYTE * transaction.getInput().length);
 
         String contractAddress = transaction.getTo();
         Account account = accounts.get(contractAddress);
