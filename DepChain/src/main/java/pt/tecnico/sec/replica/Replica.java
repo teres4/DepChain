@@ -240,54 +240,114 @@ public class Replica {
     public boolean validateBlock(String blockJson, boolean sendResponse) {
         try {
             Block block = Block.fromJson(blockJson);
+
+            // Structural checks
+            if (block.getPreviousBlockHash() == null || block.getPreviousBlockHash().isBlank()) {
+                System.err.println("Block is missing previousBlockHash");
+                return false;
+            }
+
+            if (block.getBlockHash() == null || block.getBlockHash().isBlank()) {
+                System.err.println("Block is missing blockHash");
+                return false;
+            }
+
+            if (block.getTransactions() == null) {
+                System.err.println("Block is missing transactions list");
+                return false;
+            }
+
+            if (block.getState() == null) {
+                System.err.println("Block is missing state map");
+                return false;
+            }
+            
+            if (block.getBlockNumber() < 0) {
+                System.err.println("Block has invalid (negative) blockNumber");
+                return false;
+            }
+
+            // Hash integrity
             if (!block.getBlockHash().equals(block.computeHash())) {
                 System.err.println("Block hash mismatch for block " + block.getBlockNumber());
                 return false;
             }
-            
+
+            // Chain continuity
             Block lastBlock = blockchain.getBlock(blockchain.getChainHeight() - 1);
             if (!block.getPreviousBlockHash().equals(lastBlock.getBlockHash())) {
                 System.err.println("Previous block hash mismatch for block " + block.getBlockNumber());
                 return false;
             }
-            
             if (block.getBlockNumber() != lastBlock.getBlockNumber() + 1) {
-                System.err.println("Non-sequential block number: expected " + (lastBlock.getBlockNumber() + 1) 
+                System.err.println("Non-sequential block number: expected " + (lastBlock.getBlockNumber() + 1)
                     + " but got " + block.getBlockNumber());
                 return false;
             }
-            
-            Map<String, Long> expectedNonces = new ConcurrentHashMap<>();
-            for (Transaction tx : block.getTransactions()) {
-                // Verify transaction signature
-                if (!verifyTransactionSignature(tx)) {
-                    System.err.println("Invalid signature for transaction " + tx.getHash());
-                    return false;
-                }
-                
-                String sender = tx.getFrom().toLowerCase();
 
-                Account senderAccount = block.getState().get(sender);
-                if (senderAccount == null) {
-                    System.err.println("Unknown sender in transaction: " + sender);
+            // Transaction checks
+            Map<String, Long> expectedNonces = new ConcurrentHashMap<>();
+            long previousFee = Long.MAX_VALUE;
+            for (Transaction tx : block.getTransactions()) {
+                if (!validateTransaction(tx, block.getState(), expectedNonces, previousFee)) {
                     return false;
                 }
-                
-                long expectedNonce = expectedNonces.getOrDefault(sender, senderAccount.getNonce());
-                if (tx.getNonce() != expectedNonce) {
-                    System.err.println("Nonce mismatch for sender " + sender 
-                        + ": expected " + expectedNonce + " but got " + tx.getNonce());
-                    return false;
-                }
-                expectedNonces.put(sender, expectedNonce + 1);
+                previousFee = tx.getGasPrice() * tx.getGasLimit();
+                expectedNonces.put(tx.getFrom().toLowerCase(),
+                    expectedNonces.getOrDefault(tx.getFrom().toLowerCase(),
+                        block.getState().get(tx.getFrom().toLowerCase()).getNonce()) + 1);
             }
 
             return true;
-            
+
         } catch (Exception e) {
             System.err.println("Block validation failed: " + e.getMessage());
             return false;
         }
+    }
+
+    private boolean validateTransaction(Transaction tx, Map<String, Account> state,
+            Map<String, Long> expectedNonces, long previousFee) {
+        if (tx == null) {
+            System.err.println("Block contains a null transaction");
+            return false;
+        }
+        if (tx.getHash() == null || tx.getHash().isBlank()) {
+            System.err.println("Transaction is missing its hash");
+            return false;
+        }
+        if (tx.getFrom() == null || tx.getFrom().isBlank()) {
+            System.err.println("Transaction " + tx.getHash() + " is missing sender (from)");
+            return false;
+        }
+
+        long fee = tx.getGasPrice() * tx.getGasLimit();
+        if (fee > previousFee) {
+            System.err.println("Transaction ordering violation: tx " + tx.getHash()
+                + " has fee " + fee + " but previous tx had fee " + previousFee);
+            return false;
+        }
+
+        if (!verifyTransactionSignature(tx)) {
+            System.err.println("Invalid signature for transaction " + tx.getHash());
+            return false;
+        }
+
+        String sender = tx.getFrom().toLowerCase();
+        Account senderAccount = state.get(sender);
+        if (senderAccount == null) {
+            System.err.println("Unknown sender in transaction: " + sender);
+            return false;
+        }
+
+        long expectedNonce = expectedNonces.getOrDefault(sender, senderAccount.getNonce());
+        if (tx.getNonce() != expectedNonce) {
+            System.err.println("Nonce mismatch for sender " + sender
+                + ": expected " + expectedNonce + " but got " + tx.getNonce());
+            return false;
+        }
+
+        return true;
     }
 
     private boolean isPending(String sender, long nonce) {
