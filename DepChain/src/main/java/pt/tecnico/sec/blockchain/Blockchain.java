@@ -34,7 +34,8 @@ public class Blockchain {
         if (storageDir.exists()) {
             File[] files = storageDir.listFiles();
             if (files != null) {
-                for (File file : files) file.delete();
+                for (File file : files)
+                    file.delete();
             }
         }
         storageDir.mkdirs();
@@ -73,7 +74,7 @@ public class Blockchain {
                 JsonNode accNode = stateNode.get(address);
                 long balance = getLong(accNode, "balance");
                 long nonce = getLong(accNode, "nonce");
-                
+
                 if (accNode.has("code")) { // Contract account
                     // Contract account
                     String codeHex = getText(accNode, "code");
@@ -127,8 +128,9 @@ public class Blockchain {
             // accumulate actual gas used toward the block total
             blockGasUsed += executionContext.getGasUsed();
 
-            // TODO if transaction is not successful, what happens to it? 
-            // is it discarded and not added to the block at all? or is it included but marked as failed
+            // TODO if transaction is not successful, what happens to it?
+            // is it discarded and not added to the block at all? or is it included but
+            // marked as failed -> esta opcao
             if (!success) {
                 System.err.printf("TX %s failed (gas consumed: %d)%n", tx.getHash(), executionContext.getGasUsed());
             }
@@ -144,7 +146,7 @@ public class Blockchain {
 
         if (block.getBlockNumber() != lastBlock.getBlockNumber() + 1) {
             throw new IllegalArgumentException("Block number not sequential: expected "
-                            + (lastBlock.getBlockNumber() + 1) + ", got " + block.getBlockNumber());
+                    + (lastBlock.getBlockNumber() + 1) + ", got " + block.getBlockNumber());
         }
 
         if (!block.getBlockHash().equals(block.computeHash())) {
@@ -190,7 +192,8 @@ public class Blockchain {
     }
 
     private byte[] decodeHex(String hex) {
-        if (hex == null) return new byte[0];
+        if (hex == null)
+            return new byte[0];
 
         try {
             if (hex.startsWith("0x")) {
@@ -200,6 +203,6 @@ public class Blockchain {
         } catch (Exception e) {
             return new byte[0];
         }
-}
+    }
 
 }
