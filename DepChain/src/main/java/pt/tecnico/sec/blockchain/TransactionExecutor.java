@@ -6,6 +6,8 @@ import pt.tecnico.sec.account.Account;
 
 public class TransactionExecutor {
 
+    private static final long BASE_TRANSFER_COST = 21000; // same as ETH
+
     private final Map<String, Account> accounts;
     private final ExecutionContext executionContext;
     private final Transaction transaction;
@@ -99,6 +101,7 @@ public class TransactionExecutor {
                 "Insufficient balance for transfer: has " + sender.getBalance() + ", needs " + amount);
         }
         
+        executionContext.consumeGas(BASE_TRANSFER_COST);
         sender.deductBalance(amount);
         receiver.addBalance(amount);
         
