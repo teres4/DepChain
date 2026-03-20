@@ -60,6 +60,7 @@ public class Command {
             // TODO when add more command types, we need to add cases here to deserialize
             // them properly
             case APPEND -> gson.fromJson(json, Command.class);
+            case TRANSFERDEPCOIN -> gson.fromJson(json, Command.class);
             default -> throw new IllegalArgumentException("Unknown type: " + type);
         };
     }
