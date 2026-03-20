@@ -26,7 +26,8 @@ public class Replica {
     // Mempool: sender address -> (nonce -> transaction)
     private final ConcurrentHashMap<String, ConcurrentHashMap<Long, Transaction>> mempool = new ConcurrentHashMap<>();
 
-    // Pending transactions: tracks (sender:nonce) pairs for txs selected but not yet decided
+    // Pending transactions: tracks (sender:nonce) pairs for txs selected but not
+    // yet decided
     private final java.util.Set<String> pendingTransactions = ConcurrentHashMap.newKeySet();
 
     private final ExecutorService executorService = Executors.newFixedThreadPool(100);
@@ -47,7 +48,7 @@ public class Replica {
 
     public void handleClientTransaction(Command request) {
         Transaction tx = request.getTransaction();
-        String sender  = tx.getFrom().toLowerCase();
+        String sender = tx.getFrom().toLowerCase();
 
         if (!verifyTransactionSignature(tx)) {
             System.err.println("Rejected tx with invalid signature from " + sender);
@@ -64,7 +65,8 @@ public class Replica {
 
         if (account.getBalance() < tx.getGasLimit() * tx.getGasPrice()) {
             System.err.println("Rejected tx from " + sender + " due to insufficient balance.");
-            sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Insufficient balance to cover max transaction cost");
+            sendResponseToClient(request.getSenderId(), tx.getNonce(), false,
+                    "Insufficient balance to cover max transaction cost");
             return;
         }
 
@@ -80,10 +82,11 @@ public class Replica {
     private void addToMempool(Transaction tx) {
         String sender = tx.getFrom();
 
-        ConcurrentHashMap<Long, Transaction> senderTxs = mempool.computeIfAbsent(sender, k -> new ConcurrentHashMap<>());
+        ConcurrentHashMap<Long, Transaction> senderTxs = mempool.computeIfAbsent(sender,
+                k -> new ConcurrentHashMap<>());
 
         Transaction existing = senderTxs.get(tx.getNonce());
-        // fee bumping 
+        // fee bumping
         if (existing != null) {
             // Replacement: require at least 10% higher gasPrice to prevent spam
             long minBump = existing.getGasPrice() * 110 / 100;
@@ -101,11 +104,12 @@ public class Replica {
         Map<String, Account> currentAccounts = blockchain.getAccounts();
         List<Transaction> selected = selectTransactionsForBlock(currentAccounts);
 
-        if (selected.isEmpty()) return null;
+        if (selected.isEmpty())
+            return null;
 
         Block lastBlock = blockchain.getBlock(blockchain.getChainHeight() - 1);
-        Block proposed  = new Block(lastBlock.getBlockHash(), lastBlock.getBlockNumber() + 1,
-                            selected, currentAccounts);
+        Block proposed = new Block(lastBlock.getBlockHash(), lastBlock.getBlockNumber() + 1,
+                selected, currentAccounts);
 
         return proposed;
     }
@@ -116,7 +120,8 @@ public class Replica {
         for (Map.Entry<String, ConcurrentHashMap<Long, Transaction>> entry : mempool.entrySet()) {
             String sender = entry.getKey();
             Account account = accounts.get(sender);
-            if (account == null) continue;
+            if (account == null)
+                continue;
 
             // only the next expected nonce is executable right now
             Transaction tx = entry.getValue().get(account.getNonce());
@@ -131,7 +136,7 @@ public class Replica {
         long gasAccumulated = 0;
 
         for (Transaction tx : executable) {
-            if (gasAccumulated + tx.getGasLimit() > Blockchain.BLOCK_GAS_LIMIT) 
+            if (gasAccumulated + tx.getGasLimit() > Blockchain.BLOCK_GAS_LIMIT)
                 break;
             selected.add(tx);
             gasAccumulated += tx.getGasLimit();
@@ -163,7 +168,8 @@ public class Replica {
         for (Transaction tx : block.getTransactions()) {
             String sender = tx.getFrom().toLowerCase();
             ConcurrentHashMap<Long, Transaction> senderTxs = mempool.get(sender);
-            if (senderTxs == null) continue;
+            if (senderTxs == null)
+                continue;
 
             // Remove the confirmed nonce
             senderTxs.remove(tx.getNonce());
@@ -176,14 +182,15 @@ public class Replica {
                 senderTxs.entrySet().removeIf(e -> e.getKey() < account.getNonce());
             }
 
-            if (senderTxs.isEmpty()) mempool.remove(sender);
+            if (senderTxs.isEmpty())
+                mempool.remove(sender);
         }
     }
 
-    // TODO finish implementing client notification logic 
+    // TODO finish implementing client notification logic
     private void notifyClients(Block block) {
         for (Transaction tx : block.getTransactions()) {
-            // TODO how do we know the clientId to send the response to? 
+            // TODO how do we know the clientId to send the response to?
             // sendResponseToClient(senderId, tx.getNonce(), tx.getSuccess(), result);
         }
     }
@@ -226,7 +233,7 @@ public class Replica {
         }
     }
 
-    // TODO finish implementing signature verification 
+    // TODO finish implementing signature verification
     // idk how to get the public key of the sender from the transaction
     private boolean verifyTransactionSignature(Transaction tx) {
         try {
@@ -261,7 +268,7 @@ public class Replica {
                 System.err.println("Block is missing state map");
                 return false;
             }
-            
+
             if (block.getBlockNumber() < 0) {
                 System.err.println("Block has invalid (negative) blockNumber");
                 return false;
@@ -281,7 +288,7 @@ public class Replica {
             }
             if (block.getBlockNumber() != lastBlock.getBlockNumber() + 1) {
                 System.err.println("Non-sequential block number: expected " + (lastBlock.getBlockNumber() + 1)
-                    + " but got " + block.getBlockNumber());
+                        + " but got " + block.getBlockNumber());
                 return false;
             }
 
@@ -294,8 +301,8 @@ public class Replica {
                 }
                 previousFee = tx.getGasPrice() * tx.getGasLimit();
                 expectedNonces.put(tx.getFrom().toLowerCase(),
-                    expectedNonces.getOrDefault(tx.getFrom().toLowerCase(),
-                        block.getState().get(tx.getFrom().toLowerCase()).getNonce()) + 1);
+                        expectedNonces.getOrDefault(tx.getFrom().toLowerCase(),
+                                block.getState().get(tx.getFrom().toLowerCase()).getNonce()) + 1);
             }
 
             return true;
@@ -321,10 +328,15 @@ public class Replica {
             return false;
         }
 
+        if (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0) {
+            System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
+            return false;
+        }
+
         long fee = tx.getGasPrice() * tx.getGasLimit();
         if (fee > previousFee) {
             System.err.println("Transaction ordering violation: tx " + tx.getHash()
-                + " has fee " + fee + " but previous tx had fee " + previousFee);
+                    + " has fee " + fee + " but previous tx had fee " + previousFee);
             return false;
         }
 
@@ -343,7 +355,7 @@ public class Replica {
         long expectedNonce = expectedNonces.getOrDefault(sender, senderAccount.getNonce());
         if (tx.getNonce() != expectedNonce) {
             System.err.println("Nonce mismatch for sender " + sender
-                + ": expected " + expectedNonce + " but got " + tx.getNonce());
+                    + ": expected " + expectedNonce + " but got " + tx.getNonce());
             return false;
         }
 
