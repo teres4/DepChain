@@ -50,12 +50,10 @@ public class TransactionExecutor {
             System.err.printf("Insufficient balance for gas: has %d, needs %d%n", sender.getBalance(), maxGasCost);
             return false;
         }
+        sender.deductBalance(maxGasCost);
 
         boolean success = false;
         try {
-            // deduct max gas cost 
-            sender.deductBalance(maxGasCost);
-
             if (transaction.isDepCoinTransfer()) {
                 success = executeDepCoinTransfer();
             } else if (transaction.isContractDeployment()) {
@@ -87,32 +85,26 @@ public class TransactionExecutor {
     }
     
     private boolean executeDepCoinTransfer() {
-        String senderAddress = transaction.getFrom().toLowerCase();
-        Account sender = accounts.get(senderAddress);
+        executionContext.consumeGas(BASE_TRANSFER_COST);
 
+        String senderAddress = transaction.getFrom().toLowerCase();
         String receiverAddress = transaction.getTo().toLowerCase();
         long amount = transaction.getAmount();
-        
-        // Validate receiver exists (or create account)
-        Account receiver = accounts.get(receiverAddress);
-        if (receiver == null) {
-            throw new IllegalStateException("Receiver account not found: " + receiverAddress);
-        }
 
-        if (senderAddress.equals(receiverAddress)) {
+        if (senderAddress.equals(receiverAddress))
             throw new IllegalArgumentException("Sender and receiver cannot be the same");
-        }
 
-        if (amount < 0) {
-            throw new IllegalArgumentException("Transfer amount cannot be negative");
-        }
-        
-        if (sender.getBalance() < amount) {
+        if (amount <= 0)
+            throw new IllegalArgumentException("Transfer amount must be positive");
+
+        Account sender = accounts.get(senderAddress);
+        Account receiver = accounts.get(receiverAddress);
+
+        if (receiver == null)
+            throw new IllegalStateException("Receiver account not found: " + receiverAddress);
+        if (sender.getBalance() < amount)
             throw new IllegalStateException(
                 "Insufficient balance for transfer: has " + sender.getBalance() + ", needs " + amount);
-        }
-        
-        executionContext.consumeGas(BASE_TRANSFER_COST);
         sender.deductBalance(amount);
         receiver.addBalance(amount);
         
