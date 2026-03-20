@@ -24,6 +24,11 @@ import java.security.KeyFactory;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
 import pt.tecnico.sec.utils.threshsig.GroupKey;
 import pt.tecnico.sec.utils.threshsig.KeyShare;
 import pt.tecnico.sec.utils.threshsig.SigShare;
@@ -34,13 +39,13 @@ public interface Crypto {
     enum KeyType {
         REPLICA("config/keys/replicas"),
         CLIENT("config/keys/clients");
-        
+
         private final String directory;
-        
+
         KeyType(String directory) {
             this.directory = directory;
         }
-        
+
         public String getDirectory() {
             return directory;
         }
@@ -79,11 +84,11 @@ public interface Crypto {
     public static PrivateKey getReplicaPrivateKey(long replicaId) throws Exception {
         return loadPrivateKey(replicaId, KeyType.REPLICA);
     }
-    
+
     public static PublicKey getClientPublicKey(long clientId) throws Exception {
         return loadPublicKey(clientId, KeyType.CLIENT);
     }
-    
+
     public static PrivateKey getClientPrivateKey(long clientId) throws Exception {
         return loadPrivateKey(clientId, KeyType.CLIENT);
     }
@@ -179,26 +184,58 @@ public interface Crypto {
     }
 
     public static BigInteger combineShares(SigShare[] sigShares, int k, int l,
-                                       GroupKey groupKey, byte[] message)
-        throws ThresholdSigException {
+            GroupKey groupKey, byte[] message)
+            throws ThresholdSigException {
         return SigShare.combine(
-            message,
-            sigShares,
-            k,
-            l,
-            groupKey.getModulus(),
-            groupKey.getExponent()
-        );
+                message,
+                sigShares,
+                k,
+                l,
+                groupKey.getModulus(),
+                groupKey.getExponent());
     }
 
     public static boolean verifyThresholdSignature(byte[] message, BigInteger w,
-                                                int l, GroupKey groupKey) {
+            int l, GroupKey groupKey) {
         return SigShare.verifyW(
-            message,
-            w,
-            l,
-            groupKey.getModulus(),
-            groupKey.getExponent()
-        );
+                message,
+                w,
+                l,
+                groupKey.getModulus(),
+                groupKey.getExponent());
+    }
+
+    public static Long getIdFromAddress(String address) {
+        try {
+            String configFile = KeyType.CLIENT.getDirectory() + "/config.json";
+            String configContent = new String(Files.readAllBytes(Paths.get(configFile)));
+
+            JsonObject root = JsonParser.parseString(configContent).getAsJsonObject();
+            JsonArray members = root.getAsJsonArray("members");
+            if (members == null) {
+                return null;
+            }
+
+            for (JsonElement memberElement : members) {
+                JsonObject member = memberElement.getAsJsonObject();
+                String memberAddress = member.get("address").getAsString();
+                if (memberAddress.equalsIgnoreCase(address)) {
+                    return Long.parseLong(member.get("id").getAsString());
+                }
+            }
+
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public static boolean verifySignatureEOA(byte[] data, String base64Signature, String address) throws Exception {
+        Long senderId = getIdFromAddress(address);
+        if (senderId == null) {
+            return false;
+        }
+        PublicKey pubKey = getClientPublicKey(senderId);
+        return verifySignature(data, base64Signature, pubKey);
     }
 }

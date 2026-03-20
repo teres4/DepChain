@@ -1,0 +1,17 @@
+{
+    "members": [
+        {
+            "id": "100",
+            "address": "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        },
+        {
+            "id": "101",
+            "address": "0xcccccccccccccccccccccccccccccccccccccccc"
+        },
+        {
+            "id": "102",
+            "address": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+        }
+
+    ]
+}

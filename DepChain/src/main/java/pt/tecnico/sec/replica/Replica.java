@@ -9,6 +9,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import com.google.gson.Gson;
+
 import pt.tecnico.sec.account.Account;
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.blockchain.Block;
@@ -237,7 +239,12 @@ public class Replica {
     // idk how to get the public key of the sender from the transaction
     private boolean verifyTransactionSignature(Transaction tx) {
         try {
-            return true;
+            Gson gson = new Gson();
+            String txJson = gson.toJson(tx);
+            String signature = txJson.replaceAll(".*\"signature\":\"([^\"]+)\".*", "$1");
+            String contentToVerify = txJson.replaceAll("\"signature\":\"[^\"]+\"", "\"signature\":\"\"");
+
+            return Crypto.verifySignatureEOA(signature.getBytes(), contentToVerify, tx.getFrom());
         } catch (Exception e) {
             System.err.println("Signature verification failed: " + e.getMessage());
             return false;
