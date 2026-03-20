@@ -22,8 +22,19 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import pt.tecnico.sec.blockchain.Block;
+import pt.tecnico.sec.consensus.message.CommitMessage;
+import pt.tecnico.sec.consensus.message.CommitVoteMessage;
+import pt.tecnico.sec.consensus.message.DecideMessage;
+import pt.tecnico.sec.consensus.message.HotStuffMessage;
+import pt.tecnico.sec.consensus.message.HotStuffMessageType;
+import pt.tecnico.sec.consensus.message.NewCommandMessage;
+import pt.tecnico.sec.consensus.message.NewViewMessage;
+import pt.tecnico.sec.consensus.message.PreCommitMessage;
+import pt.tecnico.sec.consensus.message.PreCommitVoteMessage;
+import pt.tecnico.sec.consensus.message.PrepareMessage;
+import pt.tecnico.sec.consensus.message.PrepareVoteMessage;
 import pt.tecnico.sec.router.MessageRouter;
-import pt.tecnico.sec.consensus.message.*;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.threshsig.GroupKey;
 import pt.tecnico.sec.utils.threshsig.KeyShare;
@@ -464,9 +475,9 @@ public class Consensus {
      */
     private String getCommandWithTimeout() {
         // First, try to get a command immediately
-        String command = router.getCommandtoPropose();
-        if (command != null) {
-            return command;
+        Block block = router.getBlocktoPropose();
+        if (block != null) {
+            return block.toString() + " (got command immediately)";
         }
 
         // If no immediate command, wait with timeout
@@ -478,10 +489,10 @@ public class Consensus {
         while (System.currentTimeMillis() - startTime < timeoutMs) {
             try {
                 Thread.sleep(50); // Check every 50ms
-                command = router.getCommandtoPropose();
-                if (command != null) {
-                    System.out.println("Command became available during wait period");
-                    return command;
+                block = router.getBlocktoPropose();
+                if (block != null) {
+                    System.out.println("Block became available during wait period");
+                    return block.toString() + " (got block during wait)";
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -763,6 +774,7 @@ public class Consensus {
         }
         
         // Check command validity
+        // TODO check block validity 
         if (!validCommand(prepareMessage.getNode().getCommand())) {
             logHotStuff("Invalid command detected in PREPARE, starting new view");
             try {
@@ -990,7 +1002,7 @@ public class Consensus {
         this.curProposal = null;
         resetFlagsForNewView();
 
-        router.commandDecided(decidedNode.getCommand());
+        router.blockDecided(decidedNode.getCommand());
 
         // Drain buffered messages for the new view BEFORE sending NEW_VIEW
         drainFutureMessages(nextView);

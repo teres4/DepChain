@@ -1,12 +1,19 @@
 package pt.tecnico.sec.replica;
 
 import java.security.PublicKey;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import pt.tecnico.sec.account.Account;
 import pt.tecnico.sec.apl.AuthPerfLink;
+import pt.tecnico.sec.blockchain.Block;
+import pt.tecnico.sec.blockchain.Blockchain;
+import pt.tecnico.sec.blockchain.Transaction;
 import pt.tecnico.sec.client.message.Command;
 import pt.tecnico.sec.client.message.CommandResponse;
 import pt.tecnico.sec.utils.Crypto;
@@ -14,69 +21,170 @@ import pt.tecnico.sec.utils.Crypto;
 public class Replica {
     private final long replicaId;
     private final AuthPerfLink authPerfLink;
-    private final ReplicaState state;
+    private final Blockchain blockchain;
 
-    private final ConcurrentLinkedQueue<String> pendingCommands = new ConcurrentLinkedQueue<>();
-    private final ConcurrentHashMap<Long, Long> clientNonces = new ConcurrentHashMap<>();
+    // Mempool: sender address -> (nonce -> transaction)
+    private final ConcurrentHashMap<String, ConcurrentHashMap<Long, Transaction>> mempool = new ConcurrentHashMap<>();
+
+    // Pending transactions: tracks (sender:nonce) pairs for txs selected but not yet decided
+    private final java.util.Set<String> pendingTransactions = ConcurrentHashMap.newKeySet();
+
     private final ExecutorService executorService = Executors.newFixedThreadPool(100);
 
-    public Replica(long replicaId, AuthPerfLink authPerfLink, ReplicaState state) {
+    public Replica(long replicaId, AuthPerfLink authPerfLink, Blockchain blockchain) {
         this.replicaId = replicaId;
         this.authPerfLink = authPerfLink;
-        this.state = state;
+        this.blockchain = blockchain;
     }
 
-    public void handleClientCommand(Command command) {
-        Long clientID = command.getSenderId();
-        Long nonce = command.getNonce();
-        // Check for replay attack
-        if (clientNonces.containsKey(clientID) && nonce <= clientNonces.get(clientID)) {
-            System.out.println("Rejected replayed command from client " + clientID + " with nonce " + nonce);
+    public long getReplicaId() {
+        return replicaId;
+    }
+
+    public Blockchain getBlockchain() {
+        return blockchain;
+    }
+
+    public void handleClientTransaction(Command request) {
+        Transaction tx = request.getTransaction();
+        String sender  = tx.getFrom().toLowerCase();
+
+        if (!verifyTransactionSignature(tx)) {
+            System.err.println("Rejected tx with invalid signature from " + sender);
+            sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Invalid signature");
             return;
         }
 
-        // check signature
-        if (!checkCommandSignature(command)) {
-            System.out.println("Rejected command with invalid signature from client " + clientID);
-            return;
-        }
-        clientNonces.put(clientID, nonce); // Update latest nonce for this client
-        pendingCommands.add(command.toJson());
-    }
-
-    public String getCommandToPropose() {
-        return pendingCommands.peek();
-    }
-
-    public void commandDecided(String commandJson) {
-        pendingCommands.remove(commandJson);
-
-        // Handle NO-OP commands (used when no real command is available)
-        if ("NO-OP".equals(commandJson)) {
-            System.out.println("NO-OP command decided, skipping execution");
+        Account account = blockchain.getAccount(sender);
+        if (account == null) {
+            System.err.println("Rejected tx from unknown sender: " + sender);
+            sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Unknown sender");
             return;
         }
 
-        try {
-            if (!validateCommand(commandJson, true)) 
-                return; // Invalid command, response already sent in validateCommand
-        
-            boolean success = state.executeCommand(commandJson);
+        if (account.getBalance() < tx.getGasLimit() * tx.getGasPrice()) {
+            System.err.println("Rejected tx from " + sender + " due to insufficient balance.");
+            sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Insufficient balance to cover max transaction cost");
+            return;
+        }
 
-            Command command = Command.fromJson(commandJson);
-            Long clientID = command.getSenderId();
-            Long nonce = command.getNonce();
+        if (tx.getNonce() < account.getNonce()) {
+            System.err.println("Rejected tx with stale nonce from " + sender);
+            sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Stale nonce");
+            return;
+        }
 
-            // Process result
-            if (success) {
-                System.out.println("Command executed successfully. Current state: " + state.getState());
-                sendResponseToClient(clientID, nonce, true, state.getState());
-            } else {
-                sendResponseToClient(clientID, nonce, false, state.getState());
+        addToMempool(tx);
+    }
+
+    private void addToMempool(Transaction tx) {
+        String sender = tx.getFrom();
+
+        ConcurrentHashMap<Long, Transaction> senderTxs = mempool.computeIfAbsent(sender, k -> new ConcurrentHashMap<>());
+
+        Transaction existing = senderTxs.get(tx.getNonce());
+        // fee bumping 
+        if (existing != null) {
+            // Replacement: require at least 10% higher gasPrice to prevent spam
+            long minBump = existing.getGasPrice() * 110 / 100;
+            if (tx.getGasPrice() < minBump) {
+                System.err.printf("Rejected replacement tx: gasPrice %d < required %d%n", tx.getGasPrice(), minBump);
+                return;
             }
+            System.out.printf("Replacing tx nonce=%d for %s (old gasPrice=%d new gasPrice=%d)%n",
+                    tx.getNonce(), sender, existing.getGasPrice(), tx.getGasPrice());
+        }
+        senderTxs.put(tx.getNonce(), tx);
+    }
+
+    public Block buildBlock() {
+        Map<String, Account> currentAccounts = blockchain.getAccounts();
+        List<Transaction> selected = selectTransactionsForBlock(currentAccounts);
+
+        if (selected.isEmpty()) return null;
+
+        Block lastBlock = blockchain.getBlock(blockchain.getChainHeight() - 1);
+        Block proposed  = new Block(lastBlock.getBlockHash(), lastBlock.getBlockNumber() + 1,
+                            selected, currentAccounts);
+
+        return proposed;
+    }
+
+    private List<Transaction> selectTransactionsForBlock(Map<String, Account> accounts) {
+        List<Transaction> executable = new ArrayList<>();
+
+        for (Map.Entry<String, ConcurrentHashMap<Long, Transaction>> entry : mempool.entrySet()) {
+            String sender = entry.getKey();
+            Account account = accounts.get(sender);
+            if (account == null) continue;
+
+            // only the next expected nonce is executable right now
+            Transaction tx = entry.getValue().get(account.getNonce());
+            if (tx != null && !isPending(sender, tx.getNonce())) {
+                executable.add(tx);
+            }
+        }
+
+        executable.sort(Comparator.comparingLong((Transaction tx) -> tx.getGasPrice() * tx.getGasLimit()).reversed());
+
+        List<Transaction> selected = new ArrayList<>();
+        long gasAccumulated = 0;
+
+        for (Transaction tx : executable) {
+            if (gasAccumulated + tx.getGasLimit() > Blockchain.BLOCK_GAS_LIMIT) 
+                break;
+            selected.add(tx);
+            gasAccumulated += tx.getGasLimit();
+            // Mark transaction as pending (part of a block proposal)
+            markPending(tx.getFrom(), tx.getNonce());
+        }
+        return selected;
+    }
+
+    public void onBlockDecided(String command) {
+        try {
+            Block decidedBlock = Block.fromJson(command);
+
+            blockchain.addBlock(decidedBlock);
+            removeExecutedFromMempool(decidedBlock);
+
+            notifyClients(decidedBlock);
+
         } catch (Exception e) {
-            System.err.println("Failed to process decided command: " + e.getMessage());
+            System.err.println("Failed to add decided block to state: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    // remove transactions that were included in the decided block from the mempool
+    private void removeExecutedFromMempool(Block block) {
+        Map<String, Account> updatedAccounts = blockchain.getAccounts();
+
+        for (Transaction tx : block.getTransactions()) {
+            String sender = tx.getFrom().toLowerCase();
+            ConcurrentHashMap<Long, Transaction> senderTxs = mempool.get(sender);
+            if (senderTxs == null) continue;
+
+            // Remove the confirmed nonce
+            senderTxs.remove(tx.getNonce());
+            // Remove from pending since it's now decided
+            removeFromPending(sender, tx.getNonce());
+
+            // clean up any other pending transactions that are now invalid due to nonce gap
+            Account account = updatedAccounts.get(sender);
+            if (account != null) {
+                senderTxs.entrySet().removeIf(e -> e.getKey() < account.getNonce());
+            }
+
+            if (senderTxs.isEmpty()) mempool.remove(sender);
+        }
+    }
+
+    // TODO finish implementing client notification logic 
+    private void notifyClients(Block block) {
+        for (Transaction tx : block.getTransactions()) {
+            // TODO how do we know the clientId to send the response to? 
+            // sendResponseToClient(senderId, tx.getNonce(), tx.getSuccess(), result);
         }
     }
 
@@ -118,45 +226,86 @@ public class Replica {
         }
     }
 
-    public boolean validateCommand(String commandJson, boolean sendResponse) {
-        Command command = Command.fromJson(commandJson);
-        Long clientID = command.getSenderId();
-        Long nonce = command.getNonce();
-
-        // Validate format
-        if (!checkCommandFormat(commandJson)) {
-            System.out.println("Command has invalid format");
-            if (sendResponse) {
-                sendResponseToClient(clientID, nonce, false, "Invalid command format");
-            }
+    // TODO finish implementing signature verification 
+    // idk how to get the public key of the sender from the transaction
+    private boolean verifyTransactionSignature(Transaction tx) {
+        try {
+            return true;
+        } catch (Exception e) {
+            System.err.println("Signature verification failed: " + e.getMessage());
             return false;
         }
-
-        // Validate signature (defense in depth)
-        if (!checkCommandSignature(command)) {
-            System.out.println("Command has invalid signature");
-            if (sendResponse) {
-                sendResponseToClient(clientID, nonce, false, "Invalid signature");
-            }
-            return false;
-        }
-
-        // Check for replay attacks
-        if (clientNonces.containsKey(clientID) && nonce < clientNonces.get(clientID)) {
-            System.out.println("Rejected replayed command from client " + clientID + " with nonce " + nonce);
-            if (sendResponse) {
-                sendResponseToClient(clientID, nonce, false, "Replay attack detected");
-            }
-            return false;
-        }
-        return true;
     }
 
-    public long getReplicaId() {
-        return replicaId;
+    public boolean validateBlock(String blockJson, boolean sendResponse) {
+        try {
+            Block block = Block.fromJson(blockJson);
+            if (!block.getBlockHash().equals(block.computeHash())) {
+                System.err.println("Block hash mismatch for block " + block.getBlockNumber());
+                return false;
+            }
+            
+            Block lastBlock = blockchain.getBlock(blockchain.getChainHeight() - 1);
+            if (!block.getPreviousBlockHash().equals(lastBlock.getBlockHash())) {
+                System.err.println("Previous block hash mismatch for block " + block.getBlockNumber());
+                return false;
+            }
+            
+            if (block.getBlockNumber() != lastBlock.getBlockNumber() + 1) {
+                System.err.println("Non-sequential block number: expected " + (lastBlock.getBlockNumber() + 1) 
+                    + " but got " + block.getBlockNumber());
+                return false;
+            }
+            
+            Map<String, Long> expectedNonces = new ConcurrentHashMap<>();
+            for (Transaction tx : block.getTransactions()) {
+                // Verify transaction signature
+                if (!verifyTransactionSignature(tx)) {
+                    System.err.println("Invalid signature for transaction " + tx.getHash());
+                    return false;
+                }
+                
+                String sender = tx.getFrom().toLowerCase();
+
+                Account senderAccount = block.getState().get(sender);
+                if (senderAccount == null) {
+                    System.err.println("Unknown sender in transaction: " + sender);
+                    return false;
+                }
+                
+                long expectedNonce = expectedNonces.getOrDefault(sender, senderAccount.getNonce());
+                if (tx.getNonce() != expectedNonce) {
+                    System.err.println("Nonce mismatch for sender " + sender 
+                        + ": expected " + expectedNonce + " but got " + tx.getNonce());
+                    return false;
+                }
+                expectedNonces.put(sender, expectedNonce + 1);
+            }
+
+            return true;
+            
+        } catch (Exception e) {
+            System.err.println("Block validation failed: " + e.getMessage());
+            return false;
+        }
     }
 
-    public ReplicaState getState() {
-        return state;
+    private boolean isPending(String sender, long nonce) {
+        return pendingTransactions.contains(sender.toLowerCase() + ":" + nonce);
+    }
+
+    private void markPending(String sender, long nonce) {
+        pendingTransactions.add(sender.toLowerCase() + ":" + nonce);
+    }
+
+    private void removeFromPending(String sender, long nonce) {
+        pendingTransactions.remove(sender.toLowerCase() + ":" + nonce);
+    }
+
+    // Call this if a block proposal is rejected/fails to get decided
+    public void onBlockRejected(Block block) {
+        for (Transaction tx : block.getTransactions()) {
+            removeFromPending(tx.getFrom(), tx.getNonce());
+        }
     }
 }

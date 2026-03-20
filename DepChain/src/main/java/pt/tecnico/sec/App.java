@@ -3,11 +3,11 @@ package pt.tecnico.sec;
 import java.util.Scanner;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
+import pt.tecnico.sec.blockchain.Blockchain;
 import pt.tecnico.sec.consensus.ByzantineConsensus;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.message.NewCommandMessage;
 import pt.tecnico.sec.replica.Replica;
-import pt.tecnico.sec.replica.ReplicaState;
 import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.utils.Crypto;
 import pt.tecnico.sec.utils.MemberInfo;
@@ -107,8 +107,8 @@ public class App {
             consensus = new Consensus(ownId, totalReplicas, null);
         }
 
-        ReplicaState replicaState = new ReplicaState();
-        Replica replica = new Replica(ownId, apl, replicaState);
+        Blockchain blockchain = new Blockchain(ownId);
+        Replica replica = new Replica(ownId, apl, blockchain);
 
         MessageRouter router = new MessageRouter(apl, consensus, replica);
         consensus.setRouter(router);
@@ -192,7 +192,7 @@ public class App {
                     break;
 
                 case "6":
-                    System.out.println("Current replica state: \"" + replica.getState().getState() + "\"");
+                    System.out.println("Current replica state: \"" + replica.getBlockchain().toString() + "\"");
                     break;
 
                 case "7":

@@ -28,7 +28,7 @@ public class Blockchain {
     private final File storageDir;
     private static final String GENESIS_PATH = "config/block/genesis.json";
 
-    public Blockchain(int memberId) {
+    public Blockchain(long memberId) {
         String blockStorageDir = "blocks/member_" + memberId;
         storageDir = new File(blockStorageDir);
         if (storageDir.exists()) {
@@ -118,15 +118,11 @@ public class Blockchain {
 
     private void executeBlock(Block block) {
         List<Transaction> transactions = block.getTransactions(); // gets transactions in descending gas price order
-        long blockGasUsed = 0;
 
         for (Transaction tx : transactions) {
             ExecutionContext executionContext = new ExecutionContext(tx.getGasLimit(), tx.getGasPrice());
             TransactionExecutor executor = new TransactionExecutor(tx, accounts, executionContext);
             boolean success = executor.execute();
-
-            // accumulate actual gas used toward the block total
-            blockGasUsed += executionContext.getGasUsed();
 
             // TODO if transaction is not successful, what happens to it?
             // is it discarded and not added to the block at all? or is it included but

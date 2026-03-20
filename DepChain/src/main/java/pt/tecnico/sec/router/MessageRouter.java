@@ -1,8 +1,10 @@
 package pt.tecnico.sec.router;
 
-import java.util.concurrent.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
+import pt.tecnico.sec.blockchain.Block;
 import pt.tecnico.sec.client.message.Command;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.message.HotStuffMessage;
@@ -54,15 +56,15 @@ public class MessageRouter {
     }
 
     private void routeToReplica(Command command) {
-        replica.handleClientCommand(command);
+        replica.handleClientTransaction(command);
     }
 
-    public String getCommandtoPropose() {
-        return replica.getCommandToPropose();
+    public Block getBlocktoPropose() {
+        return replica.buildBlock();
     }
 
-    public void commandDecided(String commandJson) {
-        replica.commandDecided(commandJson);
+    public void blockDecided(String commandJson) {
+        replica.onBlockDecided(commandJson);
     }
 
     public void sendConsensusMessage(HotStuffMessage message, long targetReplicaId) {

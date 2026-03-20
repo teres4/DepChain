@@ -1,6 +1,7 @@
 package pt.tecnico.sec.replica;
 
 import pt.tecnico.sec.apl.AuthPerfLink;
+import pt.tecnico.sec.blockchain.Blockchain;
 import pt.tecnico.sec.consensus.ByzantineConsensus;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.Consensus.CommandValidator;
@@ -47,14 +48,11 @@ public class ReplicaServer {
             // Initialize AuthPerfLink
             AuthPerfLink apl = new AuthPerfLink(replicaId, Crypto.getReplicaPrivateKey(replicaId), 8080);
 
-            // Initialize Replica State and Replica
-            ReplicaState replicaState = new ReplicaState();
-            Replica replica = new Replica(replicaId, apl, replicaState);
+            Blockchain blockchain = new Blockchain(replicaId);
+            Replica replica = new Replica(replicaId, apl, blockchain);
 
-            // Initialize Consensus (Byzantine if mode > 0)
-            Consensus consensus = createConsensus(replicaId, apl, byzantineMode, cmd -> replica.validateCommand(cmd, false));
+            Consensus consensus = createConsensus(replicaId, apl, byzantineMode, blk -> replica.validateBlock(blk, false));
 
-            // Initialize MessageRouter
             MessageRouter router = new MessageRouter(apl, consensus, replica);
             consensus.setRouter(router);
 
@@ -89,10 +87,10 @@ public class ReplicaServer {
         }
         ByzantineConsensus bc = new ByzantineConsensus(replicaId, totalReplicas, commandValidator);
         switch (mode) {
-            case 1 -> bc.setSilent(true); // working
+            case 1 -> bc.setSilent(true);
             case 2 -> bc.setSendConflicting(true);
-            case 3 -> bc.setVoteForWrongNode(true); // working
-            case 4 -> bc.setSendToWrongLeader(true); // working
+            case 3 -> bc.setVoteForWrongNode(true);
+            case 4 -> bc.setSendToWrongLeader(true);
             case 5 -> bc.setDoubleVote(true);
             case 6 -> bc.setForgedQC(true);
             case 7 -> bc.setSpoofSenderId(true);

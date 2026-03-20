@@ -3,6 +3,7 @@ package pt.tecnico.sec.client.message;
 import com.google.gson.Gson;
 
 import pt.tecnico.sec.apl.message.DataMessage;
+import pt.tecnico.sec.blockchain.Transaction;
 
 public class Command {
     private final CommandType type;
@@ -37,6 +38,11 @@ public class Command {
 
     public long getNonce() {
         return nonce;
+    }
+
+    public Transaction getTransaction() {
+        Gson gson = new Gson();
+        return gson.fromJson(content, Transaction.class);
     }
 
     public String toJson() {
