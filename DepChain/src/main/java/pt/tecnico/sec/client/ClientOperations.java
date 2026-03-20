@@ -1,11 +1,24 @@
 package pt.tecnico.sec.client;
 
+import java.math.BigInteger;
 import java.security.PrivateKey;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
+import org.web3j.abi.FunctionEncoder;
+import org.web3j.abi.datatypes.Address;
+import org.web3j.abi.datatypes.Function;
+import org.web3j.abi.datatypes.generated.Uint256;
+import org.web3j.utils.Numeric;
+
+import com.google.gson.Gson;
+
 import pt.tecnico.sec.apl.AuthPerfLink;
+import pt.tecnico.sec.blockchain.Transaction;
 import pt.tecnico.sec.client.message.Command;
 import pt.tecnico.sec.client.message.CommandResponse;
 import pt.tecnico.sec.client.message.CommandType;
@@ -98,16 +111,120 @@ public class ClientOperations {
         System.out.println("Command executed successfully. Result: " + matchingResult);
     }
 
-    public void transferDepCoin(int recipientId, int amount, long gasPrice, long gasLimit) throws Exception {
-        System.out.println("Transferring " + amount + " DepCoin to client " + recipientId);
-        System.out.println("OOPS! this functionality is not implemented yet. Gomanasai!");
+    public void transferDepCoin(int recipientId, long amount, long gasPrice, long gasLimit) throws Exception {
+        PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
+
+        // TODO: get correct address, maybe passed as input or get from member info or something
+        String senderAddress = "";
+        String recipientAddress = "";
+
+        this.nonce++;
+
+        // build unsigned transaction first to get signable bytes
+        Transaction unsignedTx = new Transaction(
+            senderAddress,
+            recipientAddress,
+            amount,
+            new byte[0],
+            gasPrice,
+            gasLimit,
+            this.nonce,
+            null
+        );
+
+        // sign the transaction bytes
+        String base64Signature = Crypto.signMessage(
+            Base64.getEncoder().encodeToString(unsignedTx.toSignableBytes()),
+            clientPrivKey
+        );
+        byte[] signatureBytes = Base64.getDecoder().decode(base64Signature);
+
+        // build final signed transaction
+        Transaction tx = new Transaction(
+            senderAddress,
+            recipientAddress,
+            amount,
+            new byte[0],
+            gasPrice,
+            gasLimit,
+            this.nonce,
+            signatureBytes
+        );
+
+        // serialize and send
+        String txJson = new Gson().toJson(tx);
+
+        // TODO: will the client be able to send multiple transactions?
+        // or do we wait for the response like in stage 1?
+        currentResponses.clear();
+        currentNonce = this.nonce;
+
+        sendToAllReplicas(txJson);
+        waitForResponses(this.nonce);
     }
 
-    public void transferISTCoin(int recipientId, int amount, long gasPrice, long gasLimit) throws Exception {
-        // this should just call transferDepCoin but the recipient is the smart contract
-        // or smr
-        System.out.println("Transferring " + amount + " IST Coin to client " + recipientId);
-        System.out.println("OOPS! this functionality is not implemented yet. Gomanasai!");
+    public void transferISTCoin(int recipientId, long amount, long gasPrice, long gasLimit) throws Exception {
+        PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
+
+        // TODO: get correct address, maybe passed as input or get from member info or something
+        String senderAddress = "";
+        String recipientAddress = "";
+        String istCoinContractAddress = "";
+
+        this.nonce++;
+
+        // ABI encode transfer(recipientAddress, amount) — this becomes the calldata
+        // the EVM uses the function selector to route to transfer() and decodes the arguments
+        Function function = new Function(
+            "transfer",
+            Arrays.asList(
+                new Address(recipientAddress),
+                new Uint256(BigInteger.valueOf(amount))
+            ),
+            Collections.emptyList()
+        );
+        byte[] input = Numeric.hexStringToByteArray(FunctionEncoder.encode(function));
+
+        // build unsigned transaction
+        Transaction unsignedTx = new Transaction(
+            senderAddress,
+            istCoinContractAddress,
+            0,
+            input,
+            gasPrice,
+            gasLimit,
+            this.nonce,
+            null
+        );
+
+        // sign the transaction bytes
+        String base64Signature = Crypto.signMessage(
+            Base64.getEncoder().encodeToString(unsignedTx.toSignableBytes()),
+            clientPrivKey
+        );
+        byte[] signatureBytes = Base64.getDecoder().decode(base64Signature);
+
+        // build final signed transaction
+        Transaction tx = new Transaction(
+            senderAddress,
+            istCoinContractAddress,
+            0,
+            input,
+            gasPrice,
+            gasLimit,
+            this.nonce,
+            signatureBytes
+        );
+
+        String txJson = new Gson().toJson(tx);
+
+        // TODO: will the client be able to send multiple transactions?
+        // or do we wait for the response like in stage 1?
+        currentResponses.clear();
+        currentNonce = this.nonce;
+
+        sendToAllReplicas(txJson);
+        waitForResponses(this.nonce);
     }
 
     // private final String from;
