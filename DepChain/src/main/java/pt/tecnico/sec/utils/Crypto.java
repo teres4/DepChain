@@ -4,7 +4,9 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Signature;
 import java.security.MessageDigest;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.HexFormat;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -145,6 +147,15 @@ public interface Crypto {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         byte[] hashBytes = digest.digest(data.getBytes());
         return Base64.getEncoder().encodeToString(hashBytes);
+    }
+
+    public static String getClientAddress(long clientId) throws Exception {
+        PublicKey pubKey = getClientPublicKey(clientId);
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] hash = digest.digest(pubKey.getEncoded());
+        // take last 20 bytes like Ethereum, prefix with 0x
+        byte[] addressBytes = Arrays.copyOfRange(hash, hash.length - 20, hash.length);
+        return "0x" + HexFormat.of().formatHex(addressBytes);
     }
 
     // Threshold Signature Methods

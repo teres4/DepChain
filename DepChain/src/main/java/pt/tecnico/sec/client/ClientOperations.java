@@ -32,6 +32,8 @@ public class ClientOperations {
     private final int f; // Fault tolerance parameter
     private long nonce = 0; // To prevent replay attacks
 
+    public static final String IST_COIN_ADDRESS = "0xdddddddddddddddddddddddddddddddddddddddd";
+
     private final ConcurrentLinkedQueue<CommandResponse> currentResponses = new ConcurrentLinkedQueue<>();
     private long currentNonce = -1;
 
@@ -114,9 +116,8 @@ public class ClientOperations {
     public void transferDepCoin(int recipientId, long amount, long gasPrice, long gasLimit) throws Exception {
         PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
 
-        // TODO: get correct address, maybe passed as input or get from member info or something
-        String senderAddress = "";
-        String recipientAddress = "";
+        String senderAddress = Crypto.getClientAddress(this.clientId);
+        String recipientAddress = Crypto.getClientAddress(recipientId);
 
         this.nonce++;
 
@@ -166,10 +167,9 @@ public class ClientOperations {
     public void transferISTCoin(int recipientId, long amount, long gasPrice, long gasLimit) throws Exception {
         PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
 
-        // TODO: get correct address, maybe passed as input or get from member info or something
-        String senderAddress = "";
-        String recipientAddress = "";
-        String istCoinContractAddress = "";
+        String senderAddress = Crypto.getClientAddress(this.clientId);
+        String recipientAddress = Crypto.getClientAddress(recipientId);
+        String istCoinContractAddress = IST_COIN_ADDRESS;
 
         this.nonce++;
 
