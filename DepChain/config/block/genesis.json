@@ -12,7 +12,8 @@
             "gas_limit": 5000000,
             "gas_used":  1843200,
             "nonce": 0,
-            "signature": null
+            "signature": null,
+            "state": "EXECUTED"
         }
     ],
     "state": {

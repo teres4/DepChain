@@ -32,6 +32,12 @@ public class Transaction {
     // hash of all fields including signature
     private final String hash;
 
+    private State state; // PENDING, EXECUTED, or REVERTED
+
+    enum State {
+        PENDING, EXECUTED, REVERTED
+    }
+
     public Transaction(String from, String to, long amount, byte[] input,
             long gasPrice, long gasLimit, long nonce, byte[] signature) {
         if (gasPrice == 0 || gasLimit == 0)
@@ -46,6 +52,7 @@ public class Transaction {
         this.nonce = nonce;
         this.signature = signature;
         this.hash = computeHash();
+        this.state = State.PENDING;
     }
 
     public byte[] toSignableBytes() {
@@ -134,5 +141,13 @@ public class Transaction {
 
     public void setGasUsed(long gasUsed) {
         this.gasUsed = gasUsed;
+    }
+
+    public State getState() {
+        return state;
+    }
+
+    public void setState(State state) {
+        this.state = state;
     }
 }

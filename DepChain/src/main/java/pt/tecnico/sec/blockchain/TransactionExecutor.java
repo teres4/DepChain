@@ -69,21 +69,26 @@ public class TransactionExecutor {
 
         } catch (Exception e) {
             System.err.println("Execution error: " + e.getMessage());
+
             success = false;
         }
 
-        if (success) {
-            long actualFee = executionContext.getTransactionFee();
-            long gasRefund = maxGasCost - actualFee;
+        long actualFee = executionContext.getTransactionFee();
+        long gasRefund = maxGasCost - actualFee;
 
-            if (gasRefund > 0) {
-                sender.addBalance(gasRefund);
-            }
+        if (gasRefund > 0) {
+            sender.addBalance(gasRefund);
         }
 
         // increment nonce for next transaction
         sender.incrementNonce();
         transaction.setGasUsed(executionContext.getGasUsed());
+
+        if (success) {
+            transaction.setState(Transaction.State.EXECUTED);
+        } else {
+            transaction.setState(Transaction.State.REVERTED);
+        }
 
         return success;
     }
