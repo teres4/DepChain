@@ -34,4 +34,8 @@ public class ContractAccount extends Account {
     @Override
     public boolean isContract() { return true; }
 
+    public void updateStorage(Map<String, String> newStorage) {
+        storage.clear();
+        storage.putAll(newStorage);
+    }
 }

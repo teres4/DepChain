@@ -1,8 +1,19 @@
 package pt.tecnico.sec.blockchain;
 
+import java.util.HashMap;
 import java.util.Map;
 
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.evm.EvmSpecVersion;
+import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.fluent.EVMExecutor;
+import org.hyperledger.besu.evm.fluent.SimpleWorld;
+
 import pt.tecnico.sec.account.Account;
+import pt.tecnico.sec.account.ContractAccount;
 
 public class TransactionExecutor {
 
@@ -115,8 +126,56 @@ public class TransactionExecutor {
         return true;
     }
     
-    // TODO call deployed contract
+    // TODO: should there be a base fee also charged here? is it the same as the base fee in DepCoinTransfer?
     private boolean executeContractCall() {
+
+        String contractAddress = transaction.getTo();
+        Account account = accounts.get(contractAddress);
+
+        if (!(account instanceof ContractAccount)) {
+            throw new IllegalStateException("Target is not a contract: " + contractAddress);
+        }
+
+        ContractAccount contract = (ContractAccount) account;
+
+        SimpleWorld simpleWorld = new SimpleWorld();
+
+        Address senderAddress = Address.fromHexString(transaction.getFrom());
+        Address contractAddr = Address.fromHexString(contractAddress);
+
+        Account sender = accounts.get(transaction.getFrom());
+        simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
+        simpleWorld.createAccount(contractAddr, 0, Wei.of(contract.getBalance()));
+
+        // 
+        MutableAccount besuContract = (MutableAccount) simpleWorld.get(contractAddr);
+        for (Map.Entry<String, String> entry : contract.getStorage().entrySet()) {
+            besuContract.setStorageValue(
+                UInt256.fromHexString(entry.getKey()),
+                UInt256.fromHexString(entry.getValue())
+            );
+        }
+
+        var executor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
+        executor.code(Bytes.fromHexString(
+            org.apache.tuweni.bytes.Bytes.wrap(contract.getCode()).toHexString()
+        ));
+        executor.sender(senderAddress);
+        executor.receiver(contractAddr);
+        executor.worldUpdater(simpleWorld.updater());
+        executor.commitWorldState();
+        executor.callData(Bytes.wrap(transaction.getInput()));
+        executor.execute();
+
+        Map<String, String> updatedStorage = new HashMap<>();
+        for (Map.Entry<String, String> entry : contract.getStorage().entrySet()) {
+            UInt256 slot = UInt256.fromHexString(entry.getKey());
+            UInt256 updatedValue = simpleWorld.get(contractAddr).getStorageValue(slot);
+            updatedStorage.put(entry.getKey(), updatedValue.toHexString());
+        }
+        contract.updateStorage(updatedStorage);
+        accounts.put(contractAddress, contract);
+
         return true;
     }
 
