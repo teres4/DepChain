@@ -160,7 +160,9 @@ public interface Crypto {
         byte[] hash = digest.digest(pubKey.getEncoded());
         // take last 20 bytes like Ethereum, prefix with 0x
         byte[] addressBytes = Arrays.copyOfRange(hash, hash.length - 20, hash.length);
-        return "0x" + HexFormat.of().formatHex(addressBytes);
+        String ret = "0x" + HexFormat.of().formatHex(addressBytes);
+        System.out.println("Generated address for client " + clientId + ": " + ret);
+        return ret;
     }
 
     // Threshold Signature Methods
@@ -228,6 +230,10 @@ public interface Crypto {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    public static String getAddressFromId(long clientId) throws Exception {
+        return getClientAddress(clientId);
     }
 
     public static boolean verifySignatureEOA(byte[] data, String base64Signature, String address) throws Exception {

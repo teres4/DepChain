@@ -99,6 +99,8 @@ public class Replica {
             System.out.printf("Replacing tx nonce=%d for %s (old gasPrice=%d new gasPrice=%d)%n",
                     tx.getNonce(), sender, existing.getGasPrice(), tx.getGasPrice());
         }
+        logger("Added tx to mempool: " + tx.getHash() + " from " + sender + " nonce " + tx.getNonce()
+                + " gasPrice " + tx.getGasPrice() + " gasLimit " + tx.getGasLimit());
         senderTxs.put(tx.getNonce(), tx);
     }
 
