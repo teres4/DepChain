@@ -5,9 +5,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import pt.tecnico.sec.blockchain.Block;
 import pt.tecnico.sec.router.MessageRouter;
 import pt.tecnico.sec.consensus.message.*;
-import pt.tecnico.sec.replica.ReplicaState;
 import pt.tecnico.sec.utils.MemberManager;
 import pt.tecnico.sec.utils.threshsig.Dealer;
 import pt.tecnico.sec.utils.threshsig.GroupKey;
@@ -21,7 +21,10 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.*;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Unit tests for the Basic HotStuff consensus algorithm.
@@ -107,8 +110,6 @@ class ConsensusTest {
     @Mock
     MemberManager memberManager;
     @Mock
-    ReplicaState replicaState;
-    @Mock
     MessageRouter router;
 
     private TestableConsensus consensus(long replicaID) {
@@ -129,6 +130,10 @@ class ConsensusTest {
         return new QuorumCertificate(viewNum, nodeHash, type, "SIG:combined");
     }
 
+    private Block blockToPropose() {
+        return new Block("prevHash", 1L, new ArrayList<>(), new HashMap<>());
+    }
+
     // -----------------------------------------------------------------------
     // 1. NEW_VIEW collection
     // -----------------------------------------------------------------------
@@ -143,7 +148,7 @@ class ConsensusTest {
             // Replica 2 is leader for view 1
             TestableConsensus c = consensus(2);
             c.seedRoot("rootHash");
-            when(router.getCommandtoPropose()).thenReturn("cmd");
+            when(router.getBlocktoPropose()).thenReturn(blockToPropose());
             doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
             c.onReceiveNewViewMessage(newView(1, 1));
@@ -170,7 +175,7 @@ class ConsensusTest {
             c.tree.addNode(lowNode);
             c.tree.addNode(highNode);
 
-            when(router.getCommandtoPropose()).thenReturn("cmd");
+            when(router.getBlocktoPropose()).thenReturn(blockToPropose());
             doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
             // Sender 1 carries QC from view 1, sender 3 carries QC from view 5
@@ -381,7 +386,7 @@ class ConsensusTest {
                     new DecideMessage(2, qc(2, "hashB", "commit"), 3));
 
             // Assertions
-            verify(router).commandDecided("cmdB");
+            verify(router).blockDecided("cmdB");
 
             assertNull(c.tree.getNode("hashA"),
                     "Node A (conflicting, never decided) must be pruned after B is decided");
@@ -429,7 +434,7 @@ class ConsensusTest {
             DecideMessage msg = new DecideMessage(1, badSigQC, 2);
 
             assertDoesNotThrow(() -> c.onReceiveDecideMessage(msg));
-            verify(router, never()).commandDecided(any());
+            verify(router, never()).blockDecided(any());
         }
 
         @Test
@@ -470,7 +475,7 @@ class ConsensusTest {
             DecideMessage replay = new DecideMessage(1, qc(1, "hashOld", "commit"), 2);
             c.onReceiveDecideMessage(replay);
 
-            verify(router, never()).commandDecided(any());
+            verify(router, never()).blockDecided(any());
             assertEquals(2, c.getViewNumberInt(), "View must not change on replayed DECIDE");
         }
     }
@@ -569,12 +574,12 @@ class ConsensusTest {
 
             // All 4 messages buffered, nothing processed yet
             assertEquals(4, c.futureMessages.get(2).size());
-            verify(router, never()).commandDecided(any());
+            verify(router, never()).blockDecided(any());
 
             c.viewNumber.set(2);
             c.drainFutureMessages(2);
 
-            verify(router).commandDecided("cmd");
+            verify(router).blockDecided("cmd");
         }
     }
 
@@ -600,7 +605,7 @@ class ConsensusTest {
         static void generateKeys() throws Exception {
             Dealer dealer = new Dealer(512);
             dealer.generateKeys(K, L);
-            groupKey  = dealer.getGroupKey();
+            groupKey = dealer.getGroupKey();
             KeyShare[] shares = dealer.getShares();
             keyShares = new KeyShare[L + 1];
             for (int i = 0; i < shares.length; i++) {
@@ -639,8 +644,8 @@ class ConsensusTest {
         @DisplayName("tsign produces different output for different vote types")
         void tsign_differentTypesProduceDifferentSigs() {
             RealCryptoConsensus c = replica(1);
-            String sig1 = c.tsign(HotStuffMessageType.PREPARE_VOTE,    1, "hash");
-            String sig2 = c.tsign(HotStuffMessageType.PRE_COMMIT_VOTE,  1, "hash");
+            String sig1 = c.tsign(HotStuffMessageType.PREPARE_VOTE, 1, "hash");
+            String sig2 = c.tsign(HotStuffMessageType.PRE_COMMIT_VOTE, 1, "hash");
             assertNotEquals(sig1, sig2);
         }
 
@@ -664,7 +669,7 @@ class ConsensusTest {
             String expectedMsg = buildVoteMessage(HotStuffMessageType.PREPARE_VOTE, view, nodeHash);
 
             java.util.Queue<HotStuffMessage> votes = buildVoteQueue(
-                    HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[]{1, 2, 3});
+                    HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[] { 1, 2, 3 });
 
             RealCryptoConsensus leader = replica(1);
             byte[] msgBytes = expectedMsg.getBytes(StandardCharsets.UTF_8);
@@ -675,9 +680,8 @@ class ConsensusTest {
             assertFalse(wBase64.isEmpty());
 
             assertTrue(
-                leader.tverify(wBase64, expectedMsg),
-                "tverify must accept the legitimately combined w"
-            );
+                    leader.tverify(wBase64, expectedMsg),
+                    "tverify must accept the legitimately combined w");
         }
 
         @Test
@@ -689,7 +693,7 @@ class ConsensusTest {
             // Combine over PREPARE_VOTE message
             String signedMsg = buildVoteMessage(HotStuffMessageType.PREPARE_VOTE, view, nodeHash);
             java.util.Queue<HotStuffMessage> votes = buildVoteQueue(
-                    HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[]{1, 2, 3});
+                    HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[] { 1, 2, 3 });
 
             RealCryptoConsensus leader = replica(1);
             String wBase64 = leader.tcombine(votes, signedMsg.getBytes(StandardCharsets.UTF_8));
@@ -697,9 +701,8 @@ class ConsensusTest {
             // Verify against a DIFFERENT message (different view)
             String differentMsg = buildVoteMessage(HotStuffMessageType.PREPARE_VOTE, 99, nodeHash);
             assertFalse(
-                leader.tverify(wBase64, differentMsg),
-                "tverify must reject w that was combined over a different message"
-            );
+                    leader.tverify(wBase64, differentMsg),
+                    "tverify must reject w that was combined over a different message");
         }
 
         @Test
@@ -734,11 +737,11 @@ class ConsensusTest {
             byte[] msgBytes = msg.getBytes(StandardCharsets.UTF_8);
 
             String w1 = replica(1).tcombine(
-                buildVoteQueue(HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[]{1,2,3}),
-                msgBytes);
+                    buildVoteQueue(HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[] { 1, 2, 3 }),
+                    msgBytes);
             String w2 = replica(2).tcombine(
-                buildVoteQueue(HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[]{1,2,3}),
-                msgBytes);
+                    buildVoteQueue(HotStuffMessageType.PREPARE_VOTE, view, nodeHash, new int[] { 1, 2, 3 }),
+                    msgBytes);
 
             assertEquals(w1, w2, "Combining the same shares must yield the same w regardless of who combines");
         }
@@ -752,7 +755,7 @@ class ConsensusTest {
             // Combine over PRE_COMMIT_VOTE
             String preCommitMsg = buildVoteMessage(HotStuffMessageType.PRE_COMMIT_VOTE, view, nodeHash);
             java.util.Queue<HotStuffMessage> votes = buildVoteQueue(
-                    HotStuffMessageType.PRE_COMMIT_VOTE, view, nodeHash, new int[]{1, 2, 3});
+                    HotStuffMessageType.PRE_COMMIT_VOTE, view, nodeHash, new int[] { 1, 2, 3 });
 
             RealCryptoConsensus leader = replica(1);
             String wBase64 = leader.tcombine(votes, preCommitMsg.getBytes(StandardCharsets.UTF_8));
@@ -760,9 +763,8 @@ class ConsensusTest {
             // Try to verify as PREPARE_VOTE
             String prepareMsg = buildVoteMessage(HotStuffMessageType.PREPARE_VOTE, view, nodeHash);
             assertFalse(
-                leader.tverify(wBase64, prepareMsg),
-                "w from PRE_COMMIT_VOTE must not verify against PREPARE_VOTE message"
-            );
+                    leader.tverify(wBase64, prepareMsg),
+                    "w from PRE_COMMIT_VOTE must not verify against PREPARE_VOTE message");
         }
 
         private String buildVoteMessage(HotStuffMessageType type, int view, String nodeHash) {
@@ -787,9 +789,9 @@ class ConsensusTest {
                 String partialSigBase64 = Base64.getEncoder().encodeToString(bos.toByteArray());
 
                 HotStuffMessage vote = switch (type) {
-                    case PREPARE_VOTE    -> new PrepareVoteMessage(view, node, id, partialSigBase64);
+                    case PREPARE_VOTE -> new PrepareVoteMessage(view, node, id, partialSigBase64);
                     case PRE_COMMIT_VOTE -> new PreCommitVoteMessage(view, node, id, partialSigBase64);
-                    case COMMIT_VOTE     -> new CommitVoteMessage(view, node, id, partialSigBase64);
+                    case COMMIT_VOTE -> new CommitVoteMessage(view, node, id, partialSigBase64);
                     default -> throw new IllegalArgumentException("Unsupported vote type: " + type);
                 };
                 queue.add(vote);
