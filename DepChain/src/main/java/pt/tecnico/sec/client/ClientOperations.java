@@ -123,44 +123,46 @@ public class ClientOperations {
 
         // build unsigned transaction first to get signable bytes
         Transaction unsignedTx = new Transaction(
-            senderAddress,
-            recipientAddress,
-            amount,
-            new byte[0],
-            gasPrice,
-            gasLimit,
-            this.nonce,
-            null
-        );
+                senderAddress,
+                recipientAddress,
+                amount,
+                new byte[0],
+                gasPrice,
+                gasLimit,
+                this.nonce,
+                null);
 
         // sign the transaction bytes
         String base64Signature = Crypto.signMessage(
-            Base64.getEncoder().encodeToString(unsignedTx.toSignableBytes()),
-            clientPrivKey
-        );
+                Base64.getEncoder().encodeToString(unsignedTx.toSignableBytes()),
+                clientPrivKey);
         byte[] signatureBytes = Base64.getDecoder().decode(base64Signature);
 
         // build final signed transaction
         Transaction tx = new Transaction(
-            senderAddress,
-            recipientAddress,
-            amount,
-            new byte[0],
-            gasPrice,
-            gasLimit,
-            this.nonce,
-            signatureBytes
-        );
+                senderAddress,
+                recipientAddress,
+                amount,
+                new byte[0],
+                gasPrice,
+                gasLimit,
+                this.nonce,
+                signatureBytes);
 
         // serialize and send
         String txJson = new Gson().toJson(tx);
+
+        Command command = new Command(CommandType.TRANSFERDEPCOIN, this.clientId, txJson, base64Signature,
+                this.nonce);
 
         // TODO: will the client be able to send multiple transactions?
         // or do we wait for the response like in stage 1?
         currentResponses.clear();
         currentNonce = this.nonce;
 
-        sendToAllReplicas(txJson);
+        logger("Sending DepCoin transfer transaction: " + txJson);
+
+        sendToAllReplicas(command.toJson());
         waitForResponses(this.nonce);
     }
 
@@ -174,56 +176,55 @@ public class ClientOperations {
         this.nonce++;
 
         // ABI encode transfer(recipientAddress, amount) — this becomes the calldata
-        // the EVM uses the function selector to route to transfer() and decodes the arguments
+        // the EVM uses the function selector to route to transfer() and decodes the
+        // arguments
         Function function = new Function(
-            "transfer",
-            Arrays.asList(
-                new Address(recipientAddress),
-                new Uint256(BigInteger.valueOf(amount))
-            ),
-            Collections.emptyList()
-        );
+                "transfer",
+                Arrays.asList(
+                        new Address(recipientAddress),
+                        new Uint256(BigInteger.valueOf(amount))),
+                Collections.emptyList());
         byte[] input = Numeric.hexStringToByteArray(FunctionEncoder.encode(function));
 
         // build unsigned transaction
         Transaction unsignedTx = new Transaction(
-            senderAddress,
-            istCoinContractAddress,
-            0,
-            input,
-            gasPrice,
-            gasLimit,
-            this.nonce,
-            null
-        );
+                senderAddress,
+                istCoinContractAddress,
+                0,
+                input,
+                gasPrice,
+                gasLimit,
+                this.nonce,
+                null);
 
         // sign the transaction bytes
         String base64Signature = Crypto.signMessage(
-            Base64.getEncoder().encodeToString(unsignedTx.toSignableBytes()),
-            clientPrivKey
-        );
+                Base64.getEncoder().encodeToString(unsignedTx.toSignableBytes()),
+                clientPrivKey);
         byte[] signatureBytes = Base64.getDecoder().decode(base64Signature);
 
         // build final signed transaction
         Transaction tx = new Transaction(
-            senderAddress,
-            istCoinContractAddress,
-            0,
-            input,
-            gasPrice,
-            gasLimit,
-            this.nonce,
-            signatureBytes
-        );
+                senderAddress,
+                istCoinContractAddress,
+                0,
+                input,
+                gasPrice,
+                gasLimit,
+                this.nonce,
+                signatureBytes);
 
         String txJson = new Gson().toJson(tx);
+
+        Command command = new Command(CommandType.TRANSFERDEPCOIN, this.clientId, txJson, base64Signature,
+                this.nonce);
 
         // TODO: will the client be able to send multiple transactions?
         // or do we wait for the response like in stage 1?
         currentResponses.clear();
         currentNonce = this.nonce;
 
-        sendToAllReplicas(txJson);
+        sendToAllReplicas(command.toJson());
         waitForResponses(this.nonce);
     }
 
@@ -239,5 +240,10 @@ public class ClientOperations {
 
     // // max gas units willing to spend
     // private final long gasLimit;
+
+    private void logger(String message) {
+        // print in cyan color
+        System.out.println("\u001B[36m" + message + "\u001B[0m");
+    }
 
 }

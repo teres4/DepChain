@@ -9,15 +9,11 @@ public class Command {
     private final CommandType type;
     private String content;
     private long senderId;
-    private String signature;
-    private long nonce;
 
     public Command(CommandType type, long senderId, String content, String signature, long nonce) {
         this.type = type;
         this.content = content;
         this.senderId = senderId;
-        this.signature = signature;
-        this.nonce = nonce;
     }
 
     public CommandType getType() {
@@ -30,14 +26,6 @@ public class Command {
 
     public long getSenderId() {
         return senderId;
-    }
-
-    public String getSignature() {
-        return signature;
-    }
-
-    public long getNonce() {
-        return nonce;
     }
 
     public Transaction getTransaction() {
@@ -73,7 +61,6 @@ public class Command {
 
     @Override
     public String toString() {
-        return "Command{type=" + type + ", content='" + content + "', senderId=" + senderId + ", signature='"
-                + signature + "', nonce=" + nonce + "}";
+        return "Command{type=" + type + ", content='" + content + "', senderId=" + senderId + "}";
     }
 }

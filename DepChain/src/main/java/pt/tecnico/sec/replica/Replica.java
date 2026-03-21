@@ -1,15 +1,15 @@
 package pt.tecnico.sec.replica;
 
 import java.security.PublicKey;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import com.google.gson.Gson;
 
 import pt.tecnico.sec.account.Account;
 import pt.tecnico.sec.apl.AuthPerfLink;
@@ -219,38 +219,45 @@ public class Replica {
         }
     }
 
-    private boolean checkCommandFormat(String commandJson) {
-        try {
-            Command cmd = Command.fromJson(commandJson);
-            return cmd.getType() != null && cmd.getSenderId() > 0 && cmd.getNonce() >= 0
-                    && checkCommandSignature(cmd);
-        } catch (Exception e) {
-            return false;
-        }
-    }
+    // private boolean checkCommandFormat(String commandJson) {
+    // try {
+    // Command cmd = Command.fromJson(commandJson);
+    // return cmd.getType() != null && cmd.getSenderId() > 0 && cmd.getNonce() >= 0
+    // && checkCommandSignature(cmd);
+    // } catch (Exception e) {
+    // return false;
+    // }
+    // }
 
-    private boolean checkCommandSignature(Command cmd) {
-        String contentToVerify = cmd.getType().toString() + ":" + cmd.getSenderId() + ":"
-                + cmd.getContent() + ":" + cmd.getNonce();
-        try {
-            PublicKey clientPubKey = Crypto.getClientPublicKey(cmd.getSenderId());
-            return Crypto.verifySignature(contentToVerify.getBytes(), cmd.getSignature(), clientPubKey);
-        } catch (Exception e) {
-            System.err.println("Failed to verify command signature: " + e.getMessage());
-            return false;
-        }
-    }
+    // private boolean checkCommandSignature(Command cmd) {
+    // String contentToVerify = cmd.getType().toString() + ":" + cmd.getSenderId() +
+    // ":"
+    // + cmd.getContent() + ":" + cmd.getNonce();
+    // try {
+    // PublicKey clientPubKey = Crypto.getClientPublicKey(cmd.getSenderId());
+    // return Crypto.verifySignature(contentToVerify.getBytes(), cmd.getSignature(),
+    // clientPubKey);
+    // } catch (Exception e) {
+    // System.err.println("Failed to verify command signature: " + e.getMessage());
+    // return false;
+    // }
+    // }
 
     // TODO finish implementing signature verification
     // idk how to get the public key of the sender from the transaction
     private boolean verifyTransactionSignature(Transaction tx) {
         try {
-            Gson gson = new Gson();
-            String txJson = gson.toJson(tx);
-            String signature = txJson.replaceAll(".*\"signature\":\"([^\"]+)\".*", "$1");
-            String contentToVerify = txJson.replaceAll("\"signature\":\"[^\"]+\"", "\"signature\":\"\"");
+            if (tx.getSignature() == null || tx.getSignature().length == 0) {
+                return false;
+            }
 
-            return Crypto.verifySignatureEOA(signature.getBytes(), contentToVerify, tx.getFrom());
+            String signablePayload = Base64.getEncoder().encodeToString(tx.toSignableBytes());
+            String signatureBase64 = Base64.getEncoder().encodeToString(tx.getSignature());
+
+            return Crypto.verifySignatureEOA(
+                    signablePayload.getBytes(StandardCharsets.UTF_8),
+                    signatureBase64,
+                    tx.getFrom());
         } catch (Exception e) {
             System.err.println("Signature verification failed: " + e.getMessage());
             return false;

@@ -326,18 +326,19 @@ public class Consensus {
             HotStuffMessage firstVote = votes.peek();
             int viewNum = firstVote != null ? firstVote.getViewNumber() : this.viewNumber.get();
             String qcType = firstVote instanceof PrepareVoteMessage ? "prepare"
-                          : firstVote instanceof PreCommitVoteMessage ? "pre-commit"
-                          : firstVote instanceof CommitVoteMessage ? "commit" : "unknown";
+                    : firstVote instanceof PreCommitVoteMessage ? "pre-commit"
+                            : firstVote instanceof CommitVoteMessage ? "commit" : "unknown";
 
             HotStuffMessageType voteType = firstVote instanceof PrepareVoteMessage ? HotStuffMessageType.PREPARE_VOTE
-                                         : firstVote instanceof PreCommitVoteMessage ? HotStuffMessageType.PRE_COMMIT_VOTE
-                                         : HotStuffMessageType.COMMIT_VOTE;
+                    : firstVote instanceof PreCommitVoteMessage ? HotStuffMessageType.PRE_COMMIT_VOTE
+                            : HotStuffMessageType.COMMIT_VOTE;
 
             String message = createVoteMessage(voteType, viewNum, node.getHash());
             byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
 
             String wBase64 = tcombine(votes, messageBytes);
-            if (wBase64 == null) return null;
+            if (wBase64 == null)
+                return null;
 
             return new QuorumCertificate(viewNum, node.getHash(), qcType, wBase64);
 
@@ -353,7 +354,8 @@ public class Consensus {
             int i = 0;
             for (HotStuffMessage vote : votes) {
                 String partialSigBase64 = extractPartialSig(vote);
-                if (partialSigBase64 == null) continue;
+                if (partialSigBase64 == null)
+                    continue;
 
                 byte[] sigBytes = Base64.getDecoder().decode(partialSigBase64);
                 ObjectInputStream ois = new ObjectInputStream(new ByteArrayInputStream(sigBytes));
@@ -361,7 +363,7 @@ public class Consensus {
             }
 
             BigInteger w = Crypto.combineShares(sigShares, this.quorumSize, this.totalReplicas,
-                                                this.publicKey, messageBytes);
+                    this.publicKey, messageBytes);
             return Base64.getEncoder().encodeToString(w.toByteArray());
 
         } catch (Exception e) {
@@ -389,7 +391,8 @@ public class Consensus {
 
     public boolean tverify(String wBase64, String message) {
         try {
-            if (wBase64 == null || wBase64.isEmpty()) return false;
+            if (wBase64 == null || wBase64.isEmpty())
+                return false;
 
             BigInteger w = new BigInteger(Base64.getDecoder().decode(wBase64));
             byte[] messageBytes = message.getBytes(StandardCharsets.UTF_8);
@@ -772,16 +775,17 @@ public class Consensus {
                 || !checkisLeaderMessage(prepareMessage, this.viewNumber.get())) {
             return;
         }
-        
+
         // Check command validity
-        // TODO check block validity 
+        // TODO check block validity
         if (!validCommand(prepareMessage.getNode().getCommand())) {
             logHotStuff("Invalid command detected in PREPARE, starting new view");
             try {
-                // if we receive a prepare message with an invalid command, 
-                // the leader is probably byzantine and injected a command, so we trigger a view change
+                // if we receive a prepare message with an invalid command,
+                // the leader is probably byzantine and injected a command, so we trigger a view
+                // change
                 System.err.println("Received PREPARE with invalid command: " + prepareMessage.getNode().getCommand());
-                onLeaderInactive(); 
+                onLeaderInactive();
             } catch (Exception e) {
                 System.err.println("Failed to start new view after detecting invalid command: " + e.getMessage());
             }
@@ -793,7 +797,7 @@ public class Consensus {
         if (highQC == null) {
             ancestorNode = tree.getRoot();
         } else {
-            // TODO should we check the highQC type? 
+            // TODO should we check the highQC type?
             if (!highQC.getType().equals("prepare")) {
                 System.err.println("Prepare message has highQC of wrong type: " + highQC.getType());
                 return;
@@ -1041,13 +1045,20 @@ public class Consensus {
     }
 
     private boolean validCommand(String command) {
-        if (command.equals("NO-OP"))
+        if (command.equals("NO-OP")) {
+            logger("Received NO-OP command, treating as valid");
             return true;
+        }
 
         if (!commandValidator.validate(command)) {
             System.err.println("Command validation failed in PREPARE phase");
             return false;
         }
         return true;
+    }
+
+    private void logger(String message) {
+        // print in blue color
+        System.out.println("\u001B[34m" + message + "\u001B[0m");
     }
 }
