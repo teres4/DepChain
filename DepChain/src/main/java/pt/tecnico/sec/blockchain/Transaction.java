@@ -150,4 +150,22 @@ public class Transaction {
     public void setState(State state) {
         this.state = state;
     }
+
+    @Override
+    public String toString() {
+        int inputLen = (input == null) ? 0 : input.length;
+        int sigLen = (signature == null) ? 0 : signature.length;
+        return "Transaction{" +
+                "hash=" + hash +
+                ", from=" + from +
+                ", to=" + to +
+                ", amount=" + amount +
+                ", gasPrice=" + gasPrice +
+                ", gasLimit=" + gasLimit +
+                ", nonce=" + nonce +
+                ", inputLen=" + inputLen +
+                ", sigLen=" + sigLen +
+                ", state=" + state +
+                "}";
+    }
 }

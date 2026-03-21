@@ -114,10 +114,7 @@ public class Replica {
         Block proposed = new Block(lastBlock.getBlockHash(), lastBlock.getBlockNumber() + 1,
                 selected, currentAccounts);
 
-        logger("Built block proposal with " + selected.size() + " transactions and total gas "
-                + selected.stream().mapToLong(tx -> tx.getGasLimit()).sum());
-        logger("Proposed block: " + proposed.toJson());
-
+        logger("Built block proposal with " + selected.size() + " transactions");
         return proposed;
     }
 
@@ -170,7 +167,6 @@ public class Replica {
 
         } catch (Exception e) {
             System.err.println("Failed to add decided block to state: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
