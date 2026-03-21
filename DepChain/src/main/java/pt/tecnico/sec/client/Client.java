@@ -140,9 +140,16 @@ public class Client {
     }
 
     public void transferDepCoin(Scanner scanner) {
-        System.out.print("Enter the recipient client ID (0 to transfer to your smart contract): ");
+        System.out.print("Enter the recipient client ID (e.g., 101): ");
         try {
             int recipientId = Integer.parseInt(scanner.nextLine());
+
+            if (!Crypto.clientKeysExist(recipientId)) {
+                System.err.println("Unknown recipient client ID: " + recipientId);
+                System.err.println("Configured client IDs: " + Crypto.getConfiguredClientIds());
+                return;
+            }
+
             System.out.print("Enter the amount of DepCoin to transfer: ");
             int amount = Integer.parseInt(scanner.nextLine());
             clientOps.transferDepCoin(recipientId, amount, this.GasPrice, this.GasLimit);
@@ -155,9 +162,16 @@ public class Client {
     }
 
     public void transferISTCoin(Scanner scanner) {
-        System.out.print("Enter the recipient client ID (0 to transfer to your EOA account): ");
+        System.out.print("Enter the recipient client ID (e.g., 101): ");
         try {
             int recipientId = Integer.parseInt(scanner.nextLine());
+
+            if (!Crypto.clientKeysExist(recipientId)) {
+                System.err.println("Unknown recipient client ID: " + recipientId);
+                System.err.println("Configured client IDs: " + Crypto.getConfiguredClientIds());
+                return;
+            }
+
             System.out.print("Enter the amount of IST Coin to transfer: ");
             int amount = Integer.parseInt(scanner.nextLine());
             clientOps.transferISTCoin(recipientId, amount, this.GasPrice, this.GasLimit);

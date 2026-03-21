@@ -480,7 +480,7 @@ public class Consensus {
         // First, try to get a command immediately
         Block block = router.getBlocktoPropose();
         if (block != null) {
-            return block.toString() + " (got command immediately)";
+            return block.toJson();
         }
 
         // If no immediate command, wait with timeout
@@ -495,7 +495,7 @@ public class Consensus {
                 block = router.getBlocktoPropose();
                 if (block != null) {
                     System.out.println("Block became available during wait period");
-                    return block.toString() + " (got block during wait)";
+                    return block.toJson();
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

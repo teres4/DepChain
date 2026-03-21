@@ -7,6 +7,8 @@ import java.security.MessageDigest;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.HexFormat;
+import java.util.List;
+import java.util.ArrayList;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
@@ -163,6 +165,41 @@ public interface Crypto {
         String ret = "0x" + HexFormat.of().formatHex(addressBytes);
         System.out.println("Generated address for client " + clientId + ": " + ret);
         return ret;
+    }
+
+    public static boolean clientKeysExist(long clientId) {
+        try {
+            Path pub = Paths.get(KeyType.CLIENT.getDirectory(), "public_key" + clientId + ".pem");
+            Path priv = Paths.get(KeyType.CLIENT.getDirectory(), "private_key" + clientId + ".pem");
+            return Files.exists(pub) && Files.exists(priv);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static List<Long> getConfiguredClientIds() {
+        List<Long> ids = new ArrayList<>();
+        try {
+            String configFile = KeyType.CLIENT.getDirectory() + "/config.json";
+            String configContent = new String(Files.readAllBytes(Paths.get(configFile)));
+
+            JsonObject root = JsonParser.parseString(configContent).getAsJsonObject();
+            JsonArray members = root.getAsJsonArray("members");
+            if (members == null) {
+                return ids;
+            }
+
+            for (JsonElement memberElement : members) {
+                JsonObject member = memberElement.getAsJsonObject();
+                if (member.has("id")) {
+                    ids.add(Long.parseLong(member.get("id").getAsString()));
+                }
+            }
+
+            return ids;
+        } catch (Exception e) {
+            return ids;
+        }
     }
 
     // Threshold Signature Methods

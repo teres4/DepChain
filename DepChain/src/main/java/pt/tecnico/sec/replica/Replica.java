@@ -1,6 +1,5 @@
 package pt.tecnico.sec.replica;
 
-import java.security.PublicKey;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -114,6 +113,10 @@ public class Replica {
         Block lastBlock = blockchain.getBlock(blockchain.getChainHeight() - 1);
         Block proposed = new Block(lastBlock.getBlockHash(), lastBlock.getBlockNumber() + 1,
                 selected, currentAccounts);
+
+        logger("Built block proposal with " + selected.size() + " transactions and total gas "
+                + selected.stream().mapToLong(tx -> tx.getGasLimit()).sum());
+        logger("Proposed block: " + proposed.toJson());
 
         return proposed;
     }
