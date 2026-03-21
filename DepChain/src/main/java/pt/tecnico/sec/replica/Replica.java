@@ -150,6 +150,12 @@ public class Replica {
 
     public void onBlockDecided(String command) {
         try {
+
+            if (command.equals("NO-OP")) {
+                logger("Decided NO-OP block, skipping state update");
+                return;
+            }
+
             Block decidedBlock = Block.fromJson(command);
 
             blockchain.addBlock(decidedBlock);
@@ -386,5 +392,10 @@ public class Replica {
         for (Transaction tx : block.getTransactions()) {
             removeFromPending(tx.getFrom(), tx.getNonce());
         }
+    }
+
+    private void logger(String message) {
+        // print in green color
+        System.out.println("\u001B[32m" + message + "\u001B[0m");
     }
 }

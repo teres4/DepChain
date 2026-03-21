@@ -162,6 +162,8 @@ public class AuthPerfLink {
         for (MemberInfo member : members) {
             if (member.getId() == this.ownId)
                 continue; // skip self
+            if (isReplica && member.getId() < this.ownId)
+                continue; // deterministic initiator: only connect to higher replica IDs
             if (sessionManager.getSession(member.getId()) != null)
                 continue; // already connected
             final long memberId = member.getId();
@@ -186,6 +188,9 @@ public class AuthPerfLink {
         MemberInfo[] replicas = memberManagement.getMembers();
         System.err.println("Attempting to connect to all replicas. Found " + replicas.length + " members in config.");
         for (MemberInfo replica : replicas) {
+            if (isReplica && replica.getId() < this.ownId) {
+                continue; // deterministic initiator: only connect to higher replica IDs
+            }
             try {
                 System.err.println("Attempting to connect to replica ID: " + replica.getId() + " at address: "
                         + replica.getAddr());
@@ -388,6 +393,10 @@ public class AuthPerfLink {
 
             PublicKey senderPublicKey;
             if (!isClient) {
+                if (senderMember == null) {
+                    System.err.println("Unknown sender for connection request: " + senderId + " from " + addr);
+                    return;
+                }
                 senderPublicKey = senderMember.getPublicSignatureKey();
             } else {
                 senderPublicKey = Crypto.getClientPublicKey(senderId);
@@ -400,9 +409,14 @@ public class AuthPerfLink {
             // Get the DH public key from the initiator
             byte[] initiatorDHPublicKey = msg.getDhPublicKey();
 
+            // If we already have a local in-flight initiator DH for this peer (simultaneous
+            // connect), reuse it so both sides derive the same key material
+            // deterministically.
+            // Otherwise, create a fresh responder DH keypair.
             DHKeyAgreement responderDH;
-            if (existingSession != null && existingSession.getEphemeralDH() != null) {
-                logger("Simultaneous connect with " + senderId + ", reusing our ephemeral DH");
+            if (existingSession != null && existingSession.getEphemeralDH() != null
+                    && !existingSession.isConnectionEstablished()) {
+                logger("Simultaneous connect with " + senderId + ", reusing local in-flight DH");
                 responderDH = existingSession.getEphemeralDH();
             } else {
                 responderDH = new DHKeyAgreement();
@@ -420,6 +434,9 @@ public class AuthPerfLink {
                 // Update existing placeholder session
                 session = existingSession;
                 session.setSessionKey(sessionKey);
+                if (session.getEphemeralDH() == null) {
+                    session.setEphemeralDH(responderDH); // Store DH for ACK retransmissions
+                }
             } else {
                 // Create new session
                 session = sessionManager.createSession(senderId, addr, sessionKey, isClient);
@@ -434,13 +451,17 @@ public class AuthPerfLink {
             // Send reply directly (no buffering for handshake)
             datagramSocket.send(reply.toDatagramPacket(addr));
 
-            // After handshake, initialize session for data transfer:
+            // After handshake, initialize session for data transfer (under lock to prevent
+            // races)
             // - Both sender and receiver start at seq 2 for first data packet
             // - Both expect seq 2 as well
-            session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=2, expectedSeqNum=2
-
-            // Mark session as established after sending reply
-            session.markConnectionEstablished();
+            synchronized (session) {
+                if (!session.isConnectionEstablished()) {
+                    session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=2, expectedSeqNum=2
+                    // Mark session as established ONLY after sequence numbers are set
+                    session.markConnectionEstablished();
+                }
+            }
 
             logger("Connection reply sent to: " + addr);
         } catch (Exception e) {
@@ -495,9 +516,11 @@ public class AuthPerfLink {
             SecretKey sessionKey = dh.computeSharedSecret(responderDHPublicKey);
             session.setSessionKey(sessionKey);
 
-            if (!session.isConnectionEstablished()) {
-                session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=2, expectedSeqNum=2
-                session.markConnectionEstablished();
+            synchronized (session) {
+                if (!session.isConnectionEstablished()) {
+                    session.setSequenceNumber(1); // Sets sendBase=1, nextSeqNum=2, expectedSeqNum=2
+                    session.markConnectionEstablished();
+                }
             }
 
             logger("Connection reply verified and session established with: " + addr);
@@ -519,16 +542,18 @@ public class AuthPerfLink {
                     return;
                 }
             }
-            if (!session.isConnectionEstablished()) {
-                logger("Dropping DATA from " + addr + " - handshake not yet complete for session "
-                        + session.getSenderID());
-                return;
-            }
             synchronized (session) {
 
                 String jsonWithoutHmac = msg.withoutHmac().toJsonString();
                 if (!verifyHmac(jsonWithoutHmac, msg.getHmac(), session, addr)) {
                     return;
+                }
+
+                // Successful HMAC proves both sides derived the same session key.
+                if (!session.isConnectionEstablished()) {
+                    session.setSequenceNumber(1);
+                    session.markConnectionEstablished();
+                    logger("Connection handshake completed upon first valid DATA from " + session.getSenderID());
                 }
 
                 // check if sender id is really the one it claims to be in the content
