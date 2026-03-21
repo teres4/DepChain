@@ -9,8 +9,10 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.fluent.EVMExecutor;
 import org.hyperledger.besu.evm.fluent.SimpleWorld;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import pt.tecnico.sec.account.Account;
 import pt.tecnico.sec.account.ContractAccount;
@@ -122,39 +124,82 @@ public class TransactionExecutor {
 
     // TODO run the bytecode, use EVM
     private boolean executeContractDeployment() {
+
         byte[] bytecode = transaction.getInput();
         executionContext.consumeGas(BASE_CONTRACT_DEPLOYMENT_COST);
         executionContext.consumeGas(GAS_PER_INPUT_BYTE * bytecode.length);
-
         // build a SimpleWorld with just the deployer account
         SimpleWorld simpleWorld = new SimpleWorld();
         Address senderAddress = Address.fromHexString(transaction.getFrom());
-        Account sender = accounts.get(transaction.getFrom());
-        simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
+        Account sender = accounts.get(transaction.getFrom().toLowerCase());
 
+        if (sender == null) {
+            throw new IllegalStateException("Sender account not found: " + transaction.getFrom());
+        }
+
+        simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
         // derive the contract address from deployer + nonce
         Address contractAddr = Address.contractAddress(senderAddress, sender.getNonce());
 
         // run the constructor through the EVM
         var executor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
+        executor.messageFrameType(MessageFrame.Type.CONTRACT_CREATION);
         executor.sender(senderAddress);
         executor.receiver(contractAddr);
+        executor.contract(contractAddr);
         executor.code(Bytes.wrap(bytecode)); // full constructor bytecode
         executor.callData(Bytes.EMPTY);
         executor.gas(transaction.getGasLimit());
-        executor.worldUpdater(simpleWorld.updater());
-        executor.execute();
+        WorldUpdater deploymentUpdater = simpleWorld.updater();
+        executor.worldUpdater(deploymentUpdater);
         executor.commitWorldState();
+        Bytes constructorOutput = executor.execute();
 
-        // read the runtime bytecode that the constructor returned
-        // Besu stores it in the contract account's code field after execution
-        MutableAccount besuContract = (MutableAccount) simpleWorld.get(contractAddr);
+        MutableAccount besuContract = deploymentUpdater.getAccount(contractAddr);
+        if (besuContract == null) {
+            besuContract = (MutableAccount) simpleWorld.get(contractAddr);
+        }
+        if (besuContract == null) {
+            // Some callers provide runtime bytecode instead of init bytecode.
+            // Retry by wrapping runtime code in a minimal init-code prelude.
+            byte[] wrappedInitCode = wrapRuntimeCodeAsInitCode(bytecode);
+            if (wrappedInitCode.length != bytecode.length) {
+                simpleWorld = new SimpleWorld();
+                simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
+
+                var retryExecutor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
+                retryExecutor.messageFrameType(MessageFrame.Type.CONTRACT_CREATION);
+                retryExecutor.sender(senderAddress);
+                retryExecutor.receiver(contractAddr);
+                retryExecutor.contract(contractAddr);
+                retryExecutor.code(Bytes.wrap(wrappedInitCode));
+                retryExecutor.callData(Bytes.EMPTY);
+                retryExecutor.gas(transaction.getGasLimit());
+                WorldUpdater retryUpdater = simpleWorld.updater();
+                retryExecutor.worldUpdater(retryUpdater);
+                retryExecutor.commitWorldState();
+                constructorOutput = retryExecutor.execute();
+
+                besuContract = retryUpdater.getAccount(contractAddr);
+                if (besuContract == null) {
+                    besuContract = (MutableAccount) simpleWorld.get(contractAddr);
+                }
+            }
+        }
+        if (besuContract == null) {
+            throw new IllegalStateException(
+                    "Contract deployment did not create account at " + contractAddr.toHexString()
+                            + ". Constructor output: " + constructorOutput.toHexString());
+        }
+
+        // Besu stores runtime bytecode in the contract account after constructor
+        // execution.
         byte[] runtimeCode = besuContract.getCode().toArray();
 
         // extract storage written by constructor (e.g. the 100M IST mint)
         Map<String, String> initialStorage = new HashMap<>();
-        besuContract.storageEntriesFrom(UInt256.ZERO, Integer.MAX_VALUE)
-                .forEach((k, v) -> initialStorage.put(k.toHexString(), ((Bytes) v).toHexString()));
+        besuContract.getUpdatedStorage()
+                .forEach((k, v) -> initialStorage.put(k.toHexString(), v.toHexString()));
 
         // create your ContractAccount with runtime code + initial storage
         ContractAccount contractAccount = new ContractAccount(
@@ -165,9 +210,6 @@ public class TransactionExecutor {
                 initialStorage);
         accounts.put(contractAddr.toHexString(), contractAccount);
 
-        // increment sender nonce
-        sender.incrementNonce();
-
         return true;
     }
 
@@ -175,7 +217,7 @@ public class TransactionExecutor {
         executionContext.consumeGas(BASE_CONTRACT_CALL_COST);
         executionContext.consumeGas(GAS_PER_INPUT_BYTE * transaction.getInput().length);
 
-        String contractAddress = transaction.getTo();
+        String contractAddress = transaction.getTo().toLowerCase();
         Account account = accounts.get(contractAddress);
 
         if (!(account instanceof ContractAccount)) {
@@ -189,11 +231,10 @@ public class TransactionExecutor {
         Address senderAddress = Address.fromHexString(transaction.getFrom());
         Address contractAddr = Address.fromHexString(contractAddress);
 
-        Account sender = accounts.get(transaction.getFrom());
+        Account sender = accounts.get(transaction.getFrom().toLowerCase());
         simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
         simpleWorld.createAccount(contractAddr, 0, Wei.of(contract.getBalance()));
 
-        //
         MutableAccount besuContract = (MutableAccount) simpleWorld.get(contractAddr);
         for (Map.Entry<String, String> entry : contract.getStorage().entrySet()) {
             besuContract.setStorageValue(
@@ -206,21 +247,50 @@ public class TransactionExecutor {
                 org.apache.tuweni.bytes.Bytes.wrap(contract.getRuntimeCode()).toHexString()));
         executor.sender(senderAddress);
         executor.receiver(contractAddr);
-        executor.worldUpdater(simpleWorld.updater());
-
+        WorldUpdater callUpdater = simpleWorld.updater();
+        executor.worldUpdater(callUpdater);
+        executor.commitWorldState();
         executor.callData(Bytes.wrap(transaction.getInput()));
         executor.execute();
-        executor.commitWorldState();
-        Map<String, String> updatedStorage = new HashMap<>();
-        for (Map.Entry<String, String> entry : contract.getStorage().entrySet()) {
-            UInt256 slot = UInt256.fromHexString(entry.getKey());
-            UInt256 updatedValue = simpleWorld.get(contractAddr).getStorageValue(slot);
-            updatedStorage.put(entry.getKey(), updatedValue.toHexString());
+        Map<String, String> updatedStorage = new HashMap<>(contract.getStorage());
+        MutableAccount updatedContract = (MutableAccount) callUpdater.get(contractAddr);
+        if (updatedContract != null) {
+            updatedContract.getUpdatedStorage()
+                    .forEach((k, v) -> updatedStorage.put(k.toHexString(), v.toHexString()));
         }
         contract.updateStorage(updatedStorage);
         accounts.put(contractAddress, contract);
 
         return true;
+    }
+
+    private byte[] wrapRuntimeCodeAsInitCode(byte[] runtimeCode) {
+        if (runtimeCode == null || runtimeCode.length == 0) {
+            return new byte[0];
+        }
+        if (runtimeCode.length > 0xFFFF) {
+            throw new IllegalArgumentException("Runtime code too large for PUSH2 init wrapper: " + runtimeCode.length);
+        }
+
+        int size = runtimeCode.length;
+        byte sizeHi = (byte) ((size >> 8) & 0xFF);
+        byte sizeLo = (byte) (size & 0xFF);
+
+        // PUSH2 size; PUSH2 0x000d; PUSH0; CODECOPY; PUSH2 size; PUSH0; RETURN
+        byte[] prefix = new byte[] {
+                0x61, sizeHi, sizeLo,
+                0x61, 0x00, 0x0d,
+                0x5f,
+                0x39,
+                0x61, sizeHi, sizeLo,
+                0x5f,
+                (byte) 0xf3
+        };
+
+        byte[] initCode = new byte[prefix.length + runtimeCode.length];
+        System.arraycopy(prefix, 0, initCode, 0, prefix.length);
+        System.arraycopy(runtimeCode, 0, initCode, prefix.length, runtimeCode.length);
+        return initCode;
     }
 
 }
