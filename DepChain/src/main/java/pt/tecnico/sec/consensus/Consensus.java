@@ -784,7 +784,7 @@ public class Consensus {
                 // if we receive a prepare message with an invalid command,
                 // the leader is probably byzantine and injected a command, so we trigger a view
                 // change
-                System.err.println("Received PREPARE with invalid command: " + prepareMessage.getNode().getCommand());
+                // System.err.println("Received PREPARE with invalid command: " + prepareMessage.getNode().getCommand());
                 onLeaderInactive();
             } catch (Exception e) {
                 System.err.println("Failed to start new view after detecting invalid command: " + e.getMessage());

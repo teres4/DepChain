@@ -1,7 +1,5 @@
 package pt.tecnico.sec.apl.message;
 
-import java.sql.Connection;
-
 public class ConnectionRequestMessage extends Message {
     private final byte[] dhPublicKey; // Sender's DH public key
     private final String signature;

@@ -50,16 +50,33 @@ public abstract class Message {
     }
 
     public static Message fromPacket(DatagramPacket packet) {
+        byte[] raw = packet.getData();
+        int len = packet.getLength();
+        byte peek = raw[0];
+
+        // Check if first byte is a valid binary type tag
+        MessageType[] types = MessageType.values();
+        if (peek >= 0 && peek < types.length) {
+            MessageType peekedType = types[peek];
+            if (peekedType == MessageType.DATA) {
+                byte[] data = java.util.Arrays.copyOf(raw, len);
+                return DataMessage.fromBytes(data);
+            }
+            if (peekedType == MessageType.ACK) {
+                byte[] data = java.util.Arrays.copyOf(raw, len);
+                return DataACKMessage.fromBytes(data);
+            }
+        }
+
+        // Fall back to JSON for CONNECTION_REQUEST and CONNECTION_ACK
         Gson gson = new Gson();
-        String json = new String(packet.getData(), 0, packet.getLength());
+        String json = new String(raw, 0, len);
 
         MessageType type = gson.fromJson(json, TypeOnly.class).type;
 
         return switch (type) {
             case CONNECTION_REQUEST -> gson.fromJson(json, ConnectionRequestMessage.class);
             case CONNECTION_ACK -> gson.fromJson(json, ConnectionACKMessage.class);
-            case DATA -> gson.fromJson(json, DataMessage.class);
-            case ACK -> gson.fromJson(json, DataACKMessage.class);
             default -> throw new IllegalArgumentException("Unknown message type: " + type);
         };
     }

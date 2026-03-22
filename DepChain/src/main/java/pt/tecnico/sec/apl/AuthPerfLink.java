@@ -6,15 +6,16 @@ import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 import javax.crypto.SecretKey;
 
@@ -40,6 +41,7 @@ public class AuthPerfLink {
     }
 
     public static final int BUFFER_SIZE = 65536; // Maximum UDP packet size
+    public static final int FRAGMENT_SIZE = 60000; // Size of each fragment
 
     private final long ownId;
     private final PrivateKey privateKey;
@@ -52,8 +54,8 @@ public class AuthPerfLink {
     private final MemberManager memberManagement;
 
     private final AtomicBoolean running = new AtomicBoolean(true);
-
-    private final ConcurrentLinkedQueue<Message> incomingMessages = new ConcurrentLinkedQueue<>();
+ 
+    private final AtomicLong messageIdCounter = new AtomicLong(0);
 
     private ConsensusMessageListener consensusMessageListener; // separate listener for consensus messages
     // with client commands
@@ -143,17 +145,39 @@ public class AuthPerfLink {
             if (session == null) {
                 session = startConnection(receiverID);
             }
-            long seqNum = session.getAndAdvanceSequenceNumber();
-            logger("SENDING DATA with seqNum=" + seqNum + " to ID: " + receiverID
-                    + " (nextSeqNum was " + seqNum + ", now " + (seqNum + 1) + ")");
-            DataMessage signedDataMessage = buildDataMessage(seqNum,
-                    content,
-                    session.getSessionKey());
-            send(signedDataMessage, receiverID);
-            logger("DATA sent to ID: " + receiverID);
+ 
+            long messageId = messageIdCounter.getAndIncrement();
+
+            if (content.length <= FRAGMENT_SIZE) {
+                // single fragment 
+                sendFragment(session, receiverID, messageId, 0, 1, content);
+            } else {
+                // split into fragments and send each one
+                int totalFragments = (int) Math.ceil((double) content.length / FRAGMENT_SIZE);
+
+                for (int i = 0; i < totalFragments; i++) {
+                    int offset = i * FRAGMENT_SIZE;
+                    int length = Math.min(FRAGMENT_SIZE, content.length - offset);
+                    byte[] chunk = Arrays.copyOfRange(content, offset, offset + length);
+                    System.err.println("Sending fragment " + (i + 1) + "/" + totalFragments + " for message " + messageId
+                            + " to ID: " + receiverID);
+                    sendFragment(session, receiverID, messageId, i, totalFragments, chunk);
+                }
+                logger("Sent message " + messageId + " as " + totalFragments
+                        + " fragments to ID: " + receiverID);
+            }
         } catch (Exception e) {
             System.err.println("Failed to send DATA: " + e.getMessage());
         }
+    }
+
+    private void sendFragment(Session session, long receiverID, long messageId, int fragmentIndex, 
+                                int totalFragments, byte[] fragmentData) throws Exception {
+        long seqNum = session.getAndAdvanceSequenceNumber();
+        DataMessage msg = buildDataMessage(seqNum, fragmentData, session.getSessionKey(),
+                                           messageId, fragmentIndex, totalFragments);
+        
+        send(msg, receiverID);
     }
 
     public void startConnectionWithAllMembers() {
@@ -544,8 +568,7 @@ public class AuthPerfLink {
             }
             synchronized (session) {
 
-                String jsonWithoutHmac = msg.withoutHmac().toJsonString();
-                if (!verifyHmac(jsonWithoutHmac, msg.getHmac(), session, addr)) {
+                if (!verifyDataMessageHmac(msg, session, addr))  {
                     return;
                 }
 
@@ -556,45 +579,62 @@ public class AuthPerfLink {
                     logger("Connection handshake completed upon first valid DATA from " + session.getSenderID());
                 }
 
-                // check if sender id is really the one it claims to be in the content
-                try {
-                    String contentStr = new String(msg.getContent());
-                    // search for senderId in content and verify it matches session senderId
-                    if (contentStr.contains("senderId")) {
-                        String[] parts = contentStr.split("senderId\":");
-                        if (parts.length > 1) {
-                            String senderIdStr = parts[1].split("[,}]")[0].trim();
-                            long senderId = Long.parseLong(senderIdStr);
-                            if (senderId != session.getSenderID()) {
-                                System.err
-                                        .println(
-                                                "Sender ID in content does not match session sender ID for: "
-                                                        + addr);
-                                return;
+                // Sender ID check: only valid for non-fragmented messages
+                if (msg.getTotalFragments() == 1) {
+                    try {
+                        String contentStr = new String(msg.getContent());
+                        if (contentStr.contains("senderId")) {
+                            String[] parts = contentStr.split("senderId\":");
+                            if (parts.length > 1) {
+                                String senderIdStr = parts[1].split("[,}]")[0].trim();
+                                long senderId = Long.parseLong(senderIdStr);
+                                if (senderId != session.getSenderID()) {
+                                    System.err.println(
+                                            "Sender ID in content does not match session sender ID for: " + addr);
+                                    return;
+                                }
                             }
                         }
+                    } catch (Exception e) {
+                        System.err.println(
+                                "Failed to verify sender ID in content for: " + addr + " - " + e.getMessage());
+                        return;
                     }
-                } catch (Exception e) {
-                    System.err.println(
-                            "Failed to verify sender ID in content for: " + addr + " - " + e.getMessage());
-                    return;
                 }
 
                 // In Selective Repeat: ACK immediately upon receipt (before buffering)
                 sendDataAck(session, msg.getSequenceNumber());
 
                 // Then buffer and deliver in-order packets
-                deliverMessagesInOrder(session.addReceivedPacket(msg), session);
+                List<DataMessage> ordered = session.addReceivedPacket(msg);
+ 
+                // reassemble fragments before delivering to application
+                for (DataMessage orderedMsg : ordered) {
+                    tryReassembleAndDeliver(orderedMsg, session);
+                }
             }
         } catch (Exception e) {
             System.err.println("Failed to handle DATA message from: " + addr + " - " + e.getMessage());
         }
     }
 
-    private void deliverMessagesInOrder(List<DataMessage> messages, Session session) {
-        for (DataMessage msg : messages) {
+    private void tryReassembleAndDeliver(DataMessage msg, Session session) {
+        if (msg.getTotalFragments() == 1) {
             deliverData(msg, session);
-            // ACK already sent immediately upon receipt in handleData()
+            return;
+        }
+
+        byte[] reassembled = session.addFragment(
+            msg.getMessageId(), msg.getFragmentIndex(),
+            msg.getTotalFragments(), msg.getContent()
+        );
+
+        if (reassembled != null) {
+            DataMessage complete = new DataMessage(
+                msg.getSequenceNumber(), reassembled, msg.getHmac(),
+                session.getSenderID(), msg.getMessageId(), 0, 1
+            );
+            deliverData(complete, session);
         }
     }
 
@@ -629,9 +669,11 @@ public class AuthPerfLink {
             if (!session.isConnectionEstablished())
                 return;
 
-            if (!verifyHmac(msg.withoutHmac().toJsonString(), msg.getHmac(), session, addr))
+            byte[] expectedHmac = Crypto.generateHMAC(session.getSessionKey(), msg.toSignableBytes());
+            if (!java.util.Arrays.equals(expectedHmac, msg.getHmac())) {
+                System.err.println("HMAC verification failed for ACK from: " + addr);
                 return;
-
+            }
             long ackNum = msg.getSequenceNumber();
             synchronized (session) {
                 session.handleAck(ackNum);
@@ -739,15 +781,19 @@ public class AuthPerfLink {
 
     // build message helpers
 
-    private DataMessage buildDataMessage(long seqNum, byte[] content, SecretKey sessionKey) throws Exception {
-        DataMessage msg = new DataMessage(seqNum, content, null, this.ownId);
-        return new DataMessage(seqNum, content, Crypto.generateHMAC(sessionKey, msg.toJsonString().getBytes()),
-                this.ownId);
+    private DataMessage buildDataMessage(long seqNum, byte[] content, SecretKey sessionKey, 
+                            long messageId, int fragmentIndex, int totalFragments) throws Exception {
+
+        DataMessage msgWithoutHmac = new DataMessage(seqNum, content, null, this.ownId,
+                                                    messageId, fragmentIndex, totalFragments);
+        byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toSignableBytes());
+        return new DataMessage(seqNum, content, hmac, this.ownId,
+                            messageId, fragmentIndex, totalFragments);
     }
 
     private DataACKMessage buildDataAck(long seqNum, SecretKey sessionKey) throws Exception {
         DataACKMessage msgWithoutHmac = new DataACKMessage(seqNum, null, this.ownId);
-        byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toJsonString().getBytes());
+        byte[] hmac = Crypto.generateHMAC(sessionKey, msgWithoutHmac.toSignableBytes());
         return new DataACKMessage(seqNum, hmac, this.ownId);
     }
 
@@ -769,6 +815,18 @@ public class AuthPerfLink {
             if (!isValid)
                 System.err.println("HMAC verification failed from: " + addr);
             return isValid;
+        } catch (Exception e) {
+            System.err.println("HMAC verification error from: " + addr + " - " + e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean verifyDataMessageHmac(DataMessage msg, Session session, InetSocketAddress addr) {
+        try {
+            byte[] expected = Crypto.generateHMAC(session.getSessionKey(), msg.withoutHmac().toSignableBytes());
+            boolean valid   = java.util.Arrays.equals(expected, msg.getHmac());
+            if (!valid) System.err.println("HMAC verification failed from: " + addr);
+            return valid;
         } catch (Exception e) {
             System.err.println("HMAC verification error from: " + addr + " - " + e.getMessage());
             return false;

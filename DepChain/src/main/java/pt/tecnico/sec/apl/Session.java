@@ -1,15 +1,14 @@
 package pt.tecnico.sec.apl;
 
 import java.net.InetSocketAddress;
-import java.sql.Time;
 import java.util.List;
 import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 
 import javax.crypto.SecretKey;
-import javax.xml.crypto.Data;
 
 import pt.tecnico.sec.apl.message.DataMessage;
 import pt.tecnico.sec.utils.DHKeyAgreement;
@@ -27,6 +26,8 @@ public class Session {
     private final Map<Long, Timer> sendTimers = new TreeMap<>(); // timers for received packets (for ACKs)
     private final Map<Long, Runnable> timeoutHandlers = new TreeMap<>(); // timeout handlers for each sequence number
     private final long timeout; // timeout in milliseconds
+
+    private final ConcurrentHashMap<Long, FragmentAccumulator> fragments = new ConcurrentHashMap<>();
 
     private long expectedSeqNum; // last in-order received packet + 1 (the next expected sequence number)
 
@@ -305,4 +306,43 @@ public class Session {
         // If it's beyond the window, drop it
         return deliverable;
     }
+
+    public byte[] addFragment(long messageId, int fragmentIndex, int totalFragments, byte[] data) {
+        FragmentAccumulator acc = fragments.computeIfAbsent(messageId, id -> new FragmentAccumulator(totalFragments));
+
+        if (acc.parts[fragmentIndex] == null) {
+            acc.parts[fragmentIndex] = data;
+            acc.count++;
+        }
+
+        // if not all fragments received yet, return null
+        if (acc.count < totalFragments) 
+            return null;
+
+        // reassemble
+        int total = 0;
+        for (byte[] f : acc.parts)
+            total += f.length;
+
+        byte[] result = new byte[total];
+        int offset = 0;
+        
+        for (byte[] f : acc.parts) {
+            System.arraycopy(f, 0, result, offset, f.length);
+            offset += f.length;
+        }
+
+        fragments.remove(messageId);
+        return result;
+    }
+
+    private static final class FragmentAccumulator {
+        final byte[][] parts;
+        int count;
+
+        FragmentAccumulator(int totalFragments) {
+            this.parts = new byte[totalFragments][];
+        }
+    }
+
 }
