@@ -167,6 +167,27 @@ public interface Crypto {
         return ret;
     }
 
+    public static Long getClientIdFromAddress(String address) throws Exception {
+        String configFile = KeyType.CLIENT.getDirectory() + "/config.json";
+        String configContent = new String(Files.readAllBytes(Paths.get(configFile)));
+
+        JsonObject root = JsonParser.parseString(configContent).getAsJsonObject();
+        JsonArray members = root.getAsJsonArray("members");
+        if (members == null) {
+            return null;
+        }
+
+        for (JsonElement memberElement : members) {
+            JsonObject member = memberElement.getAsJsonObject();
+            String memberAddress = member.get("address").getAsString();
+            if (memberAddress.equalsIgnoreCase(address)) {
+                return Long.parseLong(member.get("id").getAsString());
+            }
+        }
+
+        return null;
+    }
+
     public static boolean clientKeysExist(long clientId) {
         try {
             Path pub = Paths.get(KeyType.CLIENT.getDirectory(), "public_key" + clientId + ".pem");

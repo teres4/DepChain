@@ -15,7 +15,7 @@ import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.blockchain.Block;
 import pt.tecnico.sec.blockchain.Blockchain;
 import pt.tecnico.sec.blockchain.Transaction;
-import pt.tecnico.sec.client.message.Command;
+import pt.tecnico.sec.client.message.*;
 import pt.tecnico.sec.client.message.CommandResponse;
 import pt.tecnico.sec.utils.Crypto;
 
@@ -163,7 +163,7 @@ public class Replica {
             blockchain.addBlock(decidedBlock);
             removeExecutedFromMempool(decidedBlock);
 
-            notifyClients(decidedBlock);
+            notifyClient(decidedBlock);
 
         } catch (Exception e) {
             System.err.println("Failed to add decided block to state: " + e.getMessage());
@@ -196,11 +196,18 @@ public class Replica {
         }
     }
 
-    // TODO finish implementing client notification logic
-    private void notifyClients(Block block) {
-        for (Transaction tx : block.getTransactions()) {
-            // TODO how do we know the clientId to send the response to?
-            // sendResponseToClient(senderId, tx.getNonce(), tx.getSuccess(), result);
+    private void notifyClient(Block block) {
+        if (block != null) {
+            for (Transaction tx : block.getTransactions()) {
+                String sender = tx.getFrom().toLowerCase();
+                try {
+                    long clientId = Crypto.getClientIdFromAddress(sender);
+                    String result = "Transaction included in block " + block.getBlockNumber() + "\nTransfer amount: " + tx.getAmount() + "\nCurrent balance: " + blockchain.getAccount(sender).getBalance();
+                    sendResponseToClient(clientId, tx.getNonce(), true, result);
+                } catch (Exception e) {
+                    System.err.println("Failed to notify client for transaction " + tx.getHash() + ": " + e.getMessage());
+                }
+            }
         }
     }
 
@@ -220,32 +227,6 @@ public class Replica {
         }
     }
 
-    // private boolean checkCommandFormat(String commandJson) {
-    // try {
-    // Command cmd = Command.fromJson(commandJson);
-    // return cmd.getType() != null && cmd.getSenderId() > 0 && cmd.getNonce() >= 0
-    // && checkCommandSignature(cmd);
-    // } catch (Exception e) {
-    // return false;
-    // }
-    // }
-
-    // private boolean checkCommandSignature(Command cmd) {
-    // String contentToVerify = cmd.getType().toString() + ":" + cmd.getSenderId() +
-    // ":"
-    // + cmd.getContent() + ":" + cmd.getNonce();
-    // try {
-    // PublicKey clientPubKey = Crypto.getClientPublicKey(cmd.getSenderId());
-    // return Crypto.verifySignature(contentToVerify.getBytes(), cmd.getSignature(),
-    // clientPubKey);
-    // } catch (Exception e) {
-    // System.err.println("Failed to verify command signature: " + e.getMessage());
-    // return false;
-    // }
-    // }
-
-    // TODO finish implementing signature verification
-    // idk how to get the public key of the sender from the transaction
     private boolean verifyTransactionSignature(Transaction tx) {
         try {
             if (tx.getSignature() == null || tx.getSignature().length == 0) {
