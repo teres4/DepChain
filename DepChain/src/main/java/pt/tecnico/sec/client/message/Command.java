@@ -10,7 +10,7 @@ public class Command {
     private String content;
     private long senderId;
 
-    public Command(CommandType type, long senderId, String content, String signature, long nonce) {
+    public Command(CommandType type, long senderId, String content, String signature) {
         this.type = type;
         this.content = content;
         this.senderId = senderId;

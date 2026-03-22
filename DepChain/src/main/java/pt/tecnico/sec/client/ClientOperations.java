@@ -54,7 +54,7 @@ public class ClientOperations {
         String signableContent = CommandType.APPEND + ":" + this.clientId + ":" + stringToAppend + ":" + this.nonce;
         String signature = Crypto.signMessage(signableContent, clientPrivKey);
 
-        Command appendCommand = new Command(CommandType.APPEND, this.clientId, stringToAppend, signature, this.nonce);
+        Command appendCommand = new Command(CommandType.APPEND, this.clientId, stringToAppend, signature);
         String commandJson = appendCommand.toJson();
 
         // Clear previous responses and set current nonce
@@ -152,8 +152,7 @@ public class ClientOperations {
         // serialize and send
         String txJson = new Gson().toJson(tx);
 
-        Command command = new Command(CommandType.TRANSFERDEPCOIN, this.clientId, txJson, base64Signature,
-                this.nonce);
+        Command command = new Command(CommandType.TRANSFERDEPCOIN, this.clientId, txJson, base64Signature);
 
         // TODO: will the client be able to send multiple transactions?
         // or do we wait for the response like in stage 1?
@@ -216,8 +215,7 @@ public class ClientOperations {
 
         String txJson = new Gson().toJson(tx);
 
-        Command command = new Command(CommandType.TRANSFERDEPCOIN, this.clientId, txJson, base64Signature,
-                this.nonce);
+        Command command = new Command(CommandType.TRANSFERDEPCOIN, this.clientId, txJson, base64Signature);
 
         // TODO: will the client be able to send multiple transactions?
         // or do we wait for the response like in stage 1?
