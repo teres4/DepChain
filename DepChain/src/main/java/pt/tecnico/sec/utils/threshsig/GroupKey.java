@@ -13,7 +13,6 @@ import java.io.Serializable;
  * @author Steve Weis <sweis@mit.edu>
  */
 
-// TODO: Investigate the security of reusing the key parameters (q,p) with a
 // new Poly, since they are computationally expensive
 public class GroupKey implements Serializable{
 

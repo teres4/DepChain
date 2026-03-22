@@ -26,14 +26,12 @@ public class KeyShare implements Serializable{
   private BigInteger verifier;
   private BigInteger groupVerifier;
   
-  // TODO: This information should be moved to a GroupKey object
   // It's redundant to put into every share
   private BigInteger n;
   private final BigInteger delta;
 
   /** The secret key value used to sign messages. Should not be exposed */
   private BigInteger signVal;
-  // TODO: Maybe get a better id scheme. Use verifier?
   private int id;
 
   // TODO-Rand: This is klunky.
@@ -62,7 +60,6 @@ public class KeyShare implements Serializable{
     this.secret = secret;
 
     // Verifier must be set later using setVerifier()
-    // TODO: Merge Dealer.generateShares and Dealer.generateVerifiers
     // and generate them simultaneously
     verifier = null;
 

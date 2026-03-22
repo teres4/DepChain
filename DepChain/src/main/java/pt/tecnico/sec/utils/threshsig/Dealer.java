@@ -150,7 +150,6 @@ public class Dealer {
    * @return An array of l secret shares
    * @throws ThresholdSigException
    */
-  // TODO: Merge Dealer.generateShares and Dealer.generateVerifiers
   // and generate them simultaneously
   private KeyShare[] generateKeyShares(final BigInteger d, final BigInteger m, final int k,
       final int l, final BigInteger n) {
@@ -191,7 +190,6 @@ public class Dealer {
    * 
    * @return the group verifier
    */
-  // TODO: Merge Dealer.generateShares and Dealer.generateVerifiers
   // and generate them simultaneously
   private BigInteger generateVerifiers(final BigInteger n, final KeyShare[] secrets) {
     debug("Generating Verifiers");

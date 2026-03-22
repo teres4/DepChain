@@ -141,7 +141,6 @@ public class SigShare implements Serializable{
 
           final BigInteger xtildez = xtilde.modPow(ver.getZ(), n);
 
-          // TODO: CHECK PAPER!
           final BigInteger xineg2c = xi.modPow(ver.getC(), n).modInverse(n);
           // According to Shoup, pg. 8 this should be:
           // xi.modPow(TWO,n).modPow(ver.getC(),n).modInverse(n);
@@ -235,7 +234,6 @@ public class SigShare implements Serializable{
 
             final BigInteger xtildez = xtilde.modPow(ver.getZ(), n);
 
-            // TODO: CHECK PAPER!
             final BigInteger xineg2c = xi.modPow(ver.getC(), n).modInverse(n);
             // According to Shoup, pg. 8 this should be:
             // xi.modPow(TWO,n).modPow(ver.getC(),n).modInverse(n);
