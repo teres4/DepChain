@@ -12,8 +12,11 @@ import java.util.Map;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonDeserializer;
 
 import pt.tecnico.sec.account.Account;
+import pt.tecnico.sec.account.ContractAccount;
+import pt.tecnico.sec.account.EOAccount;
 
 public class Block {
     private final String previousBlockHash;
@@ -70,7 +73,15 @@ public class Block {
 
     // deserialize block from JSON
     public static Block fromJson(String json) {
-        Gson gson = new Gson();
+        JsonDeserializer<Account> accountAdapter = (el, type, ctx) -> {
+            if (el.getAsJsonObject().has("runtimecode") || el.getAsJsonObject().has("storage")) {
+                return ctx.deserialize(el, ContractAccount.class);
+            }
+            return ctx.deserialize(el, EOAccount.class);
+        };
+        Gson gson = new GsonBuilder()
+            .registerTypeAdapter(Account.class, accountAdapter)
+            .create();
         return gson.fromJson(json, Block.class);
     }
 
