@@ -202,7 +202,7 @@ public class Replica {
                 String sender = tx.getFrom().toLowerCase();
                 try {
                     long clientId = Crypto.getClientIdFromAddress(sender);
-                    String result = "Transaction included in block " + block.getBlockNumber() + "\nTransfer amount: " + tx.getAmount() + "\nCurrent balance: " + blockchain.getAccount(sender).getBalance();
+                    String result = "Transaction included in block " + block.getBlockNumber() + "\nTransfer amount: " + tx.getAmount() + "\nGas used: " + tx.getGasUsed() + "\nCurrent balance: " + blockchain.getAccount(sender).getBalance();
                     sendResponseToClient(clientId, tx.getNonce(), true, result);
                 } catch (Exception e) {
                     System.err.println("Failed to notify client for transaction " + tx.getHash() + ": " + e.getMessage());
