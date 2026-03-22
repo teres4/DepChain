@@ -1,6 +1,7 @@
 package pt.tecnico.sec.blockchain;
 
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.Map;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -124,46 +125,58 @@ public class TransactionExecutor {
 
     // TODO run the bytecode, use EVM
     private boolean executeContractDeployment() {
+        System.out.println("[DEPLOY] Starting contract deployment from " + transaction.getFrom());
 
         byte[] bytecode = transaction.getInput();
+        System.out.println("[DEPLOY] Bytecode length: " + bytecode.length + " bytes");
+
         executionContext.consumeGas(BASE_CONTRACT_DEPLOYMENT_COST);
         executionContext.consumeGas(GAS_PER_INPUT_BYTE * bytecode.length);
-        // build a SimpleWorld with just the deployer account
+        System.out.println("[DEPLOY] Gas consumed for deployment base + bytecode: " 
+            + (BASE_CONTRACT_DEPLOYMENT_COST + GAS_PER_INPUT_BYTE * bytecode.length));
+
         SimpleWorld simpleWorld = new SimpleWorld();
         Address senderAddress = Address.fromHexString(transaction.getFrom());
         Account sender = accounts.get(transaction.getFrom().toLowerCase());
 
         if (sender == null) {
+            System.err.println("[DEPLOY] Sender account not found: " + transaction.getFrom());
             throw new IllegalStateException("Sender account not found: " + transaction.getFrom());
         }
+        System.out.println("[DEPLOY] Sender balance: " + sender.getBalance() 
+            + ", nonce: " + sender.getNonce());
 
         simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
-        // derive the contract address from deployer + nonce
+        System.out.println("[DEPLOY] Using nonce for address derivation: " + sender.getNonce());
         Address contractAddr = Address.contractAddress(senderAddress, sender.getNonce());
+        System.out.println("[DEPLOY] Derived contract address: " + contractAddr.toHexString());
 
-        // run the constructor through the EVM
         var executor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
         executor.messageFrameType(MessageFrame.Type.CONTRACT_CREATION);
         executor.sender(senderAddress);
         executor.receiver(contractAddr);
         executor.contract(contractAddr);
-        executor.code(Bytes.wrap(bytecode)); // full constructor bytecode
+        executor.code(Bytes.wrap(bytecode));
         executor.callData(Bytes.EMPTY);
         executor.gas(transaction.getGasLimit());
         WorldUpdater deploymentUpdater = simpleWorld.updater();
         executor.worldUpdater(deploymentUpdater);
         executor.commitWorldState();
+
+        System.out.println("[DEPLOY] Executing constructor...");
         Bytes constructorOutput = executor.execute();
+        System.out.println("[DEPLOY] Constructor output length: " + constructorOutput.size() + " bytes");
 
         MutableAccount besuContract = deploymentUpdater.getAccount(contractAddr);
         if (besuContract == null) {
             besuContract = (MutableAccount) simpleWorld.get(contractAddr);
         }
+
         if (besuContract == null) {
-            // Some callers provide runtime bytecode instead of init bytecode.
-            // Retry by wrapping runtime code in a minimal init-code prelude.
+            System.out.println("[DEPLOY] Contract not found after first attempt, retrying with wrapped init code...");
             byte[] wrappedInitCode = wrapRuntimeCodeAsInitCode(bytecode);
             if (wrappedInitCode.length != bytecode.length) {
+                System.out.println("[DEPLOY] Wrapped init code length: " + wrappedInitCode.length + " bytes");
                 simpleWorld = new SimpleWorld();
                 simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
 
@@ -179,6 +192,7 @@ public class TransactionExecutor {
                 retryExecutor.worldUpdater(retryUpdater);
                 retryExecutor.commitWorldState();
                 constructorOutput = retryExecutor.execute();
+                System.out.println("[DEPLOY] Retry constructor output length: " + constructorOutput.size() + " bytes");
 
                 besuContract = retryUpdater.getAccount(contractAddr);
                 if (besuContract == null) {
@@ -186,48 +200,60 @@ public class TransactionExecutor {
                 }
             }
         }
+
         if (besuContract == null) {
+            System.err.println("[DEPLOY] Failed — no contract account at " + contractAddr.toHexString());
             throw new IllegalStateException(
                     "Contract deployment did not create account at " + contractAddr.toHexString()
                             + ". Constructor output: " + constructorOutput.toHexString());
         }
 
-        // Besu stores runtime bytecode in the contract account after constructor
-        // execution.
         byte[] runtimeCode = besuContract.getCode().toArray();
+        System.out.println("[DEPLOY] Runtime code length: " + runtimeCode.length + " bytes");
 
-        // extract storage written by constructor (e.g. the 100M IST mint)
         Map<String, String> initialStorage = new HashMap<>();
         besuContract.getUpdatedStorage()
                 .forEach((k, v) -> initialStorage.put(k.toHexString(), v.toHexString()));
+        System.out.println("[DEPLOY] Initial storage slots written: " + initialStorage.size());
+        initialStorage.forEach((k, v) -> System.out.println("[DEPLOY]   [" + k + "] = " + v));
 
-        // create your ContractAccount with runtime code + initial storage
         ContractAccount contractAccount = new ContractAccount(
                 contractAddr.toHexString(),
-                100000000, // TODO: 100 million
-                sender.getNonce(), // nonce at time of deploy
+                100000000,
+                sender.getNonce(),
                 runtimeCode,
                 initialStorage);
         accounts.put(contractAddr.toHexString(), contractAccount);
 
+        System.out.println("[DEPLOY] Contract deployed successfully at " + contractAddr.toHexString());
         return true;
     }
 
     private boolean executeContractCall() {
+        System.out.println("[CALL] Starting contract call from " + transaction.getFrom() 
+            + " to " + transaction.getTo());
+        System.out.println("[CALL] Input length: " + transaction.getInput().length + " bytes");
+        System.out.println("[CALL] Calldata (hex): " 
+            + HexFormat.of().formatHex(transaction.getInput()));
+
         executionContext.consumeGas(BASE_CONTRACT_CALL_COST);
         executionContext.consumeGas(GAS_PER_INPUT_BYTE * transaction.getInput().length);
+        System.out.println("[CALL] Gas consumed for call base + input: "
+            + (BASE_CONTRACT_CALL_COST + GAS_PER_INPUT_BYTE * transaction.getInput().length));
 
         String contractAddress = transaction.getTo().toLowerCase();
         Account account = accounts.get(contractAddress);
 
         if (!(account instanceof ContractAccount)) {
+            System.err.println("[CALL] Target is not a contract: " + contractAddress);
             throw new IllegalStateException("Target is not a contract: " + contractAddress);
         }
 
         ContractAccount contract = (ContractAccount) account;
+        System.out.println("[CALL] Contract storage slots before call: " + contract.getStorage().size());
+        contract.getStorage().forEach((k, v) -> System.out.println("[CALL]   [" + k + "] = " + v));
 
         SimpleWorld simpleWorld = new SimpleWorld();
-
         Address senderAddress = Address.fromHexString(transaction.getFrom());
         Address contractAddr = Address.fromHexString(contractAddress);
 
@@ -241,26 +267,43 @@ public class TransactionExecutor {
                     UInt256.fromHexString(entry.getKey()),
                     UInt256.fromHexString(entry.getValue()));
         }
+        System.out.println("[CALL] Loaded " + contract.getStorage().size() + " storage slots into EVM world");
 
         var executor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
         executor.code(Bytes.fromHexString(
                 org.apache.tuweni.bytes.Bytes.wrap(contract.getRuntimeCode()).toHexString()));
         executor.sender(senderAddress);
         executor.receiver(contractAddr);
+        executor.contract(contractAddr);
         WorldUpdater callUpdater = simpleWorld.updater();
         executor.worldUpdater(callUpdater);
         executor.commitWorldState();
         executor.callData(Bytes.wrap(transaction.getInput()));
+
+        System.out.println("[CALL] Executing EVM call...");
         executor.execute();
+        System.out.println("[CALL] EVM execution complete");
+
         Map<String, String> updatedStorage = new HashMap<>(contract.getStorage());
         MutableAccount updatedContract = (MutableAccount) callUpdater.get(contractAddr);
         if (updatedContract != null) {
             updatedContract.getUpdatedStorage()
                     .forEach((k, v) -> updatedStorage.put(k.toHexString(), v.toHexString()));
         }
+
+        System.out.println("[CALL] Storage slots changed by this call:");
+        updatedStorage.forEach((k, v) -> {
+            String before = contract.getStorage().getOrDefault(k, "(none)");
+            if (!v.equals(before)) {
+                System.out.println("[CALL]   [" + k + "] " + before + " -> " + v);
+            }
+        });
+        System.out.println("[CALL] Total storage slots after call: " + updatedStorage.size());
+
         contract.updateStorage(updatedStorage);
         accounts.put(contractAddress, contract);
 
+        System.out.println("[CALL] Contract call completed successfully");
         return true;
     }
 

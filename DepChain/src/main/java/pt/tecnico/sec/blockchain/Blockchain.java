@@ -83,7 +83,12 @@ public class Blockchain {
                     Map<String, String> storage = new HashMap<>();
                     JsonNode storageNode = accNode.get("storage");
                     if (storageNode != null) {
-                        // TODO do stuff. idk what goes into the storage field
+                        Iterator<String> storageKeys = storageNode.fieldNames();
+                        while (storageKeys.hasNext()) {
+                            String slot = storageKeys.next();
+                            String value = storageNode.get(slot).asText();
+                            storage.put(slot, value);
+                        }
                     }
                     accounts.put(address, new ContractAccount(address, balance, code, storage, nonce));
                 } else {

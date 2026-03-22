@@ -32,7 +32,7 @@ public class ClientOperations {
     private final int f; // Fault tolerance parameter
     private long nonce = 0; // To prevent replay attacks
 
-    public static final String IST_COIN_ADDRESS = "0xdddddddddddddddddddddddddddddddddddddddd";
+    public static final String IST_COIN_ADDRESS = "0x86b7efc7c33d883a69cb5d57c7580a699f5d15e6";
 
     private final ConcurrentLinkedQueue<CommandResponse> currentResponses = new ConcurrentLinkedQueue<>();
     private long currentNonce = -1;
@@ -215,7 +215,7 @@ public class ClientOperations {
 
         String txJson = new Gson().toJson(tx);
 
-        Command command = new Command(CommandType.TRANSFERDEPCOIN, this.clientId, txJson, base64Signature);
+        Command command = new Command(CommandType.TRANSFERISTCOIN, this.clientId, txJson, base64Signature);
 
         // TODO: will the client be able to send multiple transactions?
         // or do we wait for the response like in stage 1?

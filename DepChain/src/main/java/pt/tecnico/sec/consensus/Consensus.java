@@ -581,7 +581,7 @@ public class Consensus {
         }
 
         setCurrentPhase(Phase.PREPARE);
-        logHotStuff("View " + this.viewNumber.get() + " - PREPARE phase started (command: " + command + ")");
+        // logHotStuff("View " + this.viewNumber.get() + " - PREPARE phase started (command: " + command + ")");
 
         // if highQC is null, then this is the very first proposal and the new node
         // should extend from the root
@@ -997,7 +997,7 @@ public class Consensus {
             return;
         }
 
-        logHotStuff("View " + decideMessage.getViewNumber() + " - DECIDED on command: " + decidedNode.getCommand());
+        // logHotStuff("View " + decideMessage.getViewNumber() + " - DECIDED on command: " + decidedNode.getCommand());
 
         tree.pruneConflictingBranches(decidedNode);
 
