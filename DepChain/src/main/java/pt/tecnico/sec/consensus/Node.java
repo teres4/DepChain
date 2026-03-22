@@ -4,7 +4,7 @@ public class Node {
 
     private final String hash;
 
-    private final String command; // TODO: define command structure step 6
+    private final String command;
 
     private final String parentHash;
 

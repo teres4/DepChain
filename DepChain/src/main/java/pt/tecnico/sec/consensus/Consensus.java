@@ -103,7 +103,7 @@ public class Consensus {
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(30); // TODO: choose appropriate timeout duration
+    private static final Duration TIMEOUT = Duration.ofSeconds(30);
     private static final Duration COMMAND_WAIT_TIMEOUT = Duration.ofSeconds(5); // Timeout to wait for pending commands
 
     // Threshold signature keys
@@ -777,7 +777,6 @@ public class Consensus {
         }
 
         // Check command validity
-        // TODO check block validity
         if (!validCommand(prepareMessage.getNode().getCommand())) {
             logHotStuff("Invalid command detected in PREPARE, starting new view");
             try {
@@ -797,7 +796,6 @@ public class Consensus {
         if (highQC == null) {
             ancestorNode = tree.getRoot();
         } else {
-            // TODO should we check the highQC type?
             if (!highQC.getType().equals("prepare")) {
                 System.err.println("Prepare message has highQC of wrong type: " + highQC.getType());
                 return;

@@ -93,7 +93,7 @@ public class Blockchain {
                     accounts.put(address, new ContractAccount(address, balance, code, storage, nonce));
                 } else {
                     // EO account
-                    // TODO how to put the public key in here?
+                    // TODO: how to put the public key in here?
                     accounts.put(address, new EOAccount(address, balance, null, nonce));
                 }
             }
@@ -129,7 +129,7 @@ public class Blockchain {
             TransactionExecutor executor = new TransactionExecutor(tx, accounts, executionContext);
             boolean success = executor.execute();
 
-            // TODO if transaction is not successful, what happens to it?
+            // TODO: if transaction is not successful, what happens to it?
             // is it discarded and not added to the block at all? or is it included but
             // marked as failed -> esta opcao
             if (!success) {

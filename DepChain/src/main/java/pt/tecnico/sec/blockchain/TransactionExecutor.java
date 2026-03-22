@@ -123,7 +123,7 @@ public class TransactionExecutor {
         return true;
     }
 
-    // TODO run the bytecode, use EVM
+    // TODO: run the bytecode, use EVM
     private boolean executeContractDeployment() {
         System.out.println("[DEPLOY] Starting contract deployment from " + transaction.getFrom());
 
