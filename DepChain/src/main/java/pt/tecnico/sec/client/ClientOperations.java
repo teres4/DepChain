@@ -6,6 +6,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
@@ -36,6 +37,8 @@ public class ClientOperations {
 
     private final ConcurrentLinkedQueue<CommandResponse> currentResponses = new ConcurrentLinkedQueue<>();
     private long currentNonce = -1;
+
+    private final Map<Long, String> acceptedResults = new ConcurrentHashMap<>();
 
     public ClientOperations(int clientId, AuthPerfLink authPerfLink) {
         this.authPerfLink = authPerfLink;
@@ -110,7 +113,50 @@ public class ClientOperations {
                 .findFirst()
                 .orElseThrow();
 
-        System.out.println("Command executed successfully. Result: " + matchingResult);
+        System.out.println("Command accepted by replicas. ");
+        acceptedResults.put(nonce, matchingResult);
+    }
+
+    private void waitForExecutionResponses(long nonce) throws Exception {
+        int requiredResponses = this.f + 1; // Need f+1 responses
+
+        String acceptedResult = acceptedResults.get(nonce);
+
+        while (true) {
+            Map<String, Long> resultCounts = currentResponses.stream()
+                    .filter(response -> response.getNonce() == nonce && response.isSuccess())
+                .filter(response -> acceptedResult == null || !acceptedResult.equals(response.getResult()))
+                    .collect(Collectors.groupingBy(CommandResponse::getResult, Collectors.counting()));
+
+            if (resultCounts.values().stream().anyMatch(count -> count >= requiredResponses)) 
+                break;
+
+            Thread.sleep(100);
+        }
+
+        String matchingResult = currentResponses.stream()
+                .filter(response -> response.getNonce() == nonce && response.isSuccess())
+            .filter(response -> acceptedResult == null || !acceptedResult.equals(response.getResult()))
+                .collect(Collectors.groupingBy(CommandResponse::getResult, Collectors.counting()))
+                .entrySet().stream()
+                .filter(entry -> entry.getValue() >= requiredResponses)
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElseThrow();
+
+        System.out.println("Command execution confirmed by replicas. Result: " + matchingResult);
+    }
+
+    private void waitForExecutionResponsesAsync(long nonce) {
+        Thread t = new Thread(() -> {
+            try {
+                waitForExecutionResponses(nonce);
+            } catch (Exception e) {
+                System.err.println("Execution confirmation wait failed: " + e.getMessage());
+            }
+        }, "exec-confirm-" + nonce);
+        t.setDaemon(true);
+        t.start();
     }
 
     public void transferDepCoin(int recipientId, long amount, long gasPrice, long gasLimit) throws Exception {
@@ -163,6 +209,7 @@ public class ClientOperations {
 
         sendToAllReplicas(command.toJson());
         waitForResponses(this.nonce);
+        waitForExecutionResponsesAsync(this.nonce);
     }
 
     public void transferISTCoin(int recipientId, long amount, long gasPrice, long gasLimit) throws Exception {
@@ -224,6 +271,7 @@ public class ClientOperations {
 
         sendToAllReplicas(command.toJson());
         waitForResponses(this.nonce);
+        waitForExecutionResponsesAsync(this.nonce);
     }
 
     // private final String from;

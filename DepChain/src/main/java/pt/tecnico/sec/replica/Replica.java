@@ -77,10 +77,15 @@ public class Replica {
             return;
         }
 
-        addToMempool(tx);
+        if (addToMempool(tx)) {
+            // Reply immediately so the client doesn't hang waiting for f+1 ACKs.
+            sendResponseToClient(request.getSenderId(), tx.getNonce(), true, tx.getHash());
+        } else {
+            sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Rejected (replacement too cheap)");
+        }
     }
 
-    private void addToMempool(Transaction tx) {
+    private boolean addToMempool(Transaction tx) {
         String sender = tx.getFrom();
 
         ConcurrentHashMap<Long, Transaction> senderTxs = mempool.computeIfAbsent(sender,
@@ -93,7 +98,7 @@ public class Replica {
             long minBump = existing.getGasPrice() * 110 / 100;
             if (tx.getGasPrice() < minBump) {
                 System.err.printf("Rejected replacement tx: gasPrice %d < required %d%n", tx.getGasPrice(), minBump);
-                return;
+                return false;
             }
             System.out.printf("Replacing tx nonce=%d for %s (old gasPrice=%d new gasPrice=%d)%n",
                     tx.getNonce(), sender, existing.getGasPrice(), tx.getGasPrice());
@@ -101,6 +106,7 @@ public class Replica {
         logger("Added tx to mempool: " + tx.getHash() + " from " + sender + " nonce " + tx.getNonce()
                 + " gasPrice " + tx.getGasPrice() + " gasLimit " + tx.getGasLimit());
         senderTxs.put(tx.getNonce(), tx);
+        return true;
     }
 
     public Block buildBlock() {
