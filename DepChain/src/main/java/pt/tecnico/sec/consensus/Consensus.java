@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import pt.tecnico.sec.blockchain.Block;
+import pt.tecnico.sec.blockchain.Blockchain;
+import pt.tecnico.sec.blockchain.Transaction;
 import pt.tecnico.sec.consensus.message.CommitMessage;
 import pt.tecnico.sec.consensus.message.CommitVoteMessage;
 import pt.tecnico.sec.consensus.message.DecideMessage;
@@ -104,7 +106,7 @@ public class Consensus {
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
-    private static final Duration COMMAND_WAIT_TIMEOUT = Duration.ofSeconds(5); // Timeout to wait for pending commands
+    private static final Duration COMMAND_WAIT_TIMEOUT = Duration.ofSeconds(12); // Timeout to wait for pending commands
 
     // Threshold signature keys
     protected KeyShare privateKeyShare;
@@ -477,35 +479,49 @@ public class Consensus {
      * becomes available within the timeout.
      */
     private String getCommandWithTimeout() {
-        // First, try to get a command immediately
-        Block block = router.getBlocktoPropose();
-        if (block != null) {
+        Block block;
+
+        // If a block is full, propose immediately
+        block = router.getBlocktoPropose();
+        if (block != null && isBlockFull(block)) {
+            System.out.println("PROPOSING FULL BLOCK IMMEDIATELY");
             return block.toJson();
         }
 
-        // If no immediate command, wait with timeout
-        System.out.println("No immediate command available, waiting for " + COMMAND_WAIT_TIMEOUT.toMillis() + "ms");
+        // Propose once per timeout interval
+        System.out.println("WAITING " + COMMAND_WAIT_TIMEOUT.toMillis() + "ms before proposing a block");
 
-        long startTime = System.currentTimeMillis();
         long timeoutMs = COMMAND_WAIT_TIMEOUT.toMillis();
-
-        while (System.currentTimeMillis() - startTime < timeoutMs) {
-            try {
-                Thread.sleep(50); // Check every 50ms
-                block = router.getBlocktoPropose();
-                if (block != null) {
-                    System.out.println("Block became available during wait period");
-                    return block.toJson();
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                System.err.println("Command wait interrupted: " + e.getMessage());
-                break;
-            }
+        try {
+            Thread.sleep(timeoutMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            System.err.println("Command wait interrupted: " + e.getMessage());
+            return "NO-OP";
         }
 
-        System.out.println("No command available after timeout, using NO-OP");
+        block = router.getBlocktoPropose();
+        if (block != null) {
+            System.out.println("    Proposing block after timeout");
+            return block.toJson();
+        }
+
+        System.out.println("    NO COMMAND AVAILABLE, PROPOSING NO-OP");
         return "NO-OP";
+    }
+
+    private boolean isBlockFull(Block block) {
+        if (block == null) {
+            return false;
+        }
+        long totalGas = 0;
+        for (Transaction tx : block.getTransactions()) {
+            totalGas += tx.getGasLimit();
+            if (totalGas >= Blockchain.BLOCK_GAS_LIMIT) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private boolean checkisLeaderMessage(HotStuffMessage message, int viewNumber) {
