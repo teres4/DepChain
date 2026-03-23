@@ -60,7 +60,7 @@ public class MessageRouter {
     }
 
     public Block getBlocktoPropose() {
-        return replica.buildBlock();
+        return replica.getBlockToPropose();
     }
 
     public void blockDecided(String commandJson) {

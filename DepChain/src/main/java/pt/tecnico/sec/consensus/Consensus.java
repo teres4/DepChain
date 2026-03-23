@@ -23,6 +23,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import pt.tecnico.sec.blockchain.Block;
+import pt.tecnico.sec.blockchain.Blockchain;
+import pt.tecnico.sec.blockchain.Transaction;
 import pt.tecnico.sec.consensus.message.CommitMessage;
 import pt.tecnico.sec.consensus.message.CommitVoteMessage;
 import pt.tecnico.sec.consensus.message.DecideMessage;
@@ -104,7 +106,7 @@ public class Consensus {
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
-    private static final Duration COMMAND_WAIT_TIMEOUT = Duration.ofSeconds(5); // Timeout to wait for pending commands
+    private static final Duration COMMAND_WAIT_TIMEOUT = Duration.ofSeconds(12); // Timeout to wait for pending commands
 
     // Threshold signature keys
     protected KeyShare privateKeyShare;
@@ -477,35 +479,16 @@ public class Consensus {
      * becomes available within the timeout.
      */
     private String getCommandWithTimeout() {
-        // First, try to get a command immediately
+
+        // If a block is full, propose immediately
         Block block = router.getBlocktoPropose();
-        if (block != null) {
-            return block.toJson();
+
+        System.out.println("Checking for command to propose...");
+        if (block == null) {
+            System.out.println("NO COMMAND AVAILABLE, PROPOSING NO-OP");
+            return "NO-OP";
         }
-
-        // If no immediate command, wait with timeout
-        System.out.println("No immediate command available, waiting for " + COMMAND_WAIT_TIMEOUT.toMillis() + "ms");
-
-        long startTime = System.currentTimeMillis();
-        long timeoutMs = COMMAND_WAIT_TIMEOUT.toMillis();
-
-        while (System.currentTimeMillis() - startTime < timeoutMs) {
-            try {
-                Thread.sleep(50); // Check every 50ms
-                block = router.getBlocktoPropose();
-                if (block != null) {
-                    System.out.println("Block became available during wait period");
-                    return block.toJson();
-                }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                System.err.println("Command wait interrupted: " + e.getMessage());
-                break;
-            }
-        }
-
-        System.out.println("No command available after timeout, using NO-OP");
-        return "NO-OP";
+        return block.toJson();
     }
 
     private boolean checkisLeaderMessage(HotStuffMessage message, int viewNumber) {
@@ -581,7 +564,8 @@ public class Consensus {
         }
 
         setCurrentPhase(Phase.PREPARE);
-        // logHotStuff("View " + this.viewNumber.get() + " - PREPARE phase started (command: " + command + ")");
+        // logHotStuff("View " + this.viewNumber.get() + " - PREPARE phase started
+        // (command: " + command + ")");
 
         // if highQC is null, then this is the very first proposal and the new node
         // should extend from the root
@@ -783,7 +767,8 @@ public class Consensus {
                 // if we receive a prepare message with an invalid command,
                 // the leader is probably byzantine and injected a command, so we trigger a view
                 // change
-                // System.err.println("Received PREPARE with invalid command: " + prepareMessage.getNode().getCommand());
+                // System.err.println("Received PREPARE with invalid command: " +
+                // prepareMessage.getNode().getCommand());
                 onLeaderInactive();
             } catch (Exception e) {
                 System.err.println("Failed to start new view after detecting invalid command: " + e.getMessage());
@@ -995,7 +980,8 @@ public class Consensus {
             return;
         }
 
-        // logHotStuff("View " + decideMessage.getViewNumber() + " - DECIDED on command: " + decidedNode.getCommand());
+        // logHotStuff("View " + decideMessage.getViewNumber() + " - DECIDED on command:
+        // " + decidedNode.getCommand());
 
         tree.pruneConflictingBranches(decidedNode);
 
