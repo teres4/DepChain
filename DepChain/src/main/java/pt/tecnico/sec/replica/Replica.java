@@ -16,7 +16,6 @@ import pt.tecnico.sec.blockchain.Block;
 import pt.tecnico.sec.blockchain.Blockchain;
 import pt.tecnico.sec.blockchain.Transaction;
 import pt.tecnico.sec.client.message.*;
-import pt.tecnico.sec.client.message.CommandResponse;
 import pt.tecnico.sec.utils.Crypto;
 
 public class Replica {
@@ -32,6 +31,8 @@ public class Replica {
     private final java.util.Set<String> pendingTransactions = ConcurrentHashMap.newKeySet();
 
     private final ExecutorService executorService = Executors.newFixedThreadPool(100);
+
+    private static final long BLOCK_BUILD_TIMEOUT_MS = 12000; // 12 seconds
 
     public Replica(long replicaId, AuthPerfLink authPerfLink, Blockchain blockchain) {
         this.replicaId = replicaId;
@@ -124,6 +125,61 @@ public class Replica {
         return proposed;
     }
 
+    /**
+     * Builds a block, if the block is full immediatly returns
+     * If there arent enough transactions after 12 seconds returns unfinished block
+     * If there are no transactions returns null
+     * 
+     * @return
+     */
+    public Block getBlockToPropose() {
+        Block block = buildBlock();
+
+        // Wait for more transactions to arrive for up to 12 seconds
+        System.out.println("Starting block building phase. Waiting for transactions to fill the block...");
+        long startTime = System.currentTimeMillis();
+        while (System.currentTimeMillis() - startTime < BLOCK_BUILD_TIMEOUT_MS) {
+            if (block != null && isBlockFull(block)) {
+                logger("Block is full!");
+                break;
+            }
+            block = buildBlock();
+            try {
+                System.out.println("Block not full yet. Waiting for more transactions...");
+                Thread.sleep(1000); // Check every second
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+
+        logger("Finished block building phase. Final block has " + (block != null ? block.getTransactions().size() : 0)
+                + " transactions.");
+        List<Transaction> executable = block != null ? block.getTransactions() : new ArrayList<>();
+
+        for (Transaction tx : executable) {
+            // Mark transaction as pending (part of a block proposal)
+            markPending(tx.getFrom(), tx.getNonce());
+        }
+
+        return block;
+    }
+
+    private boolean isBlockFull(Block block) {
+        if (block == null) {
+            return false;
+        }
+        long totalGas = 0;
+        for (Transaction tx : block.getTransactions()) {
+            totalGas += tx.getGasLimit();
+            if (totalGas >= Blockchain.BLOCK_GAS_LIMIT) {
+                return true;
+            }
+        }
+        logger("Block used gas: " + totalGas);
+        return false;
+    }
+
     private List<Transaction> selectTransactionsForBlock(Map<String, Account> accounts) {
         List<Transaction> executable = new ArrayList<>();
 
@@ -151,7 +207,7 @@ public class Replica {
             selected.add(tx);
             gasAccumulated += tx.getGasLimit();
             // Mark transaction as pending (part of a block proposal)
-            markPending(tx.getFrom(), tx.getNonce());
+            // markPending(tx.getFrom(), tx.getNonce());
         }
         return selected;
     }
@@ -208,10 +264,13 @@ public class Replica {
                 String sender = tx.getFrom().toLowerCase();
                 try {
                     long clientId = Crypto.getClientIdFromAddress(sender);
-                    String result = "Transaction included in block " + block.getBlockNumber() + "\nTransfer amount: " + tx.getAmount() + "\nGas used: " + tx.getGasUsed() + "\nCurrent balance: " + blockchain.getAccount(sender).getBalance();
+                    String result = "Transaction included in block " + block.getBlockNumber() + "\nTransfer amount: "
+                            + tx.getAmount() + "\nGas used: " + tx.getGasUsed() + "\nCurrent balance: "
+                            + blockchain.getAccount(sender).getBalance();
                     sendResponseToClient(clientId, tx.getNonce(), true, result);
                 } catch (Exception e) {
-                    System.err.println("Failed to notify client for transaction " + tx.getHash() + ": " + e.getMessage());
+                    System.err
+                            .println("Failed to notify client for transaction " + tx.getHash() + ": " + e.getMessage());
                 }
             }
         }

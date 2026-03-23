@@ -479,49 +479,16 @@ public class Consensus {
      * becomes available within the timeout.
      */
     private String getCommandWithTimeout() {
-        Block block;
 
         // If a block is full, propose immediately
-        block = router.getBlocktoPropose();
-        if (block != null && isBlockFull(block)) {
-            System.out.println("PROPOSING FULL BLOCK IMMEDIATELY");
-            return block.toJson();
-        }
+        Block block = router.getBlocktoPropose();
 
-        // Propose once per timeout interval
-        System.out.println("WAITING " + COMMAND_WAIT_TIMEOUT.toMillis() + "ms before proposing a block");
-
-        long timeoutMs = COMMAND_WAIT_TIMEOUT.toMillis();
-        try {
-            Thread.sleep(timeoutMs);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            System.err.println("Command wait interrupted: " + e.getMessage());
+        System.out.println("Checking for command to propose...");
+        if (block == null) {
+            System.out.println("NO COMMAND AVAILABLE, PROPOSING NO-OP");
             return "NO-OP";
         }
-
-        block = router.getBlocktoPropose();
-        if (block != null) {
-            System.out.println("    Proposing block after timeout");
-            return block.toJson();
-        }
-
-        System.out.println("    NO COMMAND AVAILABLE, PROPOSING NO-OP");
-        return "NO-OP";
-    }
-
-    private boolean isBlockFull(Block block) {
-        if (block == null) {
-            return false;
-        }
-        long totalGas = 0;
-        for (Transaction tx : block.getTransactions()) {
-            totalGas += tx.getGasLimit();
-            if (totalGas >= Blockchain.BLOCK_GAS_LIMIT) {
-                return true;
-            }
-        }
-        return false;
+        return block.toJson();
     }
 
     private boolean checkisLeaderMessage(HotStuffMessage message, int viewNumber) {
@@ -597,7 +564,8 @@ public class Consensus {
         }
 
         setCurrentPhase(Phase.PREPARE);
-        // logHotStuff("View " + this.viewNumber.get() + " - PREPARE phase started (command: " + command + ")");
+        // logHotStuff("View " + this.viewNumber.get() + " - PREPARE phase started
+        // (command: " + command + ")");
 
         // if highQC is null, then this is the very first proposal and the new node
         // should extend from the root
@@ -799,7 +767,8 @@ public class Consensus {
                 // if we receive a prepare message with an invalid command,
                 // the leader is probably byzantine and injected a command, so we trigger a view
                 // change
-                // System.err.println("Received PREPARE with invalid command: " + prepareMessage.getNode().getCommand());
+                // System.err.println("Received PREPARE with invalid command: " +
+                // prepareMessage.getNode().getCommand());
                 onLeaderInactive();
             } catch (Exception e) {
                 System.err.println("Failed to start new view after detecting invalid command: " + e.getMessage());
@@ -1011,7 +980,8 @@ public class Consensus {
             return;
         }
 
-        // logHotStuff("View " + decideMessage.getViewNumber() + " - DECIDED on command: " + decidedNode.getCommand());
+        // logHotStuff("View " + decideMessage.getViewNumber() + " - DECIDED on command:
+        // " + decidedNode.getCommand());
 
         tree.pruneConflictingBranches(decidedNode);
 
