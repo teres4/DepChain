@@ -281,8 +281,10 @@ public class TransactionExecutor {
         executor.callData(Bytes.wrap(transaction.getInput()));
 
         System.out.println("[CALL] Executing EVM call...");
-        executor.execute();
+        Bytes returnData = executor.execute();
         System.out.println("[CALL] EVM execution complete");
+        System.out.println("[CALL] Return data (hex): " + returnData.toHexString());
+        System.out.println("[CALL] Return data length: " + returnData.size());
 
         Map<String, String> updatedStorage = new HashMap<>(contract.getStorage());
         MutableAccount updatedContract = (MutableAccount) callUpdater.get(contractAddr);

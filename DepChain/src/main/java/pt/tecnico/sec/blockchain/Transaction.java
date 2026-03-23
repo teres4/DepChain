@@ -8,7 +8,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 
 public class Transaction {
-    private final String from;
+    private final String from; // who submitted the transaction
     private final String to; // null for contract deployment
     private final long amount; // DepCoin amount, 0 for contract calls
 

@@ -24,7 +24,7 @@ public class Client {
 
         this.authPerfLink = new AuthPerfLink(this.clientId, Crypto.getClientPrivateKey(this.clientId), false,
                 clientPort);
-        this.clientOps = new ClientOperations(this.clientId, this.authPerfLink);
+        clientOps = new ClientOperations(this.clientId, this.authPerfLink);
 
         executorService.submit(() -> authPerfLink.receive());
         authPerfLink.setConsensusMessageListener((content) -> {
@@ -62,45 +62,46 @@ public class Client {
 
         while (running) {
             System.out.println("\nPlease choose an option:");
-            System.out.println("1. Append a message (Phase 1 - Deprecated)");
+            System.out.println("1. Transfer DepCoin");
+            System.out.println("2. Transfer IST Coin");
+            System.out.println("3. Approve IST Coin Allowance");
+            System.out.println("4. Transfer IST Coin From (transferFrom)");
             System.out.println("=================================================");
-            System.out.println("2. Transfer DepCoin");
-            System.out.println("3. Transfer IST Coin");
+            System.out.println("5. Get Balance");
+            System.out.println("6. Get History");
             System.out.println("=================================================");
-            System.out.println("4. Get Balance");
-            System.out.println("5. Get History");
+            System.out.println("7. Change default gas price and limit");
             System.out.println("=================================================");
-            System.out.println("6. Change default gas price and limit");
-            System.out.println("=================================================");
-            System.out.println("7. Exit");
+            System.out.println("8. Exit");
             System.out.print("Your choice: ");
-
             String choice = scanner.nextLine();
 
             switch (choice) {
                 case "1":
-                    System.out.print("Enter the message to append: ");
-                    String message = scanner.nextLine();
-                    append(message);
-                    break;
-
-                case "2":
                     client.transferDepCoin(scanner);
                     break;
 
-                case "3":
+                case "2":
                     client.transferISTCoin(scanner);
                     break;
 
+                case "3":
+                    client.approveISTCoin(scanner);
+                    break;
+
                 case "4":
-                    System.out.println("Get Balance functionality is not implemented yet.");
+                    client.transferFromISTCoin(scanner);
                     break;
 
                 case "5":
-                    System.out.println("Get History functionality is not implemented yet.");
+                    System.out.println("Get Balance functionality is not implemented yet.");
                     break;
 
                 case "6":
+                    System.out.println("Get History functionality is not implemented yet.");
+                    break;
+
+                case "7":
                     System.out.println("Gas price:");
                     long gasPrice = Long.parseLong(scanner.nextLine());
                     System.out.println("Gas limit:");
@@ -114,7 +115,7 @@ public class Client {
                     }
                     break;
 
-                case "7":
+                case "8":
                     System.out.println("Exiting the application. Baibai!");
                     running = false;
                     client.authPerfLink.shutdown();
@@ -124,19 +125,6 @@ public class Client {
                     System.out.println("Invalid choice. Please try again.");
             }
         }
-
-        scanner.close();
-    }
-
-    public static void append(String message) {
-        System.out.println("Client sending append request: " + message);
-        try {
-            clientOps.append(message);
-            System.out.println("Append request sent successfully.");
-        } catch (Exception e) {
-            System.err.println("Error sending append request: " + e.getMessage());
-        }
-
     }
 
     public void transferDepCoin(Scanner scanner) {
@@ -180,6 +168,52 @@ public class Client {
             System.err.println("Invalid input. Please enter numeric values for recipient ID and amount.");
         } catch (Exception e) {
             System.err.println("Error sending transfer request: " + e.getMessage());
+        }
+    }
+
+    public void approveISTCoin(Scanner scanner) {
+        System.out.print("Enter the spender client ID (e.g., 101): ");
+        try {
+            int spenderId = Integer.parseInt(scanner.nextLine());
+            if (!Crypto.clientKeysExist(spenderId)) {
+                System.err.println("Unknown spender client ID: " + spenderId);
+                return;
+            }
+            System.out.print("Enter the expected current allowance (0 if none): ");
+            long expectedCurrent = Long.parseLong(scanner.nextLine());
+            System.out.print("Enter the new allowance amount: ");
+            long newAllowance = Long.parseLong(scanner.nextLine());
+            clientOps.approveISTCoin(spenderId, expectedCurrent, newAllowance, this.GasPrice, this.GasLimit);
+            System.out.println("SafeApprove request sent successfully.");
+        } catch (NumberFormatException e) {
+            System.err.println("Invalid input.");
+        } catch (Exception e) {
+            System.err.println("Error sending approve request: " + e.getMessage());
+        }
+    }
+
+    public void transferFromISTCoin(Scanner scanner) {
+        System.out.print("Enter the owner client ID (whose tokens to spend): ");
+        try {
+            int ownerId = Integer.parseInt(scanner.nextLine());
+            if (!Crypto.clientKeysExist(ownerId)) {
+                System.err.println("Unknown owner client ID: " + ownerId);
+                return;
+            }
+            System.out.print("Enter the recipient client ID: ");
+            int recipientId = Integer.parseInt(scanner.nextLine());
+            if (!Crypto.clientKeysExist(recipientId)) {
+                System.err.println("Unknown recipient client ID: " + recipientId);
+                return;
+            }
+            System.out.print("Enter the amount of IST Coin to transfer: ");
+            int amount = Integer.parseInt(scanner.nextLine());
+            clientOps.transferFromISTCoin(ownerId, recipientId, amount, this.GasPrice, this.GasLimit);
+            System.out.println("TransferFrom request sent successfully.");
+        } catch (NumberFormatException e) {
+            System.err.println("Invalid input.");
+        } catch (Exception e) {
+            System.err.println("Error sending transferFrom request: " + e.getMessage());
         }
     }
 }

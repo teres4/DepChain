@@ -37,10 +37,6 @@ public class Command {
         return new Gson().toJson(this);
     }
 
-    private static class TypeOnly {
-        CommandType type;
-    }
-
     public static Command fromDataMessage(DataMessage dataMessage) {
         String json = new String(dataMessage.getContent());
         return fromJson(json);
@@ -48,15 +44,8 @@ public class Command {
 
     public static Command fromJson(String json) {
         Gson gson = new Gson();
-        CommandType type = gson.fromJson(json, TypeOnly.class).type;
-
-        return switch (type) {
-            // TODO: DO WE EVEN NEED THIS SWITCH CASE???
-            case APPEND -> gson.fromJson(json, Command.class);
-            case TRANSFERDEPCOIN -> gson.fromJson(json, Command.class);
-            case TRANSFERISTCOIN -> gson.fromJson(json, Command.class);
-            default -> throw new IllegalArgumentException("Unknown type: " + type);
-        };
+        // TODO: check if switch case is needed depending on command type
+        return gson.fromJson(json, Command.class);
     }
 
     @Override
