@@ -4,24 +4,32 @@ services:
     container_name: depchain_member1
     networks:
       - depchain_net
+    volumes:
+      - ./config/persisted/member_1:/app/blocks/member_1
 
   server2:
     image: depchain:latest
     container_name: depchain_member2
     networks:
       - depchain_net
+    volumes:
+      - ./config/persisted/member_2:/app/blocks/member_2
 
   server3:
     image: depchain:latest
     container_name: depchain_member3
     networks:
       - depchain_net
+    volumes:
+      - ./config/persisted/member_3:/app/blocks/member_3
 
   server4:
     image: depchain:latest
     container_name: depchain_member4
     networks:
       - depchain_net
+    volumes:
+      - ./config/persisted/member_4:/app/blocks/member_4
 
   client1:
     image: depchain:latest

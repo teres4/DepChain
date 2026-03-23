@@ -136,6 +136,8 @@ public class Blockchain {
                 System.err.printf("TX %s failed (gas consumed: %d)%n", tx.getHash(), executionContext.getGasUsed());
             }
         }
+
+        //TODO: update the state only for the accounts that were affected by this block
     }
 
     private void validateBlock(Block block) {
