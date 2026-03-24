@@ -21,6 +21,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.Set;
+import java.util.Stack;
+
+import com.fasterxml.jackson.databind.node.MissingNode;
 
 import pt.tecnico.sec.blockchain.Block;
 import pt.tecnico.sec.blockchain.Blockchain;
@@ -30,6 +34,8 @@ import pt.tecnico.sec.consensus.message.CommitVoteMessage;
 import pt.tecnico.sec.consensus.message.DecideMessage;
 import pt.tecnico.sec.consensus.message.HotStuffMessage;
 import pt.tecnico.sec.consensus.message.HotStuffMessageType;
+import pt.tecnico.sec.consensus.message.MissingNodeMessage;
+import pt.tecnico.sec.consensus.message.MissingNodeReplyMessage;
 import pt.tecnico.sec.consensus.message.NewCommandMessage;
 import pt.tecnico.sec.consensus.message.NewViewMessage;
 import pt.tecnico.sec.consensus.message.PreCommitMessage;
@@ -52,6 +58,9 @@ public class Consensus {
     // Quorum size
     protected final int quorumSize;
 
+    // F
+    protected final int f = 1; // TODO: change this IMPORTANT!!!!!!!!!!!!!!!!!!!!!! sou lazy
+
     // total number of replicas
     private final int totalReplicas;
 
@@ -72,9 +81,12 @@ public class Consensus {
 
     // Track which senders have already voted in each phase to reject duplicate
     // votes
-    protected final java.util.Set<Long> prepareVoters = ConcurrentHashMap.newKeySet();
-    private final java.util.Set<Long> preCommitVoters = ConcurrentHashMap.newKeySet();
-    private final java.util.Set<Long> commitVoters = ConcurrentHashMap.newKeySet();
+    protected final Set<Long> prepareVoters = ConcurrentHashMap.newKeySet();
+    private final Set<Long> preCommitVoters = ConcurrentHashMap.newKeySet();
+    private final Set<Long> commitVoters = ConcurrentHashMap.newKeySet();
+
+    private final Queue<MissingNodeReplyMessage> MissingNodeReplies = new ConcurrentLinkedQueue<>();
+    private final Queue<MissingNodeMessage> MissingNodeRequests = new ConcurrentLinkedQueue<>();
 
     // Messages from future views: key = view number, value = list of messages.
     final Map<Integer, List<HotStuffMessage>> futureMessages = new ConcurrentHashMap<>();
@@ -98,6 +110,8 @@ public class Consensus {
     volatile boolean prepareVoted = false;
     volatile boolean preCommitVoted = false;
     volatile boolean commitVoted = false;
+    volatile boolean catchUp = false;
+    volatile String missingNodehash = null;
 
     ExecutorService executorService = java.util.concurrent.Executors.newFixedThreadPool(10);
 
@@ -287,6 +301,8 @@ public class Consensus {
                 case COMMIT -> onReceiveCommitMessage((CommitMessage) msg);
                 case COMMIT_VOTE -> onReceiveCommitVoteMessage((CommitVoteMessage) msg);
                 case DECIDE -> onReceiveDecideMessage((DecideMessage) msg);
+                case MISSING_NODE_REQUEST -> onReceiveMissingNodeRequestMessage((MissingNodeMessage) msg);
+                case MISSING_NODE_REPLY -> onReceiveMissingNodeReplyMessage((MissingNodeReplyMessage) msg);
                 default -> System.err.println("Unknown message type: " + msg.getHotStuffType());
             }
         } catch (Exception e) {
@@ -313,6 +329,28 @@ public class Consensus {
             }
         }
         sendToSelf(message);
+    }
+
+    public void sendToFplusone(HotStuffMessage message) throws Exception {
+        int sent = 0;
+        for (int i = 1; i < this.totalReplicas + 1 && sent < this.f + 1; i++) {
+            if (i != this.replicaID) {
+                final int replicaIndex = i;
+                executorService.submit(() -> {
+                    try {
+                        if (router != null) {
+                            router.sendConsensusMessage(message, replicaIndex);
+                        } else {
+                            // Fallback for tests - use AuthPerfLink directly
+                            router.sendConsensusMessage(message, replicaIndex);
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Failed to send message to replica " + replicaIndex + ": " + e.getMessage());
+                    }
+                });
+                sent++;
+            }
+        }
     }
 
     public void sendToSelf(HotStuffMessage message) throws Exception {
@@ -760,15 +798,19 @@ public class Consensus {
             return;
         }
 
+        // check for missing nodes (case where I was maliciously left behind)
+        // THIS BLOCKS IF AM BEHIND AND WAITS FOR THE SYNC TO COMPLETE
+        if (amIBehind(prepareMessage)) {
+            // leader sent invalid QC
+            onLeaderInactive();
+            return;
+        }
+
         // Check command validity
         if (!validCommand(prepareMessage.getNode().getCommand())) {
             logHotStuff("Invalid command detected in PREPARE, starting new view");
             try {
-                // if we receive a prepare message with an invalid command,
-                // the leader is probably byzantine and injected a command, so we trigger a view
-                // change
-                // System.err.println("Received PREPARE with invalid command: " +
-                // prepareMessage.getNode().getCommand());
+                System.err.println("Received PREPARE with invalid command: " + prepareMessage.getNode().getCommand());
                 onLeaderInactive();
             } catch (Exception e) {
                 System.err.println("Failed to start new view after detecting invalid command: " + e.getMessage());
@@ -832,6 +874,167 @@ public class Consensus {
             }
         } else {
             logHotStuff("INVALID PROPOSAL FOR PREPARE");
+        }
+    }
+
+    /**
+     * Checks if the prepare message is proposing a node that extends from a node I
+     * don't have, which means I might be behind.
+     * If I am behind, I first check the validity of the QC justifying the proposal,
+     * if it's valid I start syncing the missing nodes,
+     * if it's not valid I consider the leader malicious and start a view change.
+     * 
+     * @param prepareMessage
+     * @return true if leader sent invalid proposal
+     */
+    public boolean amIBehind(PrepareMessage prepareMessage) {
+        if (this.viewNumber.get() == 1) {
+            // if we're in the first view, we can only extend from the root, so we can't be
+            // behind
+            return false;
+        }
+        Node proposedNode = prepareMessage.getNode();
+        if (!tree.contains(proposedNode.getParentHash()) && tree.getRoot().getHash() != proposedNode.getParentHash()) {
+            logHotStuff("I might be behind, missing node " + proposedNode.getParentHash() + " proposed in PREPARE");
+        } else {
+            return false;
+        }
+        // TODO: tamos a verificar 2 vezes o mm QC, aqui e no prepare mm
+        // justifies the proposal
+        System.out.println("Checking if the QC justifying the proposal is valid...");
+        QuorumCertificate highQC = prepareMessage.getHighQC();
+        // check signatures
+        String expectedMsg = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, highQC.getViewNumber(),
+                highQC.getNodeHash());
+        if (!tverify(highQC.getW(), expectedMsg)) {
+            logHotStuff("Leader is byzantine, invalid QC signature in PREPARE");
+            return true; // start view change
+        }
+
+        missingNodehash = proposedNode.getParentHash();
+        syncNodes(proposedNode.getParentHash());
+        return false;
+    }
+
+    public void syncNodes(String missingNode) {
+        MissingNodeMessage request = new MissingNodeMessage(this.viewNumber.get(), missingNode, this.replicaID);
+        if (router != null) {
+            try {
+                sendToFplusone(request);
+                // TODO: we could optimize by sending to f+1 replicas
+            } catch (Exception e) {
+                System.err.println("Failed to broadcast missing node request: " + e.getMessage());
+            }
+        }
+
+        while (!catchUp) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                System.err.println("Interrupted while waiting for missing node: " + e.getMessage());
+            }
+        }
+    }
+
+    public synchronized void onReceiveMissingNodeReplyMessage(MissingNodeReplyMessage reply) {
+        if (!checkView(reply, this.viewNumber.get()) || catchUp) {
+            return;
+        }
+
+        // Add to queue of node lists received from other replicas
+        MissingNodeReplies.add(reply);
+
+        if (MissingNodeReplies.size() >= this.f + 1) {
+            logHotStuff("Received " + MissingNodeReplies.size() + " replies for missing node request, processing...");
+        } else {
+            return;
+        }
+
+        // Stack
+        Stack<Node> nodesToAdd = new Stack<>();
+        for (MissingNodeReplyMessage r : MissingNodeReplies) {
+            // preliminary check that the reply has all the nodes needed to fill the gap and
+            // that its well build
+
+            /**
+             * missing node
+             * ^
+             * |
+             * n-nodes
+             * ^
+             * |
+             * Last decided node i have
+             */
+            if (!(r.getNodes().get(0).getHash().equals(missingNodehash))) {
+                System.err
+                        .println("Received invalid missing node reply from replica " + r.getSenderId() + ", ignoring");
+                continue;
+            }
+            if (!r.getNodes().get(r.getNodes().size() - 1).getParentHash()
+                    .equals(this.tree.getLockedQC().getNodeHash())) {
+                continue;
+            }
+            for (Node node : r.getNodes()) {
+                if (node.getJustifyQC() == null) {
+                    System.err.println(
+                            "Received invalid missing node reply from replica " + r.getSenderId() + ", ignoring");
+                    continue;
+                }
+                // check QC signatures for all nodes in the reply
+                String expectedMsg = createVoteMessage(HotStuffMessageType.COMMIT_VOTE,
+                        node.getJustifyQC().getViewNumber(), node.getJustifyQC().getNodeHash());
+                if (!tverify(node.getJustifyQC().getW(), expectedMsg)) {
+                    System.err.println(
+                            "Received invalid missing node reply from replica " + r.getSenderId() + ", ignoring");
+                    continue;
+                }
+                if (nodesToAdd.isEmpty() || tree.extendsFrom(node, nodesToAdd.peek())) {
+                    nodesToAdd.add(node);
+                } else {
+                    System.err.println(
+                            "Received invalid missing node reply from replica " + r.getSenderId() + ", ignoring");
+                    nodesToAdd.clear();
+                    continue;
+                }
+            }
+            logHotStuff("Our catch up stack:" + nodesToAdd.stream().map(Node::getHash).toList());
+            while (!nodesToAdd.isEmpty()) {
+                Node node = nodesToAdd.pop();
+                tree.addNode(node);
+                logHotStuff("Added missing node " + node.getHash() + " to tree");
+            }
+            // if we reach this point, the catch up was a sucess
+            logHotStuff("We catched up!");
+            MissingNodeReplies.clear();
+            catchUp = true;
+            notifyAll();
+        }
+        logger("If we got here, we're doomed, no one had the missing node");
+    }
+
+    public void onReceiveMissingNodeRequestMessage(MissingNodeMessage request) {
+
+        Node missingNode = tree.getNode(request.getNodeHash());
+        List<Node> nodesToSend = new ArrayList<>();
+
+        if (missingNode != null) {
+            Node currentNode = missingNode;
+            while (currentNode != null) {
+                nodesToSend.add(currentNode);
+                currentNode = tree.getNode(currentNode.getParentHash());
+            }
+        } else {
+            System.err.println("Received missing node request for unknown node " + request.getNodeHash()
+                    + " from replica " + request.getSenderId());
+        }
+        if (router != null) {
+            try {
+                MissingNodeReplyMessage reply = new MissingNodeReplyMessage(this.replicaID, this.viewNumber.get(),
+                        nodesToSend);
+                router.sendConsensusMessage(reply, request.getSenderId());
+            } catch (Exception e) {
+                System.err.println("Failed to send missing node reply: " + e.getMessage());
+            }
         }
     }
 
