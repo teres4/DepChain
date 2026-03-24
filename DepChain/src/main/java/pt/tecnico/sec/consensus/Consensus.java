@@ -316,12 +316,7 @@ public class Consensus {
                 final int replicaIndex = i;
                 executorService.submit(() -> {
                     try {
-                        if (router != null) {
-                            router.sendConsensusMessage(message, replicaIndex);
-                        } else {
-                            // Fallback for tests - use AuthPerfLink directly
-                            router.sendConsensusMessage(message, replicaIndex);
-                        }
+                        router.sendConsensusMessage(message, replicaIndex);
                     } catch (Exception e) {
                         System.err.println("Failed to send message to replica " + replicaIndex + ": " + e.getMessage());
                     }
@@ -338,12 +333,7 @@ public class Consensus {
                 final int replicaIndex = i;
                 executorService.submit(() -> {
                     try {
-                        if (router != null) {
-                            router.sendConsensusMessage(message, replicaIndex);
-                        } else {
-                            // Fallback for tests - use AuthPerfLink directly
-                            router.sendConsensusMessage(message, replicaIndex);
-                        }
+                        router.sendConsensusMessage(message, replicaIndex);
                     } catch (Exception e) {
                         System.err.println("Failed to send message to replica " + replicaIndex + ": " + e.getMessage());
                     }
