@@ -23,8 +23,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import pt.tecnico.sec.blockchain.Block;
-import pt.tecnico.sec.blockchain.Blockchain;
-import pt.tecnico.sec.blockchain.Transaction;
 import pt.tecnico.sec.consensus.message.CommitMessage;
 import pt.tecnico.sec.consensus.message.CommitVoteMessage;
 import pt.tecnico.sec.consensus.message.DecideMessage;
@@ -106,7 +104,6 @@ public class Consensus {
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
-    private static final Duration COMMAND_WAIT_TIMEOUT = Duration.ofSeconds(12); // Timeout to wait for pending commands
 
     // Threshold signature keys
     protected KeyShare privateKeyShare;

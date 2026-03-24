@@ -10,17 +10,15 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.MutableAccount;
-import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.fluent.EVMExecutor;
 import org.hyperledger.besu.evm.fluent.SimpleWorld;
+import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import pt.tecnico.sec.account.Account;
 import pt.tecnico.sec.account.ContractAccount;
 
 public class TransactionExecutor {
-
-    private static final long BASE_TRANSFER_COST = 21000; // same as ETH
     private static final long BASE_CONTRACT_DEPLOYMENT_COST = 32000; // same as ETH, not including code size cost
     private static final long BASE_CONTRACT_CALL_COST = 50000;
     private static final long GAS_PER_INPUT_BYTE = 16;
@@ -50,13 +48,17 @@ public class TransactionExecutor {
             return false;
         }
 
-        // ensure sender can pay for gas
-        long maxGasCost = transaction.getGasPrice() * transaction.getGasLimit();
-        if (sender.getBalance() < maxGasCost) {
-            System.err.printf("Insufficient balance for gas: has %d, needs %d%n", sender.getBalance(), maxGasCost);
-            return false;
+        boolean chargeGas = transaction.isContractCall() || transaction.isContractDeployment();
+        long maxGasCost = 0;
+        if (chargeGas) {
+            // ensure sender can pay for gas
+            maxGasCost = transaction.getGasPrice() * transaction.getGasLimit();
+            if (sender.getBalance() < maxGasCost) {
+                System.err.printf("Insufficient balance for gas: has %d, needs %d%n", sender.getBalance(), maxGasCost);
+                return false;
+            }
+            sender.deductBalance(maxGasCost);
         }
-        sender.deductBalance(maxGasCost);
 
         boolean success = false;
         try {
@@ -76,11 +78,13 @@ public class TransactionExecutor {
             success = false;
         }
 
-        long actualFee = executionContext.getTransactionFee();
-        long gasRefund = maxGasCost - actualFee;
+        if (chargeGas) {
+            long actualFee = executionContext.getTransactionFee();
+            long gasRefund = maxGasCost - actualFee;
 
-        if (gasRefund > 0) {
-            sender.addBalance(gasRefund);
+            if (gasRefund > 0) {
+                sender.addBalance(gasRefund);
+            }
         }
 
         // increment nonce for next transaction
@@ -97,8 +101,6 @@ public class TransactionExecutor {
     }
 
     private boolean executeDepCoinTransfer() {
-        executionContext.consumeGas(BASE_TRANSFER_COST);
-
         String senderAddress = transaction.getFrom().toLowerCase();
         String receiverAddress = transaction.getTo().toLowerCase();
         long amount = transaction.getAmount();

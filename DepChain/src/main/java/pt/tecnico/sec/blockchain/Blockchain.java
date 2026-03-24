@@ -63,7 +63,7 @@ public class Blockchain {
 
                 byte[] input = decodeHex(getText(txNode, "input"));
 
-                transactions.add(new Transaction(from, to, amount, input, gasPrice, gasLimit, nonce, null));
+                transactions.add(new Transaction(Transaction.Type.DEPCOIN_TRANSFER, from, to, amount, input, gasPrice, gasLimit, nonce, null));
             }
 
             // load accounts from genesis file
@@ -125,13 +125,10 @@ public class Blockchain {
         List<Transaction> transactions = block.getTransactions(); // gets transactions in descending gas price order
 
         for (Transaction tx : transactions) {
-            ExecutionContext executionContext = new ExecutionContext(tx.getGasLimit(), tx.getGasPrice());
+            ExecutionContext executionContext = new ExecutionContext(tx.getType(), tx.getGasLimit(), tx.getGasPrice());
             TransactionExecutor executor = new TransactionExecutor(tx, accounts, executionContext);
             boolean success = executor.execute();
 
-            // TODO: if transaction is not successful, what happens to it?
-            // is it discarded and not added to the block at all? or is it included but
-            // marked as failed -> esta opcao
             if (!success) {
                 System.err.printf("TX %s failed (gas consumed: %d)%n", tx.getHash(), executionContext.getGasUsed());
             }

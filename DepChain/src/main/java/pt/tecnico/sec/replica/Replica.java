@@ -15,7 +15,8 @@ import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.blockchain.Block;
 import pt.tecnico.sec.blockchain.Blockchain;
 import pt.tecnico.sec.blockchain.Transaction;
-import pt.tecnico.sec.client.message.*;
+import pt.tecnico.sec.client.message.Command;
+import pt.tecnico.sec.client.message.CommandResponse;
 import pt.tecnico.sec.utils.Crypto;
 
 public class Replica {
@@ -52,6 +53,13 @@ public class Replica {
         Transaction tx = request.getTransaction();
         String sender = tx.getFrom().toLowerCase();
 
+        boolean isContractTx = tx.isContractCall() || tx.isContractDeployment();
+        if (isContractTx && (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0)) {
+            System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
+            sendResponseToClient(request.getSenderId(), tx.getNonce(), false,
+                    "Invalid gasPrice or gasLimit");
+            return;
+        } 
         if (!verifyTransactionSignature(tx)) {
             System.err.println("Rejected tx with invalid signature from " + sender);
             sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Invalid signature");
@@ -65,7 +73,8 @@ public class Replica {
             return;
         }
 
-        if (account.getBalance() < tx.getGasLimit() * tx.getGasPrice()) {
+        if ((tx.isContractCall() || tx.isContractDeployment())
+            && account.getBalance() < tx.getGasLimit() * tx.getGasPrice()) {
             System.err.println("Rejected tx from " + sender + " due to insufficient balance.");
             sendResponseToClient(request.getSenderId(), tx.getNonce(), false,
                     "Insufficient balance to cover max transaction cost");
@@ -395,8 +404,14 @@ public class Replica {
             return false;
         }
 
-        if (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0) {
-            System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
+        boolean isContractTx = tx.isContractCall() || tx.isContractDeployment();
+        if (isContractTx) {
+            if (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0) {
+                System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
+                return false;
+            }
+        } else if (tx.getGasPrice() != 0 || tx.getGasLimit() != 0) {
+            System.err.println("Transaction " + tx.getHash() + " must have zero gasPrice and gasLimit");
             return false;
         }
 

@@ -9,12 +9,12 @@ public class ExecutionContext {
     private final long gasPrice;
     private long gasUsed = 0;
 
-    public ExecutionContext(long gasLimit, long gasPrice) {
+    public ExecutionContext(Transaction.Type type, long gasLimit, long gasPrice) {
+        if ((type == Transaction.Type.CONTRACT_DEPLOYMENT || type == Transaction.Type.CONTRACT_CALL) && (gasLimit <= 0 || gasPrice <= 0)) {
+             throw new IllegalArgumentException("Gas limit and price must be positive for transfer and contract call transactions");
+        }
         this.gasLimit = gasLimit;
         this.gasPrice = gasPrice;
-        if (gasLimit <= 0 || gasPrice <= 0) {
-            throw new IllegalArgumentException("Gas limit and gas price must be positive");
-        }
     }
 
     public void consumeGas(long amount) {

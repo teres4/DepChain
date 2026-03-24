@@ -20,8 +20,6 @@ public class Client {
 
     public Client(int clientId, int clientPort) throws IOException, Exception {
         this.clientId = clientId;
-        this.clientPort = clientPort;
-
         this.authPerfLink = new AuthPerfLink(this.clientId, Crypto.getClientPrivateKey(this.clientId), false,
                 clientPort);
         clientOps = new ClientOperations(this.clientId, this.authPerfLink);
@@ -140,7 +138,7 @@ public class Client {
 
             System.out.print("Enter the amount of DepCoin to transfer: ");
             int amount = Integer.parseInt(scanner.nextLine());
-            clientOps.transferDepCoin(recipientId, amount, this.GasPrice, this.GasLimit);
+            clientOps.transferDepCoin(recipientId, amount);
             System.out.println("Transfer request sent successfully.");
         } catch (NumberFormatException e) {
             System.err.println("Invalid input. Please enter numeric values for recipient ID and amount.");
