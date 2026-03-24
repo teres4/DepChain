@@ -988,7 +988,7 @@ public class Consensus {
                             "Received invalid missing node reply from replica " + r.getSenderId() + ", ignoring");
                     continue;
                 }
-                if (nodesToAdd.isEmpty() || tree.extendsFrom(node, nodesToAdd.peek())) {
+                if (nodesToAdd.isEmpty() || tree.extendsFrom(nodesToAdd.peek(), node)) {
                     nodesToAdd.add(node);
                 } else {
                     System.err.println(
