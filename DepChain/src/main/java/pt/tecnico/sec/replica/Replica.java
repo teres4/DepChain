@@ -34,6 +34,7 @@ public class Replica {
     private final ExecutorService executorService = Executors.newFixedThreadPool(100);
 
     private static final long BLOCK_BUILD_TIMEOUT_MS = 12000; // 12 seconds
+    private static final int MAX_TXS_PER_BLOCK = 500;
 
     public Replica(long replicaId, AuthPerfLink authPerfLink, Blockchain blockchain) {
         this.replicaId = replicaId;
@@ -178,6 +179,9 @@ public class Replica {
         if (block == null) {
             return false;
         }
+        if (block.getTransactions().size() >= MAX_TXS_PER_BLOCK) {
+            return true;
+        }
         long totalGas = 0;
         for (Transaction tx : block.getTransactions()) {
             totalGas += tx.getGasLimit();
@@ -211,8 +215,12 @@ public class Replica {
         long gasAccumulated = 0;
 
         for (Transaction tx : executable) {
+            if (selected.size() >= MAX_TXS_PER_BLOCK) {
+                break;
+            }
             if (gasAccumulated + tx.getGasLimit() > Blockchain.BLOCK_GAS_LIMIT)
                 break;
+                
             selected.add(tx);
             gasAccumulated += tx.getGasLimit();
             // Mark transaction as pending (part of a block proposal)
