@@ -66,7 +66,7 @@ public class Client {
             System.out.println("4. Transfer IST Coin From (transferFrom)");
             System.out.println("=================================================");
             System.out.println("5. Get Balance");
-            System.out.println("6. Get History");
+            System.out.println("6. Get IST Coin Balance");
             System.out.println("=================================================");
             System.out.println("7. Change default gas price and limit");
             System.out.println("=================================================");
@@ -92,11 +92,11 @@ public class Client {
                     break;
 
                 case "5":
-                    System.out.println("Get Balance functionality is not implemented yet.");
+                    client.getDepCoinBalance();
                     break;
 
                 case "6":
-                    System.out.println("Get History functionality is not implemented yet.");
+                    client.getISTCoinBalance();
                     break;
 
                 case "7":
@@ -212,6 +212,24 @@ public class Client {
             System.err.println("Invalid input.");
         } catch (Exception e) {
             System.err.println("Error sending transferFrom request: " + e.getMessage());
+        }
+    }
+
+    public void getDepCoinBalance() {
+        try {
+            clientOps.getDepCoinBalance();
+            System.out.println("DepCoin balance query sent successfully.");
+        } catch (Exception e) {
+            System.err.println("Error sending DepCoin balance query: " + e.getMessage());
+        }
+    }
+
+    public void getISTCoinBalance() {
+        try {
+            clientOps.getISTCoinBalance();
+            System.out.println("IST Coin balance query sent successfully.");
+        } catch (Exception e) {
+            System.err.println("Error sending IST Coin balance query: " + e.getMessage());
         }
     }
 }

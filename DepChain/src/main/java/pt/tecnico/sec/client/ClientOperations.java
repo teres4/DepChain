@@ -174,7 +174,7 @@ public class ClientOperations {
         // serialize and send
         String txJson = new Gson().toJson(tx);
 
-        Command command = new Command(CommandType.TRANSFERDEPCOIN, this.clientId, txJson, base64Signature);
+        Command command = new Command(CommandType.TRANSFERDEPCOIN, this.clientId, txJson);
 
         currentResponses.clear();
         currentNonce = this.nonce;
@@ -238,7 +238,7 @@ public class ClientOperations {
 
         String txJson = new Gson().toJson(tx);
 
-        Command command = new Command(CommandType.TRANSFERISTCOIN, this.clientId, txJson, base64Signature);
+        Command command = new Command(CommandType.TRANSFERISTCOIN, this.clientId, txJson);
 
         // TODO: will the client be able to send multiple transactions?
         // or do we wait for the response like in stage 1?
@@ -281,7 +281,7 @@ public class ClientOperations {
                 gasPrice, gasLimit, this.nonce, signatureBytes);
 
         String txJson = new Gson().toJson(tx);
-        Command command = new Command(CommandType.APPROVEISTCOIN, this.clientId, txJson, base64Signature);
+        Command command = new Command(CommandType.APPROVEISTCOIN, this.clientId, txJson);
 
         currentResponses.clear();
         currentNonce = this.nonce;
@@ -321,7 +321,7 @@ public class ClientOperations {
                 gasPrice, gasLimit, this.nonce, signatureBytes);
 
         String txJson = new Gson().toJson(tx);
-        Command command = new Command(CommandType.TRANSFERFROMISTCOIN, this.clientId, txJson, base64Signature);
+        Command command = new Command(CommandType.TRANSFERFROMISTCOIN, this.clientId, txJson);
 
         currentResponses.clear();
         currentNonce = this.nonce;
@@ -334,4 +334,11 @@ public class ClientOperations {
         System.out.println("\u001B[36m" + message + "\u001B[0m");
     }
 
+    public void getDepCoinBalance() throws Exception {
+        // TODO: implement
+    }
+
+    public void getISTCoinBalance() throws Exception {
+        // TODO: implement
+    }
 }
