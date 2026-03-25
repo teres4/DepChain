@@ -911,7 +911,6 @@ public class Consensus {
         if (router != null) {
             try {
                 sendToFplusone(request);
-                // TODO: we could optimize by sending to f+1 replicas
             } catch (Exception e) {
                 System.err.println("Failed to broadcast missing node request: " + e.getMessage());
             }
@@ -924,6 +923,7 @@ public class Consensus {
                 System.err.println("Interrupted while waiting for missing node: " + e.getMessage());
             }
         }
+        missingNodehash = null;
     }
 
     public synchronized void onReceiveMissingNodeReplyMessage(MissingNodeReplyMessage reply) {
