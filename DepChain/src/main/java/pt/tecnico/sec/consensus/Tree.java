@@ -3,6 +3,7 @@ package pt.tecnico.sec.consensus;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -62,27 +63,32 @@ public class Tree {
 
     // check if node extends from ancestor
     public boolean extendsFrom(Node node, Node ancestor) {
-        if (node == null || ancestor == null) return false;
+        if (node == null || ancestor == null)
+            return false;
 
         String currentHash = node.getHash();
         String ancestorHash = ancestor.getHash();
 
-        if (currentHash.equals(ancestorHash)) return true;
+        if (currentHash.equals(ancestorHash))
+            return true;
 
         String parentHash = node.getParentHash();
         while (parentHash != null) {
-            if (parentHash.equals(ancestorHash)) return true;
+            if (parentHash.equals(ancestorHash))
+                return true;
 
             Node parent = treeMap.get(parentHash);
-            if (parent == null) break;
+            if (parent == null)
+                break;
 
             parentHash = parent.getParentHash();
         }
         return false;
     }
-    
+
     public void pruneConflictingBranches(Node decidedNode) {
-        if (decidedNode == null) return;
+        if (decidedNode == null)
+            return;
 
         // build the committed chain hashes
         Set<String> committedChain = new HashSet<>();
@@ -90,7 +96,8 @@ public class Tree {
         while (currentHash != null) {
             committedChain.add(currentHash);
             Node current = treeMap.get(currentHash);
-            if (current == null) break;
+            if (current == null)
+                break;
             currentHash = current.getParentHash();
         }
 
@@ -100,13 +107,19 @@ public class Tree {
             Map.Entry<String, Node> entry = iterator.next();
             Node node = entry.getValue();
 
-            if (committedChain.contains(node.getHash())) continue;
-            if (extendsFrom(node, decidedNode)) continue;
+            if (committedChain.contains(node.getHash()))
+                continue;
+            if (extendsFrom(node, decidedNode))
+                continue;
 
-            System.out.println("Pruning conflicting node: " + node.getHash() 
-                + " (command: " + node.getCommand() + ")");
+            System.out.println("Pruning conflicting node: " + node.getHash()
+                    + " (command: " + node.getCommand() + ")");
             iterator.remove();
         }
     }
-    
+
+    public boolean contains(String hash) {
+        return treeMap.containsKey(hash);
+    }
+
 }

@@ -59,6 +59,7 @@ public abstract class HotStuffMessage {
             case COMMIT -> gson.fromJson(json, CommitMessage.class);
             case COMMIT_VOTE -> gson.fromJson(json, CommitVoteMessage.class);
             case DECIDE -> gson.fromJson(json, DecideMessage.class);
+            case MISSING_NODE_REPLY -> gson.fromJson(json, MissingNodeReplyMessage.class);
             default -> throw new IllegalArgumentException("Unknown type: " + type);
         };
     }

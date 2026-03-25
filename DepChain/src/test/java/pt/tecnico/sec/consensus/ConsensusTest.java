@@ -478,6 +478,159 @@ class ConsensusTest {
             verify(router, never()).blockDecided(any());
             assertEquals(2, c.getViewNumberInt(), "View must not change on replayed DECIDE");
         }
+
+        @Test
+        @DisplayName("Lagging replica requests missing node, catches up, and then votes PREPARE")
+        void byzantine_laggingReplicaCatchesUpBeforeVotingPrepare() throws Exception {
+            // Replica 4 is behind in view 2 and misses parent hashB. It catches up after
+            // f+1 missing-node replies, then it can process PREPARE and vote.
+            TestableConsensus c = consensus(4);
+            c.viewNumber.set(2);
+
+            Node root = new Node("genesis", "genesis", null, null);
+            c.tree.addNode(root);
+            c.tree.setRoot(root);
+
+            Node missingParent = new Node(
+                    "hashB",
+                    "cmdB",
+                    "genesis",
+                    qc(1, "hashB", "commit"));
+
+            c.missingNodehash = "hashB";
+            c.catchUp = false;
+
+            c.onReceiveMissingNodeReplyMessage(new MissingNodeReplyMessage(1, 2, java.util.List.of(missingParent)));
+            assertFalse(c.catchUp, "Must wait for f+1 replies before marking catch-up complete");
+
+            c.onReceiveMissingNodeReplyMessage(new MissingNodeReplyMessage(2, 2, java.util.List.of(missingParent)));
+            assertTrue(c.catchUp, "Replica should be marked caught up after f+1 valid replies");
+            assertNotNull(c.tree.getNode("hashB"), "Missing parent node must be added during catch-up");
+
+            Node proposed = new Node("hashC", "cmdC", "hashB", null);
+            PrepareMessage prepare = new PrepareMessage(2, proposed, qc(1, "hashB", "prepare"), 3);
+
+            c.onReceivePrepareMessage(prepare);
+
+            verify(router, timeout(1000)).sendConsensusMessage(
+                    argThat(m -> m instanceof PrepareVoteMessage vote
+                            && vote.getNode().getHash().equals("hashC")
+                            && vote.getViewNumber() == 2),
+                    eq(3L));
+        }
+
+        @Test
+        @DisplayName("Lagging replica catches up across multiple missing nodes with valid reply chains")
+        void byzantine_multiNodeCatchUpWithReplyValidation() {
+            // Replica 4 is behind and missing hashD -> hashC -> hashB.
+            // Two donor replicas reply with the chain; replica 4 validates replies,
+            // catches up, and then successfully sends PREPARE_VOTE for the next node.
+
+            TestableConsensus lagging = consensus(4);
+            lagging.viewNumber.set(5);
+
+            Node root = new Node("genesis", "genesis", null, null);
+            lagging.tree.addNode(root);
+            lagging.tree.setRoot(root);
+
+            lagging.missingNodehash = "hashD";
+            lagging.catchUp = false;
+
+            TestableConsensus donor1 = consensus(1);
+            donor1.viewNumber.set(5);
+            donor1.tree.addNode(new Node("hashB", "cmdB", "genesis", qc(2, "hashB", "commit")));
+            donor1.tree.addNode(new Node("hashC", "cmdC", "hashB", qc(3, "hashC", "commit")));
+            donor1.tree.addNode(new Node("hashD", "cmdD", "hashC", qc(4, "hashD", "commit")));
+
+            TestableConsensus donor2 = consensus(2);
+            donor2.viewNumber.set(5);
+            donor2.tree.addNode(new Node("hashB", "cmdB", "genesis", qc(2, "hashB", "commit")));
+            donor2.tree.addNode(new Node("hashC", "cmdC", "hashB", qc(3, "hashC", "commit")));
+            donor2.tree.addNode(new Node("hashD", "cmdD", "hashC", qc(4, "hashD", "commit")));
+
+            MissingNodeMessage request = new MissingNodeMessage(5, "hashD", 4);
+            donor1.onReceiveMissingNodeRequestMessage(request);
+            donor2.onReceiveMissingNodeRequestMessage(request);
+
+            ArgumentCaptor<HotStuffMessage> replyCaptor = ArgumentCaptor.forClass(HotStuffMessage.class);
+            verify(router, times(2)).sendConsensusMessage(replyCaptor.capture(), eq(4L));
+
+            java.util.List<MissingNodeReplyMessage> replies = replyCaptor.getAllValues().stream()
+                    .map(m -> (MissingNodeReplyMessage) m)
+                    .toList();
+
+            for (MissingNodeReplyMessage reply : replies) {
+                assertEquals(3, reply.getNodes().size(), "Reply must include all 3 missing nodes");
+                assertEquals("hashD", reply.getNodes().get(0).getHash(), "Reply must start at requested node");
+                assertEquals("hashC", reply.getNodes().get(1).getHash());
+                assertEquals("hashB", reply.getNodes().get(2).getHash());
+                assertEquals("hashC", reply.getNodes().get(0).getParentHash());
+                assertEquals("hashB", reply.getNodes().get(1).getParentHash());
+                assertEquals("genesis", reply.getNodes().get(2).getParentHash(),
+                        "Reply chain must anchor to receiver's locked QC node hash");
+            }
+
+            lagging.onReceiveMissingNodeReplyMessage(replies.get(0));
+            assertFalse(lagging.catchUp, "One reply is not enough, need f+1 replies");
+
+            lagging.onReceiveMissingNodeReplyMessage(replies.get(1));
+            assertTrue(lagging.catchUp, "Replica should catch up after receiving f+1 valid replies");
+            assertNotNull(lagging.tree.getNode("hashB"));
+            assertNotNull(lagging.tree.getNode("hashC"));
+            assertNotNull(lagging.tree.getNode("hashD"));
+
+            Node next = new Node("hashE", "cmdE", "hashD", null);
+            PrepareMessage prepare = new PrepareMessage(5, next, qc(4, "hashD", "prepare"), 2);
+
+            lagging.onReceivePrepareMessage(prepare);
+
+            verify(router, timeout(1000)).sendConsensusMessage(
+                    argThat(m -> m instanceof PrepareVoteMessage vote
+                            && vote.getNode().getHash().equals("hashE")
+                            && vote.getViewNumber() == 5),
+                    eq(2L));
+        }
+
+        @Test
+        @DisplayName("Malformed missing-node reply is ignored and valid donor reply still allows catch-up")
+        void byzantine_malformedMissingNodeReplyIgnored() {
+            TestableConsensus lagging = consensus(4);
+            lagging.viewNumber.set(6);
+
+            Node root = new Node("genesis", "genesis", null, null);
+            lagging.tree.addNode(root);
+            lagging.tree.setRoot(root);
+
+            lagging.missingNodehash = "hashD";
+            lagging.catchUp = false;
+
+            TestableConsensus donor = consensus(1);
+            donor.viewNumber.set(6);
+            donor.tree.addNode(new Node("hashB", "cmdB", "genesis", qc(2, "hashB", "commit")));
+            donor.tree.addNode(new Node("hashC", "cmdC", "hashB", qc(3, "hashC", "commit")));
+            donor.tree.addNode(new Node("hashD", "cmdD", "hashC", qc(4, "hashD", "commit")));
+
+            MissingNodeMessage request = new MissingNodeMessage(6, "hashD", 4);
+            donor.onReceiveMissingNodeRequestMessage(request);
+
+            ArgumentCaptor<HotStuffMessage> replyCaptor = ArgumentCaptor.forClass(HotStuffMessage.class);
+            verify(router).sendConsensusMessage(replyCaptor.capture(), eq(4L));
+            MissingNodeReplyMessage validReply = (MissingNodeReplyMessage) replyCaptor.getValue();
+
+            Node malformed = new Node("evilHash", "evil", "genesis", qc(1, "evilHash", "commit"));
+            MissingNodeReplyMessage malformedReply = new MissingNodeReplyMessage(3, 6, java.util.List.of(malformed));
+
+            lagging.onReceiveMissingNodeReplyMessage(malformedReply);
+            assertFalse(lagging.catchUp, "One malformed reply must not trigger catch-up");
+
+            lagging.onReceiveMissingNodeReplyMessage(validReply);
+            assertTrue(lagging.catchUp, "Catch-up should succeed once a valid reply is present at f+1 threshold");
+
+            assertNull(lagging.tree.getNode("evilHash"), "Malformed reply data must never be added to the tree");
+            assertNotNull(lagging.tree.getNode("hashB"));
+            assertNotNull(lagging.tree.getNode("hashC"));
+            assertNotNull(lagging.tree.getNode("hashD"));
+        }
     }
 
     // -----------------------------------------------------------------------

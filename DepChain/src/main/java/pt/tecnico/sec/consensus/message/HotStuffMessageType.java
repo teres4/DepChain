@@ -9,5 +9,7 @@ public enum HotStuffMessageType {
     PRE_COMMIT_VOTE,
     COMMIT,
     COMMIT_VOTE,
-    DECIDE
+    DECIDE,
+    MISSING_NODE_REQUEST,
+    MISSING_NODE_REPLY
 }
