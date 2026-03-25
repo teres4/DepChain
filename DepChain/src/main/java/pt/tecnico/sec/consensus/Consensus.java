@@ -924,6 +924,7 @@ public class Consensus {
                 System.err.println("Interrupted while waiting for missing node: " + e.getMessage());
             }
         }
+        missingNodehash = null;
     }
 
     public synchronized void onReceiveMissingNodeReplyMessage(MissingNodeReplyMessage reply) {
