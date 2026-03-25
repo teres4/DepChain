@@ -34,10 +34,12 @@ tmux send-keys -t $SESSION:0.3 "docker exec -it depchain_member4 mvn -q exec:jav
 echo "Waiting for replicas to initialize..."
 sleep 5
 
-echo "Launching client..."
+echo "Launching clients..."
 # Create 5th pane for client
 tmux split-window -h -t $SESSION:0.3
 tmux send-keys -t $SESSION:0.4 "docker exec -it depchain_client1 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.client.Client -Dexec.args='100 9000' 2>&1" C-m
+tmux split-window -h -t $SESSION:0.4
+tmux send-keys -t $SESSION:0.5 "docker exec -it depchain_client1 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.client.Client -Dexec.args='101 9001' 2>&1" C-m
 
 tmux select-layout -t $SESSION tiled
 

@@ -10,6 +10,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.fluent.EVMExecutor;
 import org.hyperledger.besu.evm.fluent.SimpleWorld;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -125,7 +127,6 @@ public class TransactionExecutor {
         return true;
     }
 
-    // TODO: run the bytecode, use EVM
     private boolean executeContractDeployment() {
         System.out.println("[DEPLOY] Starting contract deployment from " + transaction.getFrom());
 
@@ -231,6 +232,7 @@ public class TransactionExecutor {
         return true;
     }
 
+    // TODO: retornamos sempre true
     private boolean executeContractCall() {
         System.out.println("[CALL] Starting contract call from " + transaction.getFrom() 
             + " to " + transaction.getTo());
@@ -238,23 +240,26 @@ public class TransactionExecutor {
         System.out.println("[CALL] Calldata (hex): " 
             + HexFormat.of().formatHex(transaction.getInput()));
 
-        executionContext.consumeGas(BASE_CONTRACT_CALL_COST);
-        executionContext.consumeGas(GAS_PER_INPUT_BYTE * transaction.getInput().length);
-        System.out.println("[CALL] Gas consumed for call base + input: "
-            + (BASE_CONTRACT_CALL_COST + GAS_PER_INPUT_BYTE * transaction.getInput().length));
-
+        // validate target is a contract
         String contractAddress = transaction.getTo().toLowerCase();
         Account account = accounts.get(contractAddress);
-
         if (!(account instanceof ContractAccount)) {
             System.err.println("[CALL] Target is not a contract: " + contractAddress);
             throw new IllegalStateException("Target is not a contract: " + contractAddress);
         }
-
         ContractAccount contract = (ContractAccount) account;
-        System.out.println("[CALL] Contract storage slots before call: " + contract.getStorage().size());
-        contract.getStorage().forEach((k, v) -> System.out.println("[CALL]   [" + k + "] = " + v));
 
+        // gas: base costs
+        long baseCost = BASE_CONTRACT_CALL_COST + GAS_PER_INPUT_BYTE * transaction.getInput().length;
+        executionContext.consumeGas(baseCost);
+        System.out.println("[CALL] Gas consumed for call base + input: " + baseCost);
+
+        long gasForEVM = transaction.getGasLimit() - baseCost;
+        if (gasForEVM <= 0) {
+            throw new IllegalStateException("Not enough gas for EVM execution after base costs");
+        }
+
+        // setup EVM world
         SimpleWorld simpleWorld = new SimpleWorld();
         Address senderAddress = Address.fromHexString(transaction.getFrom());
         Address contractAddr = Address.fromHexString(contractAddress);
@@ -271,6 +276,7 @@ public class TransactionExecutor {
         }
         System.out.println("[CALL] Loaded " + contract.getStorage().size() + " storage slots into EVM world");
 
+        // setup EVM executor
         var executor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
         executor.code(Bytes.fromHexString(
                 org.apache.tuweni.bytes.Bytes.wrap(contract.getRuntimeCode()).toHexString()));
@@ -281,13 +287,28 @@ public class TransactionExecutor {
         executor.worldUpdater(callUpdater);
         executor.commitWorldState();
         executor.callData(Bytes.wrap(transaction.getInput()));
+        executor.gas(transaction.getGasLimit());
 
+        final long[] gasUsed = {0};
+        executor.tracer(new OperationTracer() {
+            @Override
+            public void tracePostExecution(MessageFrame frame, Operation.OperationResult operationResult) {
+                gasUsed[0] = transaction.getGasLimit() - frame.getRemainingGas();
+            }
+        });
+
+        // execute
         System.out.println("[CALL] Executing EVM call...");
         Bytes returnData = executor.execute();
         System.out.println("[CALL] EVM execution complete");
         System.out.println("[CALL] Return data (hex): " + returnData.toHexString());
         System.out.println("[CALL] Return data length: " + returnData.size());
 
+        // gas: EVM execution cost
+        System.out.println("[CALL] EVM gas used: " + gasUsed[0]);
+        executionContext.consumeGas(gasUsed[0]);
+
+        // update storage
         Map<String, String> updatedStorage = new HashMap<>(contract.getStorage());
         MutableAccount updatedContract = (MutableAccount) callUpdater.get(contractAddr);
         if (updatedContract != null) {

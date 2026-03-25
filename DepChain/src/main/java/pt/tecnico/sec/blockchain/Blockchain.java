@@ -122,7 +122,8 @@ public class Blockchain {
     }
 
     private void executeBlock(Block block) {
-        List<Transaction> transactions = block.getTransactions(); // gets transactions in descending gas price order
+        List<Transaction> transactions = new ArrayList<>(block.getTransactions());
+        transactions = block.sortByActualFee(transactions);
 
         for (Transaction tx : transactions) {
             ExecutionContext executionContext = new ExecutionContext(tx.getType(), tx.getGasLimit(), tx.getGasPrice());
