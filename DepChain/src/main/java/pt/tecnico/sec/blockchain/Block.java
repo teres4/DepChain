@@ -4,10 +4,8 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -31,7 +29,7 @@ public class Block {
                  List<Transaction> transactions, Map<String, Account> state) {
         this.previousBlockHash = previousBlockHash;
         this.blockNumber = blockNumber;
-        this.transactions = new ArrayList<>(transactions);
+        this.transactions = sortByFee(transactions);
         this.state = state;
         this.blockHash = computeHash();
     }
@@ -41,52 +39,15 @@ public class Block {
         this.previousBlockHash = previousBlockHash;
         this.blockHash = blockHash;
         this.blockNumber = blockNumber;
-        this.transactions = new ArrayList<>(transactions);
+        this.transactions = sortByFee(transactions);
         this.state = state;
     }
 
-    // TODO: por enquanto vou deixar aqui no caso de nao ser preciso pre-executar as txs para saber o actual gasUsed
     private List<Transaction> sortByFee(List<Transaction> txs) {
         txs.sort(Comparator.comparingLong(
             (Transaction tx) -> tx.getGasPrice() * tx.getGasLimit()
         ).reversed());
         return txs;
-    }
-
-    public List<Transaction> sortByActualFee(List<Transaction> txs) {
-        Map<String, Account> accountsCopy = deepCopyAccounts(state);
-        Map<String, Long> actualFees = new HashMap<>();
-        
-        for (Transaction tx : txs) {
-            ExecutionContext dryRunContext = new ExecutionContext(tx.getGasLimit(), tx.getGasPrice());
-            TransactionExecutor dryRun = new TransactionExecutor(tx, accountsCopy, dryRunContext);
-            dryRun.execute();
-            long actualFee = tx.getGasPrice() * dryRunContext.getGasUsed();
-            actualFees.put(tx.getHash(), actualFee);
-        }
-        
-        txs.sort(Comparator.comparingLong(
-            (Transaction tx) -> actualFees.getOrDefault(tx.getHash(), 0L)
-        ).reversed());
-        
-        return txs;
-    }
-
-    private Map<String, Account> deepCopyAccounts(Map<String, Account> original) {
-        Map<String, Account> copy = new HashMap<>();
-        for (Map.Entry<String, Account> entry : original.entrySet()) {
-            Account acc = entry.getValue();
-            if (acc instanceof ContractAccount ca) {
-                copy.put(entry.getKey(), new ContractAccount(
-                    ca.getAddress(), ca.getBalance(), ca.getRuntimeCode(),
-                    new HashMap<>(ca.getStorage()), ca.getNonce()));
-            } else if (acc instanceof EOAccount eo) {
-                copy.put(entry.getKey(), new EOAccount(
-                    eo.getAddress(), eo.getBalance(),
-                    eo.getPublicKey(), eo.getNonce()));
-            }
-        }
-        return copy;
     }
 
     public String computeHash() {
