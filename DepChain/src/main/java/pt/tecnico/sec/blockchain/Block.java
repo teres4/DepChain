@@ -58,7 +58,7 @@ public class Block {
         Map<String, Long> actualFees = new HashMap<>();
         
         for (Transaction tx : txs) {
-            ExecutionContext dryRunContext = new ExecutionContext(tx.getGasLimit(), tx.getGasPrice());
+            ExecutionContext dryRunContext = new ExecutionContext(tx.getType(), tx.getGasLimit(), tx.getGasPrice());
             TransactionExecutor dryRun = new TransactionExecutor(tx, accountsCopy, dryRunContext);
             dryRun.execute();
             long actualFee = tx.getGasPrice() * dryRunContext.getGasUsed();
