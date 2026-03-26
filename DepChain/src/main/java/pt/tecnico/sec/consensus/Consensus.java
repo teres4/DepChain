@@ -166,6 +166,10 @@ public class Consensus {
         this.router = router;
     }
 
+    protected void disableLeaderTimeoutWatchdogForTests() {
+        scheduler.shutdownNow();
+    }
+
     protected MessageRouter getRouter() {
         return router;
     }
@@ -881,7 +885,9 @@ public class Consensus {
             return false;
         }
         Node proposedNode = prepareMessage.getNode();
-        if (!tree.contains(proposedNode.getParentHash()) && tree.getRoot().getHash() != proposedNode.getParentHash()) {
+        String parentHash = proposedNode.getParentHash();
+        String rootHash = tree.getRoot().getHash();
+        if (!tree.contains(parentHash) && !rootHash.equals(parentHash)) {
             logHotStuff("I might be behind, missing node " + proposedNode.getParentHash() + " proposed in PREPARE");
         } else {
             return false;
@@ -890,12 +896,16 @@ public class Consensus {
         // justifies the proposal
         System.out.println("Checking if the QC justifying the proposal is valid...");
         QuorumCertificate highQC = prepareMessage.getHighQC();
-        // check signatures
-        String expectedMsg = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, highQC.getViewNumber(),
-                highQC.getNodeHash());
-        if (!tverify(highQC.getW(), expectedMsg)) {
-            logHotStuff("Leader is byzantine, invalid QC signature in PREPARE");
-            return true; // start view change
+        if (highQC != null) {
+            // check signatures
+            String expectedMsg = createVoteMessage(HotStuffMessageType.PREPARE_VOTE, highQC.getViewNumber(),
+                    highQC.getNodeHash());
+            if (!tverify(highQC.getW(), expectedMsg)) {
+                logHotStuff("Leader is byzantine, invalid QC signature in PREPARE");
+                return true; // start view change
+            }
+        } else {
+            logHotStuff("Missing QC in PREPARE while catching up, attempting node sync");
         }
 
         missingNodehash = proposedNode.getParentHash();
@@ -903,7 +913,9 @@ public class Consensus {
         return false;
     }
 
-    public void syncNodes(String missingNode) {
+    public synchronized void syncNodes(String missingNode) {
+        this.catchUp = false;
+        this.MissingNodeReplies.clear();
         MissingNodeMessage request = new MissingNodeMessage(this.viewNumber.get(), missingNode, this.replicaID);
         if (router != null) {
             try {
@@ -913,11 +925,19 @@ public class Consensus {
             }
         }
 
+        long deadline = System.currentTimeMillis() + 5000;
         while (!catchUp) {
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0) {
+                System.err.println("Timed out waiting for missing node " + missingNode);
+                break;
+            }
             try {
-                wait();
+                wait(Math.min(remaining, 500));
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 System.err.println("Interrupted while waiting for missing node: " + e.getMessage());
+                break;
             }
         }
         missingNodehash = null;

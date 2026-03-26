@@ -43,6 +43,7 @@ class ConsensusTest {
 
         TestableConsensus(long replicaID, int totalReplicas, Consensus.CommandValidator commandValidator) {
             super(replicaID, totalReplicas, commandValidator);
+            disableLeaderTimeoutWatchdogForTests();
         }
 
         @Override
@@ -149,7 +150,6 @@ class ConsensusTest {
             TestableConsensus c = consensus(2);
             c.seedRoot("rootHash");
             when(router.getBlocktoPropose()).thenReturn(blockToPropose());
-            doNothing().when(router).sendConsensusMessage(any(), anyLong());
 
             c.onReceiveNewViewMessage(newView(1, 1));
             assertNull(c.getPhase(), "No prepare before quorum");
@@ -266,6 +266,20 @@ class ConsensusTest {
     @Nested
     @DisplayName("3. View change")
     class ViewChange {
+
+        @Test
+        @DisplayName("Replica does not consider itself behind when PREPARE parent is the root in a later view")
+        void viewChange_firstPrepareFromRootInLaterView_notBehind() {
+            TestableConsensus c = consensus(4);
+            c.viewNumber.set(2);
+
+            c.seedRoot("genesis");
+            Node proposed = new Node("nodeHash-root-child", "cmd", new String("genesis"), null);
+            PrepareMessage prepare = new PrepareMessage(2, proposed, null, 3);
+
+            assertFalse(c.amIBehind(prepare),
+                    "A proposal extending root must not trigger behind detection in later views");
+        }
 
         @Test
         @DisplayName("Late PREPARE votes for the old view are dropped after the view advances")
@@ -769,6 +783,7 @@ class ConsensusTest {
         class RealCryptoConsensus extends Consensus {
             RealCryptoConsensus(long replicaID, KeyShare privateKeyShare, GroupKey publicKey) {
                 super(replicaID, L, cmd -> true);
+                disableLeaderTimeoutWatchdogForTests();
                 this.privateKeyShare = privateKeyShare;
                 this.publicKey = publicKey;
             }
