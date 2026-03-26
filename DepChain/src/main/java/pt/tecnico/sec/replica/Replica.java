@@ -4,8 +4,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -92,7 +94,7 @@ public class Replica {
     }
 
     private boolean addToMempool(Transaction tx) {
-        String sender = tx.getFrom();
+        String sender = tx.getFrom().toLowerCase();
 
         ConcurrentHashMap<Long, Transaction> senderTxs = mempool.computeIfAbsent(sender,
                 k -> new ConcurrentHashMap<>());
@@ -186,31 +188,60 @@ public class Replica {
     }
 
     private List<Transaction> selectTransactionsForBlock(Map<String, Account> accounts) {
-        List<Transaction> executable = new ArrayList<>();
+        // queue to sort transactions by highest fee first
+        PriorityQueue<Transaction> queue = new PriorityQueue<>(
+                Comparator.comparingLong((Transaction tx) -> tx.getGasPrice() * tx.getGasLimit()).reversed());
+
+        // track next nonce per sender
+        Map<String, Long> nextNonce = new HashMap<>();
+
+        // per-sender sorted tx lists
+        Map<String, List<Transaction>> sortedTxs = new HashMap<>();
 
         for (Map.Entry<String, ConcurrentHashMap<Long, Transaction>> entry : mempool.entrySet()) {
             String sender = entry.getKey();
             Account account = accounts.get(sender);
-            if (account == null)
-                continue;
 
-            // only the next expected nonce is executable right now
-            Transaction tx = entry.getValue().get(account.getNonce());
-            if (tx != null && !isPending(sender, tx.getNonce())) {
-                executable.add(tx);
+            long expectedNonce = account.getNonce();
+            nextNonce.put(sender, expectedNonce);
+
+            // Sort sender transactions by nonce
+            List<Transaction> txs = new ArrayList<>(entry.getValue().values());
+            txs.sort(Comparator.comparingLong(Transaction::getNonce));
+
+            sortedTxs.put(sender, txs);
+
+            // if the sender has a transaction with the expected nonce and it's not pending, add it to the queue
+            if (!txs.isEmpty() && txs.get(0).getNonce() == expectedNonce && !isPending(sender, txs.get(0).getNonce())) {
+                queue.add(txs.get(0));
             }
         }
-
-        executable.sort(Comparator.comparingLong((Transaction tx) -> tx.getGasPrice() * tx.getGasLimit()).reversed());
 
         List<Transaction> selected = new ArrayList<>();
         long gasAccumulated = 0;
 
-        for (Transaction tx : executable) {
-            if (gasAccumulated + tx.getGasLimit() > Blockchain.BLOCK_GAS_LIMIT)
-                break;
+        while (!queue.isEmpty()) {
+            Transaction tx = queue.poll();
+            String sender = tx.getFrom().toLowerCase();
+
+            if (gasAccumulated + tx.getGasLimit() > Blockchain.BLOCK_GAS_LIMIT) {
+                continue;
+            }
+
             selected.add(tx);
             gasAccumulated += tx.getGasLimit();
+
+            // move to next nonce for this sender
+            long expected = nextNonce.get(sender) + 1;
+            nextNonce.put(sender, expected);
+
+            List<Transaction> txs = sortedTxs.get(sender);
+            for (Transaction nextTx : txs) {
+                if (nextTx.getNonce() == expected && !isPending(sender, nextTx.getNonce())) {
+                    queue.add(nextTx);
+                    break;
+                }
+            }
         }
         return selected;
     }
