@@ -12,9 +12,11 @@ public class ReplicaServer {
     public static void main(String[] args) {
         if (args.length < 1) {
             System.err.println(
-                    "Usage: mvn exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args=\"<replicaId> [byzantineMode]\"");
+                    "Usage: mvn exec:java -Dexec.mainClass=pt.tecnico.sec.replica.ReplicaServer -Dexec.args=\"<replicaId> [byzantineMode] [byzantineReplicaMode]\"");
             System.err.println(
                     "  byzantineMode: 0=honest (default), 1=silent, 2=conflicting, 3=wrongNode, 4=wrongLeader, 5=doubleVote, 6=forgedQC, 7=spoofSender, 8=skipPhase");
+            System.err.println(
+                    "  byzantineReplicaMode: 0=honest (default), 1=fabricateTxs, 2=malformedBlocks, 3=modifyClientTxs, 4=all");
             return;
         }
 
@@ -40,6 +42,20 @@ public class ReplicaServer {
             }
         }
 
+        int byzantineReplicaMode = 0;
+        if (args.length >= 3) {
+            try {
+                byzantineReplicaMode = Integer.parseInt(args[2]);
+                if (byzantineReplicaMode < 0 || byzantineReplicaMode > 4) {
+                    System.err.println("Invalid byzantineReplicaMode. Must be between 0 and 4.");
+                    return;
+                }
+            } catch (NumberFormatException e) {
+                System.err.println("Invalid byzantineReplicaMode. It must be a number.");
+                return;
+            }
+        }
+
         System.out.println("=================================================");
         System.out.println("       Starting Replica " + replicaId);
         System.out.println("=================================================");
@@ -49,9 +65,10 @@ public class ReplicaServer {
             AuthPerfLink apl = new AuthPerfLink(replicaId, Crypto.getReplicaPrivateKey(replicaId), 8080);
 
             Blockchain blockchain = new Blockchain(replicaId);
-            Replica replica = new Replica(replicaId, apl, blockchain);
+            Replica replica = createReplica(replicaId, apl, blockchain, byzantineReplicaMode);
 
-            Consensus consensus = createConsensus(replicaId, apl, byzantineMode, blk -> replica.validateBlock(blk, false));
+            Consensus consensus = createConsensus(replicaId, apl, byzantineMode,
+                    blk -> replica.validateBlock(blk, false));
 
             MessageRouter router = new MessageRouter(apl, consensus, replica);
             consensus.setRouter(router);
@@ -80,7 +97,8 @@ public class ReplicaServer {
         }
     }
 
-    private static Consensus createConsensus(long replicaId, AuthPerfLink apl, int mode, CommandValidator commandValidator) {
+    private static Consensus createConsensus(long replicaId, AuthPerfLink apl, int mode,
+            CommandValidator commandValidator) {
         int totalReplicas = apl.getMembers() != null ? apl.getMembers().length + 1 : 1;
         if (mode == 0) {
             return new Consensus(replicaId, totalReplicas, commandValidator);
@@ -97,5 +115,27 @@ public class ReplicaServer {
             case 8 -> bc.setSkipPhase(true);
         }
         return bc;
+    }
+
+    private static Replica createReplica(long replicaId, AuthPerfLink apl, Blockchain blockchain, int mode) {
+        if (mode == 0) {
+            return new Replica(replicaId, apl, blockchain);
+        }
+
+        ByzantineBlockchainReplica byz = new ByzantineBlockchainReplica(replicaId, apl, blockchain);
+        switch (mode) {
+            case 1 -> byz.setFabricateTransactions(true);
+            case 2 -> byz.setMalformedBlocks(true);
+            case 3 -> byz.setModifyClientTransactions(true);
+            case 4 -> {
+                byz.setFabricateTransactions(true);
+                byz.setMalformedBlocks(true);
+                byz.setModifyClientTransactions(true);
+            }
+            default -> {
+                return new Replica(replicaId, apl, blockchain);
+            }
+        }
+        return byz;
     }
 }
