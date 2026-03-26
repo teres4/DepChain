@@ -35,8 +35,7 @@ public class ClientOperations {
 
     public static final String IST_COIN_ADDRESS = "0x86b7efc7c33d883a69cb5d57c7580a699f5d15e6";
 
-    private final ConcurrentLinkedQueue<CommandResponse> currentResponses = new ConcurrentLinkedQueue<>();
-    private long currentNonce = -1;
+    private final Map<Long, ConcurrentLinkedQueue<CommandResponse>> responsesByNonce = new ConcurrentHashMap<>();
 
     private final Map<Long, String> acceptedResults = new ConcurrentHashMap<>();
 
@@ -62,20 +61,20 @@ public class ClientOperations {
     }
 
     public void handleCommandResponse(CommandResponse response) {
-        // Only accept responses for the current command
-        if (response.getNonce() == currentNonce) {
-            currentResponses.add(response);
-        }
+        ConcurrentLinkedQueue<CommandResponse> responses = responsesByNonce.computeIfAbsent(
+                response.getNonce(), k -> new ConcurrentLinkedQueue<>());
+        responses.add(response);
     }
 
     // waits for f+1 equal successful responses from replicas to ensure
-    // at least one honest replica executed the command
+    // at least one honest replica received the command
     private void waitForResponses(long nonce) throws Exception {
         int requiredResponses = this.f + 1; // Need f+1 responses
+        ConcurrentLinkedQueue<CommandResponse> responses = responsesByNonce.get(nonce);
 
         // Wait until f+1 responses share the same result
         while (true) {
-            Map<String, Long> resultCounts = currentResponses.stream()
+            Map<String, Long> resultCounts = responses.stream()
                     .filter(response -> response.getNonce() == nonce && response.isSuccess())
                     .collect(Collectors.groupingBy(CommandResponse::getResult, Collectors.counting()));
 
@@ -86,7 +85,7 @@ public class ClientOperations {
         }
 
         // Find the result agreed upon by f+1 replicas
-        String matchingResult = currentResponses.stream()
+        String matchingResult = responses.stream()
                 .filter(response -> response.getNonce() == nonce && response.isSuccess())
                 .collect(Collectors.groupingBy(CommandResponse::getResult, Collectors.counting()))
                 .entrySet().stream()
@@ -103,11 +102,12 @@ public class ClientOperations {
         int requiredResponses = this.f + 1; // Need f+1 responses
 
         String acceptedResult = acceptedResults.get(nonce);
+        ConcurrentLinkedQueue<CommandResponse> responses = responsesByNonce.get(nonce);
 
         while (true) {
-            Map<String, Long> resultCounts = currentResponses.stream()
+            Map<String, Long> resultCounts = responses.stream()
                     .filter(response -> response.getNonce() == nonce && response.isSuccess())
-                .filter(response -> acceptedResult == null || !acceptedResult.equals(response.getResult()))
+                    .filter(response -> !acceptedResult.equals(response.getResult()))
                     .collect(Collectors.groupingBy(CommandResponse::getResult, Collectors.counting()));
 
             if (resultCounts.values().stream().anyMatch(count -> count >= requiredResponses)) 
@@ -116,9 +116,9 @@ public class ClientOperations {
             Thread.sleep(100);
         }
 
-        String matchingResult = currentResponses.stream()
+        String matchingResult = responses.stream()
                 .filter(response -> response.getNonce() == nonce && response.isSuccess())
-            .filter(response -> acceptedResult == null || !acceptedResult.equals(response.getResult()))
+                .filter(response -> !acceptedResult.equals(response.getResult()))
                 .collect(Collectors.groupingBy(CommandResponse::getResult, Collectors.counting()))
                 .entrySet().stream()
                 .filter(entry -> entry.getValue() >= requiredResponses)
@@ -126,7 +126,9 @@ public class ClientOperations {
                 .findFirst()
                 .orElseThrow();
 
-        System.out.println("Command execution confirmed by replicas. Result: " + matchingResult);
+        System.out.println("Transaction " + nonce + " executed. Result: " + matchingResult);
+        responsesByNonce.remove(nonce);
+        acceptedResults.remove(nonce);
     }
 
     private void waitForExecutionResponsesAsync(long nonce) {
@@ -182,8 +184,8 @@ public class ClientOperations {
 
         Command command = new Command(CommandType.TRANSFERDEPCOIN, this.clientId, txJson);
 
-        currentResponses.clear();
-        currentNonce = this.nonce;
+        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(this.nonce);
 
         logger("Sending DepCoin transfer transaction: " + txJson);
 
@@ -246,8 +248,8 @@ public class ClientOperations {
 
         // TODO: will the client be able to send multiple transactions?
         // or do we wait for the response like in stage 1?
-        currentResponses.clear();
-        currentNonce = this.nonce;
+        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(this.nonce);
 
         sendToAllReplicas(command.toJson());
         waitForResponses(this.nonce);
@@ -287,8 +289,8 @@ public class ClientOperations {
         String txJson = new Gson().toJson(tx);
         Command command = new Command(CommandType.APPROVEISTCOIN, this.clientId, txJson);
 
-        currentResponses.clear();
-        currentNonce = this.nonce;
+        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(this.nonce);
         sendToAllReplicas(command.toJson());
         waitForResponses(this.nonce);
     }
@@ -327,8 +329,8 @@ public class ClientOperations {
         String txJson = new Gson().toJson(tx);
         Command command = new Command(CommandType.TRANSFERFROMISTCOIN, this.clientId, txJson);
 
-        currentResponses.clear();
-        currentNonce = this.nonce;
+        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(this.nonce);
         sendToAllReplicas(command.toJson());
         waitForResponses(this.nonce);
     }
