@@ -141,7 +141,7 @@ public class ClientOperations {
         t.start();
     }
 
-    public void transferDepCoin(int recipientId, long amount) throws Exception {
+    public void transferDepCoin(int recipientId, long amount, long gasPrice, long gasLimit) throws Exception {
         PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
 
         String senderAddress = Crypto.getClientAddress(this.clientId);
@@ -150,10 +150,13 @@ public class ClientOperations {
         this.nonce++;
 
         // build unsigned transaction first to get signable bytes
-        Transaction unsignedTx = new Transaction(Transaction.Type.DEPCOIN_TRANSFER,
+        Transaction unsignedTx = new Transaction(
                 senderAddress,
                 recipientAddress,
                 amount,
+                new byte[0],
+                gasPrice,
+                gasLimit,
                 this.nonce,
                 null);
 
@@ -164,10 +167,13 @@ public class ClientOperations {
         byte[] signatureBytes = Base64.getDecoder().decode(base64Signature);
 
         // build final signed transaction
-        Transaction tx = new Transaction(Transaction.Type.DEPCOIN_TRANSFER,
+        Transaction tx = new Transaction(
                 senderAddress,
                 recipientAddress,
                 amount,
+                new byte[0],
+                gasPrice,
+                gasLimit,
                 this.nonce,
                 signatureBytes);
 
@@ -208,7 +214,6 @@ public class ClientOperations {
 
         // build unsigned transaction
         Transaction unsignedTx = new Transaction(
-                Transaction.Type.CONTRACT_CALL,
                 senderAddress,
                 istCoinContractAddress,
                 0,
@@ -226,7 +231,6 @@ public class ClientOperations {
 
         // build final signed transaction
         Transaction tx = new Transaction(
-                Transaction.Type.CONTRACT_CALL,
                 senderAddress,
                 istCoinContractAddress,
                 0,
@@ -268,7 +272,7 @@ public class ClientOperations {
         byte[] input = Numeric.hexStringToByteArray(FunctionEncoder.encode(function));
 
         Transaction unsignedTx = new Transaction(
-                Transaction.Type.CONTRACT_CALL, senderAddress, istCoinContractAddress, 0, input,
+                senderAddress, istCoinContractAddress, 0, input,
                 gasPrice, gasLimit, this.nonce, null);
 
         String base64Signature = Crypto.signMessage(
@@ -277,7 +281,7 @@ public class ClientOperations {
         byte[] signatureBytes = Base64.getDecoder().decode(base64Signature);
 
         Transaction tx = new Transaction(
-                Transaction.Type.CONTRACT_CALL, senderAddress, istCoinContractAddress, 0, input,
+                senderAddress, istCoinContractAddress, 0, input,
                 gasPrice, gasLimit, this.nonce, signatureBytes);
 
         String txJson = new Gson().toJson(tx);
@@ -308,7 +312,7 @@ public class ClientOperations {
         byte[] input = Numeric.hexStringToByteArray(FunctionEncoder.encode(function));
 
         Transaction unsignedTx = new Transaction(
-                Transaction.Type.CONTRACT_CALL, senderAddress, istCoinContractAddress, 0, input,
+                senderAddress, istCoinContractAddress, 0, input,
                 gasPrice, gasLimit, this.nonce, null);
 
         String base64Signature = Crypto.signMessage(
@@ -317,7 +321,7 @@ public class ClientOperations {
         byte[] signatureBytes = Base64.getDecoder().decode(base64Signature);
 
         Transaction tx = new Transaction(
-                Transaction.Type.CONTRACT_CALL, senderAddress, istCoinContractAddress, 0, input,
+                senderAddress, istCoinContractAddress, 0, input,
                 gasPrice, gasLimit, this.nonce, signatureBytes);
 
         String txJson = new Gson().toJson(tx);

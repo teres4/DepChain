@@ -15,8 +15,7 @@ import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.blockchain.Block;
 import pt.tecnico.sec.blockchain.Blockchain;
 import pt.tecnico.sec.blockchain.Transaction;
-import pt.tecnico.sec.client.message.Command;
-import pt.tecnico.sec.client.message.CommandResponse;
+import pt.tecnico.sec.client.message.*;
 import pt.tecnico.sec.utils.Crypto;
 
 public class Replica {
@@ -34,7 +33,6 @@ public class Replica {
     private final ExecutorService executorService = Executors.newFixedThreadPool(100);
 
     private static final long BLOCK_BUILD_TIMEOUT_MS = 12000; // 12 seconds
-    private static final int MAX_TXS_PER_BLOCK = 500;
 
     public Replica(long replicaId, AuthPerfLink authPerfLink, Blockchain blockchain) {
         this.replicaId = replicaId;
@@ -53,9 +51,7 @@ public class Replica {
     public void handleClientTransaction(Command request) {
         Transaction tx = request.getTransaction();
         String sender = tx.getFrom().toLowerCase();
-
-        boolean isContractTx = tx.isContractCall() || tx.isContractDeployment();
-        if (isContractTx && (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0)) {
+        if (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0) {
             System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
             sendResponseToClient(request.getSenderId(), tx.getNonce(), false,
                     "Invalid gasPrice or gasLimit");
@@ -74,8 +70,7 @@ public class Replica {
             return;
         }
 
-        if ((tx.isContractCall() || tx.isContractDeployment())
-            && account.getBalance() < tx.getGasLimit() * tx.getGasPrice()) {
+        if (account.getBalance() < tx.getGasLimit() * tx.getGasPrice()) {
             System.err.println("Rejected tx from " + sender + " due to insufficient balance.");
             sendResponseToClient(request.getSenderId(), tx.getNonce(), false,
                     "Insufficient balance to cover max transaction cost");
@@ -179,9 +174,6 @@ public class Replica {
         if (block == null) {
             return false;
         }
-        if (block.getTransactions().size() >= MAX_TXS_PER_BLOCK) {
-            return true;
-        }
         long totalGas = 0;
         for (Transaction tx : block.getTransactions()) {
             totalGas += tx.getGasLimit();
@@ -215,16 +207,10 @@ public class Replica {
         long gasAccumulated = 0;
 
         for (Transaction tx : executable) {
-            if (selected.size() >= MAX_TXS_PER_BLOCK) {
-                break;
-            }
             if (gasAccumulated + tx.getGasLimit() > Blockchain.BLOCK_GAS_LIMIT)
                 break;
-                
             selected.add(tx);
             gasAccumulated += tx.getGasLimit();
-            // Mark transaction as pending (part of a block proposal)
-            // markPending(tx.getFrom(), tx.getNonce());
         }
         return selected;
     }
@@ -412,14 +398,8 @@ public class Replica {
             return false;
         }
 
-        boolean isContractTx = tx.isContractCall() || tx.isContractDeployment();
-        if (isContractTx) {
-            if (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0) {
-                System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
-                return false;
-            }
-        } else if (tx.getGasPrice() != 0 || tx.getGasLimit() != 0) {
-            System.err.println("Transaction " + tx.getHash() + " must have zero gasPrice and gasLimit");
+        if (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0) {
+            System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
             return false;
         }
 

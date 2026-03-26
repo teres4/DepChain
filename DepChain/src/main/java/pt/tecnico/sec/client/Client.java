@@ -14,8 +14,8 @@ public class Client {
     private int clientPort;
     private AuthPerfLink authPerfLink;
     private static ClientOperations clientOps;
-    private long GasPrice = 1; // Default gas price
-    private long GasLimit = 100000; // Default gas limit
+    private long gasPrice = 1; // Default gas price
+    private long gasLimit = 100000; // Default gas limit
     private ExecutorService executorService = Executors.newFixedThreadPool(10);
 
     public Client(int clientId, int clientPort) throws IOException, Exception {
@@ -107,8 +107,8 @@ public class Client {
                     if (gasPrice <= 0 || gasLimit <= 0) {
                         System.out.println("Cheap! Gas price and limit must be positive numbers.");
                     } else {
-                        client.GasPrice = gasPrice;
-                        client.GasLimit = gasLimit;
+                        client.gasPrice = gasPrice;
+                        client.gasLimit = gasLimit;
                         System.out.println("Gas parameters updated successfully.");
                     }
                     break;
@@ -138,7 +138,7 @@ public class Client {
 
             System.out.print("Enter the amount of DepCoin to transfer: ");
             int amount = Integer.parseInt(scanner.nextLine());
-            clientOps.transferDepCoin(recipientId, amount);
+            clientOps.transferDepCoin(recipientId, amount, this.gasPrice, this.gasLimit);
             System.out.println("Transfer request sent successfully.");
         } catch (NumberFormatException e) {
             System.err.println("Invalid input. Please enter numeric values for recipient ID and amount.");
@@ -160,7 +160,7 @@ public class Client {
 
             System.out.print("Enter the amount of IST Coin to transfer: ");
             int amount = Integer.parseInt(scanner.nextLine());
-            clientOps.transferISTCoin(recipientId, amount, this.GasPrice, this.GasLimit);
+            clientOps.transferISTCoin(recipientId, amount, this.gasPrice, this.gasLimit);
             System.out.println("Transfer request sent successfully.");
         } catch (NumberFormatException e) {
             System.err.println("Invalid input. Please enter numeric values for recipient ID and amount.");
@@ -181,7 +181,7 @@ public class Client {
             long expectedCurrent = Long.parseLong(scanner.nextLine());
             System.out.print("Enter the new allowance amount: ");
             long newAllowance = Long.parseLong(scanner.nextLine());
-            clientOps.approveISTCoin(spenderId, expectedCurrent, newAllowance, this.GasPrice, this.GasLimit);
+            clientOps.approveISTCoin(spenderId, expectedCurrent, newAllowance, this.gasPrice, this.gasLimit);
             System.out.println("SafeApprove request sent successfully.");
         } catch (NumberFormatException e) {
             System.err.println("Invalid input.");
@@ -206,7 +206,7 @@ public class Client {
             }
             System.out.print("Enter the amount of IST Coin to transfer: ");
             int amount = Integer.parseInt(scanner.nextLine());
-            clientOps.transferFromISTCoin(ownerId, recipientId, amount, this.GasPrice, this.GasLimit);
+            clientOps.transferFromISTCoin(ownerId, recipientId, amount, this.gasPrice, this.gasLimit);
             System.out.println("TransferFrom request sent successfully.");
         } catch (NumberFormatException e) {
             System.err.println("Invalid input.");
