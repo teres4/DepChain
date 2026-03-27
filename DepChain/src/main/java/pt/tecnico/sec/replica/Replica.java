@@ -19,7 +19,6 @@ import pt.tecnico.sec.blockchain.Blockchain;
 import pt.tecnico.sec.blockchain.Transaction;
 import pt.tecnico.sec.client.message.Command;
 import pt.tecnico.sec.client.message.CommandResponse;
-import pt.tecnico.sec.client.message.CommandType;
 import pt.tecnico.sec.utils.Crypto;
 
 public class Replica {
@@ -55,7 +54,8 @@ public class Replica {
     public void handleClientTransaction(Command request) {
         Transaction tx = request.getTransaction();
         String sender = tx.getFrom().toLowerCase();
-        if (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0) {
+        boolean isBalanceQuery = tx.getType() == Transaction.Type.GET_DEPCOIN_BALANCE;
+        if (!isBalanceQuery && (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0)) {
             System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
             sendResponseToClient(request.getSenderId(), tx.getNonce(), false,
                     "Invalid gasPrice or gasLimit");
@@ -74,7 +74,7 @@ public class Replica {
             return;
         }
 
-        if (account.getBalance() < tx.getGasLimit() * tx.getGasPrice()) {
+        if (!isBalanceQuery && account.getBalance() < tx.getGasLimit() * tx.getGasPrice()) {
             System.err.println("Rejected tx from " + sender + " due to insufficient balance.");
             sendResponseToClient(request.getSenderId(), tx.getNonce(), false,
                     "Insufficient balance to cover max transaction cost");
@@ -92,30 +92,6 @@ public class Replica {
             sendResponseToClient(request.getSenderId(), tx.getNonce(), true, tx.getHash());
         } else {
             sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Rejected (replacement too cheap)");
-        }
-    }
-
-    public void handleGetBalanceQuery(Command request) {
-        Transaction tx = request.getTransaction();
-        String sender = tx.getFrom().toLowerCase();
-
-        if (!verifyTransactionSignature(tx)) {
-            System.err.println("Rejected tx with invalid signature from " + sender);
-            sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Invalid signature");
-            return;
-        }
-
-        if (request.getType() == CommandType.GETDEPCOINBALANCE && tx.getType() == Transaction.Type.GET_BALANCE) {
-            Account account = blockchain.getAccount(sender);
-            if (account == null) {
-                sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Unknown account");
-                return;
-            }
-            String result = String.valueOf(account.getBalance());
-            sendResponseToClient(request.getSenderId(), tx.getNonce(), true, result);
-
-        } else if (request.getType() == CommandType.GETISTCOINBALANCE && tx.getType() == Transaction.Type.GET_BALANCE) {
-            // TODO: implement proper IST Coin balance query by executing the contract call against the current state
         }
     }
 
@@ -319,20 +295,24 @@ public class Replica {
     }
 
     private void notifyClient(Block block) {
-        if (block != null) {
-            for (Transaction tx : block.getTransactions()) {
-                String sender = tx.getFrom().toLowerCase();
-                try {
-                    long clientId = Crypto.getClientIdFromAddress(sender);
-                    String result = "Transaction " + tx.getNonce() + " included in block " + block.getBlockNumber() + "\nTransfer amount: "
-                            + tx.getAmount() + "\nGas used: " + tx.getGasUsed() + "\nCurrent balance: "
-                            + blockchain.getAccount(sender).getBalance();
-                    System.out.println("Notifying client " + clientId + " about transaction " + tx.getNonce());
-                    sendResponseToClient(clientId, tx.getNonce(), true, result);
-                } catch (Exception e) {
-                    System.err
-                            .println("Failed to notify client for transaction " + tx.getHash() + ": " + e.getMessage());
+        if (block == null) 
+            return;
+        
+        for (Transaction tx : block.getTransactions()) {
+            String sender = tx.getFrom().toLowerCase();
+            try {
+                long clientId = Crypto.getClientIdFromAddress(sender);
+                String result;
+                if (tx.getType() == Transaction.Type.GET_DEPCOIN_BALANCE || tx.getType() == Transaction.Type.GET_ISTCOIN_BALANCE) {
+                    result = "Balance: " + blockchain.getAccount(sender).getBalance();
+                } else {
+                    result = "Transaction " + tx.getNonce() + " included in block " + block.getBlockNumber() + "\nTransfer amount: "
+                        + tx.getAmount() + "\nGas used: " + tx.getGasUsed() + "\nCurrent balance: "
+                        + blockchain.getAccount(sender).getBalance();
                 }
+                sendResponseToClient(clientId, tx.getNonce(), true, result);
+            } catch (Exception e) {
+                System.err.println("Failed to notify client for transaction " + tx.getHash() + ": " + e.getMessage());
             }
         }
     }
@@ -456,13 +436,14 @@ public class Replica {
             return false;
         }
 
-        if (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0) {
+        boolean isBalanceQuery = tx.getType() == Transaction.Type.GET_DEPCOIN_BALANCE;
+        if (!isBalanceQuery && (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0)) {
             System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
             return false;
         }
 
         long fee = tx.getGasPrice() * tx.getGasLimit();
-        if (fee > previousFee) {
+        if (!isBalanceQuery && fee > previousFee) {
             System.err.println("Transaction ordering violation: tx " + tx.getHash()
                     + " has fee " + fee + " but previous tx had fee " + previousFee);
             return false;

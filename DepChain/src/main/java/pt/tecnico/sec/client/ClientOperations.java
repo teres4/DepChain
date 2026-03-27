@@ -32,7 +32,6 @@ public class ClientOperations {
     private final int numReplicas;
     private final int f; // Fault tolerance parameter
     private long nonce = 0; // To prevent replay attacks
-    private long getBalanceNonce = 0; // Separate nonce for read-only balance queries
 
     public static final String IST_COIN_ADDRESS = "0x86b7efc7c33d883a69cb5d57c7580a699f5d15e6";
 
@@ -127,7 +126,7 @@ public class ClientOperations {
                 .findFirst()
                 .orElseThrow();
 
-        System.out.println("Transaction " + nonce + " executed. Result: " + matchingResult);
+        System.out.println("Transaction " + nonce + " executed.\n" + matchingResult);
         responsesByNonce.remove(nonce);
         acceptedResults.remove(nonce);
     }
@@ -351,16 +350,15 @@ public class ClientOperations {
         PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
         String senderAddress = Crypto.getClientAddress(this.clientId);
 
-                this.getBalanceNonce++;
-                long currentQueryNonce = this.getBalanceNonce;
+        this.nonce++;
 
-        // A GET_BALANCE tx: no recipient, no amount, no input — just signed identity + nonce
+        // A GET_DEPCOIN_BALANCE tx: no recipient, no amount, no input — just signed identity + nonce
         Transaction unsignedTx = new Transaction(
-                Transaction.Type.GET_BALANCE,
+                Transaction.Type.GET_DEPCOIN_BALANCE,
                 senderAddress,
                 null,      // no recipient
                 0,         // no amount
-                currentQueryNonce,
+                this.nonce,
                 null);     // unsigned for now
 
         String base64Signature = Crypto.signMessage(
@@ -369,36 +367,30 @@ public class ClientOperations {
         byte[] signatureBytes = Base64.getDecoder().decode(base64Signature);
 
         Transaction tx = new Transaction(
-                Transaction.Type.GET_BALANCE,
+                Transaction.Type.GET_DEPCOIN_BALANCE,
                 senderAddress,
                 null,
                 0,
-                currentQueryNonce,
+                this.nonce,
                 signatureBytes);
 
         String txJson = new Gson().toJson(tx);
         Command command = new Command(CommandType.GETDEPCOINBALANCE, this.clientId, txJson);
 
-        responsesByNonce.put(currentQueryNonce, new ConcurrentLinkedQueue<>());
-        acceptedResults.remove(currentQueryNonce);
+        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(this.nonce);
 
         logger("Sending DepCoin balance query");
-
         sendToAllReplicas(command.toJson());
-        // balance queries are read-only: just wait for f+1 matching results, no execution phase
-        waitForResponses(currentQueryNonce);
-        String balance = acceptedResults.get(currentQueryNonce);
-        System.out.println("DepCoin balance: " + balance);
-        responsesByNonce.remove(currentQueryNonce);
-        acceptedResults.remove(currentQueryNonce);
+        waitForResponses(this.nonce);
+        waitForExecutionResponsesAsync(this.nonce);
     }
 
-    public void getISTCoinBalance() throws Exception {
+    public void getISTCoinBalance(long gasPrice, long gasLimit) throws Exception {
         PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
         String senderAddress = Crypto.getClientAddress(this.clientId);
 
-        this.getBalanceNonce++;
-        long currentQueryNonce = this.getBalanceNonce;
+        this.nonce++;
 
         // ABI-encode balanceOf(senderAddress) — the ERC-20 view function
         Function function = new Function(
@@ -408,14 +400,14 @@ public class ClientOperations {
         byte[] input = Numeric.hexStringToByteArray(FunctionEncoder.encode(function));
 
         Transaction unsignedTx = new Transaction(
-                Transaction.Type.GET_BALANCE,
+                Transaction.Type.GET_ISTCOIN_BALANCE,
                 senderAddress,
                 IST_COIN_ADDRESS,
                 0,
                 input,
-                0, 
-                0, 
-                currentQueryNonce,
+                gasPrice, 
+                gasLimit, 
+                this.nonce,
                 null);
 
         String base64Signature = Crypto.signMessage(
@@ -424,29 +416,26 @@ public class ClientOperations {
         byte[] signatureBytes = Base64.getDecoder().decode(base64Signature);
 
         Transaction tx = new Transaction(
-                Transaction.Type.GET_BALANCE,
+                Transaction.Type.GET_ISTCOIN_BALANCE,
                 senderAddress,
                 IST_COIN_ADDRESS,
                 0,
                 input,
-                0,
-                0,
-                currentQueryNonce,
+                gasPrice,
+                gasLimit,
+                this.nonce,
                 signatureBytes);
 
         String txJson = new Gson().toJson(tx);
         Command command = new Command(CommandType.GETISTCOINBALANCE, this.clientId, txJson);
 
-        responsesByNonce.put(currentQueryNonce, new ConcurrentLinkedQueue<>());
-        acceptedResults.remove(currentQueryNonce);
+        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(this.nonce);
 
         logger("Sending IST Coin balance query");
 
         sendToAllReplicas(command.toJson());
-                waitForResponses(currentQueryNonce);
-                String balance = acceptedResults.get(currentQueryNonce);
-        System.out.println("IST Coin balance: " + balance);
-                responsesByNonce.remove(currentQueryNonce);
-                acceptedResults.remove(currentQueryNonce);
+        waitForResponses(this.nonce);
+        waitForExecutionResponsesAsync(this.nonce);
     }
 }

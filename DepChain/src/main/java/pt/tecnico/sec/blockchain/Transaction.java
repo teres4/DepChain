@@ -41,7 +41,7 @@ public class Transaction {
     }
 
     public enum Type {
-        DEPCOIN_TRANSFER, CONTRACT_DEPLOYMENT, CONTRACT_CALL, GET_BALANCE
+        DEPCOIN_TRANSFER, CONTRACT_DEPLOYMENT, CONTRACT_CALL, GET_DEPCOIN_BALANCE, GET_ISTCOIN_BALANCE
     }
 
     public Transaction(Type type, String from, String to, long amount, byte[] input,
@@ -111,6 +111,18 @@ public class Transaction {
 
     public boolean isContractCall() {
         return input.length > 0 && to != null;
+    }
+
+    public boolean isGetDepCoinBalance() {
+        return type == Type.GET_DEPCOIN_BALANCE;
+    }
+
+    public boolean isGetIstCoinBalance() {
+        return type == Type.GET_ISTCOIN_BALANCE;
+    }
+
+    public boolean isGetBalance() {
+        return type == Type.GET_DEPCOIN_BALANCE || type == Type.GET_ISTCOIN_BALANCE;
     }
 
     public String getFrom() {

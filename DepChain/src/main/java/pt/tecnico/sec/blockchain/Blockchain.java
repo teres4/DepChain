@@ -125,7 +125,7 @@ public class Blockchain {
         List<Transaction> transactions = block.getTransactions();
 
         for (Transaction tx : transactions) {
-            ExecutionContext executionContext = new ExecutionContext(tx.getGasLimit(), tx.getGasPrice());
+            ExecutionContext executionContext = new ExecutionContext(tx.getType(), tx.getGasLimit(), tx.getGasPrice());
             TransactionExecutor executor = new TransactionExecutor(tx, accounts, executionContext);
             boolean success = executor.execute();
 

@@ -64,6 +64,10 @@ public class TransactionExecutor {
         try {
             if (transaction.isDepCoinTransfer()) {
                 success = executeDepCoinTransfer();
+            } else if (transaction.isGetDepCoinBalance()) {
+                success = true;
+            } else if (transaction.isGetIstCoinBalance()) {
+                success = getIstCoinBalance();
             } else if (transaction.isContractDeployment()) {
                 success = executeContractDeployment();
             } else if (transaction.isContractCall()) {
@@ -337,6 +341,62 @@ public class TransactionExecutor {
         accounts.put(contractAddress, contract);
 
         System.out.println("[CALL] Contract call completed successfully");
+        return true;
+    }
+
+    private boolean getIstCoinBalance() {
+        String contractAddress = transaction.getTo().toLowerCase();
+        Account account = accounts.get(contractAddress);
+        if (!(account instanceof ContractAccount))
+            throw new IllegalStateException("Target is not a contract: " + contractAddress);
+
+        ContractAccount contract = (ContractAccount) account;
+
+        // gas: same base cost as any contract call
+        long baseCost = BASE_CONTRACT_CALL_COST + GAS_PER_INPUT_BYTE * transaction.getInput().length;
+        executionContext.consumeGas(baseCost);
+
+        long gasForEVM = transaction.getGasLimit() - baseCost;
+        if (gasForEVM <= 0) 
+            throw new IllegalStateException("Not enough gas for EVM execution after base costs");
+
+        SimpleWorld simpleWorld = new SimpleWorld();
+        Address senderAddress = Address.fromHexString(transaction.getFrom());
+        Address contractAddr = Address.fromHexString(contractAddress);
+
+        Account sender = accounts.get(transaction.getFrom().toLowerCase());
+        simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
+        simpleWorld.createAccount(contractAddr, 0, Wei.of(contract.getBalance()));
+
+        MutableAccount besuContract = (MutableAccount) simpleWorld.get(contractAddr);
+        for (Map.Entry<String, String> entry : contract.getStorage().entrySet()) {
+            besuContract.setStorageValue(
+                    UInt256.fromHexString(entry.getKey()),
+                    UInt256.fromHexString(entry.getValue()));
+        }
+
+        var executor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
+        executor.code(Bytes.fromHexString(
+                org.apache.tuweni.bytes.Bytes.wrap(contract.getRuntimeCode()).toHexString()));
+        executor.sender(senderAddress);
+        executor.receiver(contractAddr);
+        executor.contract(contractAddr);
+        executor.worldUpdater(simpleWorld.updater()); // fresh updater — never committed
+        executor.commitWorldState();
+        executor.callData(Bytes.wrap(transaction.getInput()));
+        executor.gas(transaction.getGasLimit());
+
+        final long[] gasUsed = {0};
+        executor.tracer(new OperationTracer() {
+            @Override
+            public void tracePostExecution(MessageFrame frame, Operation.OperationResult operationResult) {
+                gasUsed[0] = transaction.getGasLimit() - frame.getRemainingGas();
+            }
+        });
+
+        // gas: EVM execution cost
+        executionContext.consumeGas(gasUsed[0]);
+
         return true;
     }
 
