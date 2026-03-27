@@ -10,7 +10,6 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.List;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -159,8 +158,6 @@ public class AuthPerfLink {
                     int offset = i * FRAGMENT_SIZE;
                     int length = Math.min(FRAGMENT_SIZE, content.length - offset);
                     byte[] chunk = Arrays.copyOfRange(content, offset, offset + length);
-                    System.err.println("Sending fragment " + (i + 1) + "/" + totalFragments + " for message " + messageId
-                            + " to ID: " + receiverID);
                     sendFragment(session, receiverID, messageId, i, totalFragments, chunk);
                 }
                 logger("Sent message " + messageId + " as " + totalFragments

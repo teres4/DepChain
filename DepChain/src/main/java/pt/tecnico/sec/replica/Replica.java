@@ -111,11 +111,6 @@ public class Replica {
                 sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Unknown account");
                 return;
             }
-            if (tx.getNonce() < account.getNonce()) {
-                System.err.println("Rejected tx with stale nonce from " + sender);
-                sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Stale nonce");
-                return;
-            }
             String result = String.valueOf(account.getBalance());
             sendResponseToClient(request.getSenderId(), tx.getNonce(), true, result);
 
