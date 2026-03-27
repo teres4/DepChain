@@ -63,7 +63,7 @@ public class Blockchain {
 
                 byte[] input = decodeHex(getText(txNode, "input"));
 
-                transactions.add(new Transaction(from, to, amount, input, gasPrice, gasLimit, nonce, null));
+                transactions.add(new Transaction(Transaction.Type.CONTRACT_DEPLOYMENT, from, to, amount, input, gasPrice, gasLimit, nonce, null));
             }
 
             // load accounts from genesis file

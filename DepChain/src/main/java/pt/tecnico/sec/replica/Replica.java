@@ -17,7 +17,9 @@ import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.blockchain.Block;
 import pt.tecnico.sec.blockchain.Blockchain;
 import pt.tecnico.sec.blockchain.Transaction;
-import pt.tecnico.sec.client.message.*;
+import pt.tecnico.sec.client.message.Command;
+import pt.tecnico.sec.client.message.CommandResponse;
+import pt.tecnico.sec.client.message.CommandType;
 import pt.tecnico.sec.utils.Crypto;
 
 public class Replica {
@@ -90,6 +92,35 @@ public class Replica {
             sendResponseToClient(request.getSenderId(), tx.getNonce(), true, tx.getHash());
         } else {
             sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Rejected (replacement too cheap)");
+        }
+    }
+
+    public void handleGetBalanceQuery(Command request) {
+        Transaction tx = request.getTransaction();
+        String sender = tx.getFrom().toLowerCase();
+
+        if (!verifyTransactionSignature(tx)) {
+            System.err.println("Rejected tx with invalid signature from " + sender);
+            sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Invalid signature");
+            return;
+        }
+
+        if (request.getType() == CommandType.GETDEPCOINBALANCE && tx.getType() == Transaction.Type.GET_BALANCE) {
+            Account account = blockchain.getAccount(sender);
+            if (account == null) {
+                sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Unknown account");
+                return;
+            }
+            if (tx.getNonce() < account.getNonce()) {
+                System.err.println("Rejected tx with stale nonce from " + sender);
+                sendResponseToClient(request.getSenderId(), tx.getNonce(), false, "Stale nonce");
+                return;
+            }
+            String result = String.valueOf(account.getBalance());
+            sendResponseToClient(request.getSenderId(), tx.getNonce(), true, result);
+
+        } else if (request.getType() == CommandType.GETISTCOINBALANCE && tx.getType() == Transaction.Type.GET_BALANCE) {
+            // TODO: implement proper IST Coin balance query by executing the contract call against the current state
         }
     }
 

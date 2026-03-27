@@ -6,6 +6,7 @@ import java.util.concurrent.Executors;
 import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.blockchain.Block;
 import pt.tecnico.sec.client.message.Command;
+import pt.tecnico.sec.client.message.CommandType;
 import pt.tecnico.sec.consensus.Consensus;
 import pt.tecnico.sec.consensus.message.HotStuffMessage;
 import pt.tecnico.sec.replica.Replica;
@@ -56,7 +57,10 @@ public class MessageRouter {
     }
 
     private void routeToReplica(Command command) {
-        replica.handleClientTransaction(command);
+        if (command.getType() == CommandType.GETDEPCOINBALANCE || command.getType() == CommandType.GETISTCOINBALANCE)
+            replica.handleGetBalanceQuery(command);
+        else
+            replica.handleClientTransaction(command);
     }
 
     public Block getBlocktoPropose() {

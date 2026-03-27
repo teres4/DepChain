@@ -34,15 +34,24 @@ public class Transaction {
 
     private State state; // PENDING, EXECUTED, or REVERTED
 
+    private Type type; // DEPCOIN_TRANSFER, CONTRACT_DEPLOYMENT, CONTRACT_CALL or GET_BALANCE
+
     enum State {
         PENDING, EXECUTED, REVERTED
     }
 
-    public Transaction(String from, String to, long amount, byte[] input,
-            long gasPrice, long gasLimit, long nonce, byte[] signature) {
-        if (gasPrice <= 0 || gasLimit <= 0)
-            throw new IllegalArgumentException("gasPrice and gasLimit must be positive");
+    public enum Type {
+        DEPCOIN_TRANSFER, CONTRACT_DEPLOYMENT, CONTRACT_CALL, GET_BALANCE
+    }
 
+    public Transaction(Type type, String from, String to, long amount, byte[] input,
+            long gasPrice, long gasLimit, long nonce, byte[] signature) {
+
+        // if it calls a contract, then gas price/limit cannot be negative or null
+        if ((type == Type.CONTRACT_DEPLOYMENT || type == Type.CONTRACT_CALL) && (gasPrice <= 0 || gasLimit <= 0))
+                throw new IllegalArgumentException("gasPrice and gasLimit must be positive");
+
+        this.type = type;
         this.from = from;
         this.to = to;
         this.amount = amount;
@@ -53,6 +62,11 @@ public class Transaction {
         this.signature = signature;
         this.hash = computeHash();
         this.state = State.PENDING;
+    }
+
+    public Transaction(Type type, String from, String to, long amount, 
+            long nonce, byte[] signature) {
+        this(type, from, to, amount, new byte[0], 0, 0, nonce, signature);
     }
 
     public byte[] toSignableBytes() {
@@ -149,6 +163,10 @@ public class Transaction {
 
     public void setState(State state) {
         this.state = state;
+    }
+
+    public Type getType() {
+        return type;
     }
 
     @Override
