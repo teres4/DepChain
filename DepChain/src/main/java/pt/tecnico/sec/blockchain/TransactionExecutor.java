@@ -314,6 +314,16 @@ public class TransactionExecutor {
                     .forEach((k, v) -> updatedStorage.put(k.toHexString(), v.toHexString()));
         }
 
+        // detect revert by checking if any storage changed
+        boolean anyStorageChanged = updatedStorage.entrySet().stream()
+            .anyMatch(e -> !e.getValue().equals(
+                contract.getStorage().getOrDefault(e.getKey(), "")));
+
+        if (!anyStorageChanged) {
+            System.err.println("[CALL] EVM call reverted - no storage changes detected");
+            return false;
+        }
+
         System.out.println("[CALL] Storage slots changed by this call:");
         updatedStorage.forEach((k, v) -> {
             String before = contract.getStorage().getOrDefault(k, "(none)");

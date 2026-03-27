@@ -201,7 +201,7 @@ public class Replica {
         for (Map.Entry<String, ConcurrentHashMap<Long, Transaction>> entry : mempool.entrySet()) {
             String sender = entry.getKey();
             Account account = accounts.get(sender);
-
+            
             long expectedNonce = account.getNonce();
             nextNonce.put(sender, expectedNonce);
 

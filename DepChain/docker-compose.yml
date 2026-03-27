@@ -42,6 +42,28 @@ services:
       - server3
       - server4
 
+  client2:
+    image: depchain:latest
+    container_name: depchain_client2
+    networks:
+      - depchain_net
+    depends_on:
+      - server1
+      - server2
+      - server3
+      - server4
+  
+  client3:
+    image: depchain:latest
+    container_name: depchain_client3
+    networks:
+      - depchain_net
+    depends_on:
+      - server1
+      - server2
+      - server3
+      - server4
+
 networks:
   depchain_net:
     driver: bridge
