@@ -1,5 +1,6 @@
 package pt.tecnico.sec.blockchain;
 
+import java.math.BigInteger;
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.Map;
@@ -10,11 +11,11 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.MutableAccount;
-import org.hyperledger.besu.evm.operation.Operation;
-import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.fluent.EVMExecutor;
 import org.hyperledger.besu.evm.fluent.SimpleWorld;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import pt.tecnico.sec.account.Account;
@@ -66,6 +67,7 @@ public class TransactionExecutor {
                 success = executeDepCoinTransfer();
             } else if (transaction.isGetDepCoinBalance()) {
                 success = true;
+                transaction.setExecutionResult(Long.toString(sender.getBalance()));
             } else if (transaction.isGetIstCoinBalance()) {
                 success = getIstCoinBalance();
             } else if (transaction.isContractDeployment()) {
@@ -394,8 +396,17 @@ public class TransactionExecutor {
             }
         });
 
+        // execute read-only call to get returned ERC-20 balance
+        Bytes returnData = executor.execute();
+
         // gas: EVM execution cost
         executionContext.consumeGas(gasUsed[0]);
+
+        BigInteger istBalance = BigInteger.ZERO;
+        if (returnData != null && !returnData.isEmpty()) {
+            istBalance = new BigInteger(1, returnData.toArray());
+        }
+        transaction.setExecutionResult(istBalance.toString());
 
         return true;
     }

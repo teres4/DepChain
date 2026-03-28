@@ -304,7 +304,8 @@ public class Replica {
                 long clientId = Crypto.getClientIdFromAddress(sender);
                 String result;
                 if (tx.getType() == Transaction.Type.GET_DEPCOIN_BALANCE || tx.getType() == Transaction.Type.GET_ISTCOIN_BALANCE) {
-                    result = "Balance: " + blockchain.getAccount(sender).getBalance();
+                    String balance = tx.getExecutionResult();
+                    result = "Balance: " + balance;
                 } else {
                     result = "Transaction " + tx.getNonce() + " included in block " + block.getBlockNumber() + "\nTransfer amount: "
                         + tx.getAmount() + "\nGas used: " + tx.getGasUsed() + "\nCurrent balance: "

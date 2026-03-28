@@ -33,6 +33,7 @@ public class Transaction {
     private final String hash;
 
     private State state; // PENDING, EXECUTED, or REVERTED
+    private String executionResult; // execution output for user-facing responses 
 
     private Type type; // DEPCOIN_TRANSFER, CONTRACT_DEPLOYMENT, CONTRACT_CALL or GET_BALANCE
 
@@ -62,6 +63,7 @@ public class Transaction {
         this.signature = signature;
         this.hash = computeHash();
         this.state = State.PENDING;
+        this.executionResult = null;
     }
 
     public Transaction(Type type, String from, String to, long amount, 
@@ -175,6 +177,14 @@ public class Transaction {
 
     public void setState(State state) {
         this.state = state;
+    }
+
+    public String getExecutionResult() {
+        return executionResult;
+    }
+
+    public void setExecutionResult(String executionResult) {
+        this.executionResult = executionResult;
     }
 
     public Type getType() {
