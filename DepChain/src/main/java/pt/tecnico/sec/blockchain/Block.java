@@ -4,8 +4,8 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +29,7 @@ public class Block {
                  List<Transaction> transactions, Map<String, Account> state) {
         this.previousBlockHash = previousBlockHash;
         this.blockNumber = blockNumber;
-        this.transactions = sortByFee(transactions);
+        this.transactions = sortTransactions(transactions);
         this.state = state;
         this.blockHash = computeHash();
     }
@@ -39,15 +39,55 @@ public class Block {
         this.previousBlockHash = previousBlockHash;
         this.blockHash = blockHash;
         this.blockNumber = blockNumber;
-        this.transactions = sortByFee(transactions);
+        this.transactions = sortTransactions(transactions);
         this.state = state;
     }
 
-    private List<Transaction> sortByFee(List<Transaction> txs) {
-        txs.sort(Comparator.comparingLong(
-            (Transaction tx) -> tx.getGasPrice() * tx.getGasLimit()
-        ).reversed());
-        return txs;
+    private List<Transaction> sortTransactions(List<Transaction> txs) {
+        List<Transaction> sorted = new ArrayList<>(txs);
+
+        // Bubble sort for clarity
+        for (int i = 0; i < sorted.size() - 1; i++) {
+            for (int j = 0; j < sorted.size() - i - 1; j++) {
+                if (shouldSwap(sorted.get(j), sorted.get(j + 1))) {
+                    Transaction temp = sorted.get(j);
+                    sorted.set(j, sorted.get(j + 1));
+                    sorted.set(j + 1, temp);
+                }
+            }
+        }
+
+        return sorted;
+    }
+
+    private boolean shouldSwap(Transaction a, Transaction b) {
+        String senderA = a.getFrom().toLowerCase();
+        String senderB = b.getFrom().toLowerCase();
+
+        // Same sender: lower nonce comes first
+        if (senderA.equals(senderB)) {
+            return a.getNonce() > b.getNonce();
+        }
+
+        // Different senders: higher fee comes first
+        long feeA = a.getGasPrice() * a.getGasLimit();
+        long feeB = b.getGasPrice() * b.getGasLimit();
+        if (feeA != feeB) {
+            return feeA < feeB;
+        }
+
+        // Tie-break by sender address, then nonce, then hash
+        int bySender = senderA.compareTo(senderB);
+        if (bySender != 0) {
+            return bySender > 0;
+        }
+
+        int byNonce = Long.compare(a.getNonce(), b.getNonce());
+        if (byNonce != 0) {
+            return byNonce > 0;
+        }
+
+        return a.getHash().compareTo(b.getHash()) > 0;
     }
 
     public String computeHash() {

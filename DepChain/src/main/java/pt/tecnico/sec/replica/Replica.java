@@ -403,15 +403,19 @@ public class Replica {
 
             // Transaction checks
             Map<String, Long> expectedNonces = new ConcurrentHashMap<>();
-            long previousFee = Long.MAX_VALUE;
+            Transaction previousTx = null;
             for (Transaction tx : block.getTransactions()) {
-                if (!validateTransaction(tx, block.getState(), expectedNonces, previousFee)) {
+                if (previousTx != null && !hasValidOrder(previousTx, tx)) {
+                    System.err.println("Transaction ordering violation between " + previousTx.getHash() + " and " + tx.getHash());
                     return false;
                 }
-                previousFee = tx.getGasPrice() * tx.getGasLimit();
+                if (!validateTransaction(tx, block.getState(), expectedNonces)) {
+                    return false;
+                }
                 expectedNonces.put(tx.getFrom().toLowerCase(),
                         expectedNonces.getOrDefault(tx.getFrom().toLowerCase(),
                                 block.getState().get(tx.getFrom().toLowerCase()).getNonce()) + 1);
+                previousTx = tx;
             }
 
             return true;
@@ -423,7 +427,7 @@ public class Replica {
     }
 
     private boolean validateTransaction(Transaction tx, Map<String, Account> state,
-            Map<String, Long> expectedNonces, long previousFee) {
+            Map<String, Long> expectedNonces) {
         if (tx == null) {
             System.err.println("Block contains a null transaction");
             return false;
@@ -440,13 +444,6 @@ public class Replica {
         boolean isBalanceQuery = tx.getType() == Transaction.Type.GET_DEPCOIN_BALANCE;
         if (!isBalanceQuery && (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0)) {
             System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
-            return false;
-        }
-
-        long fee = tx.getGasPrice() * tx.getGasLimit();
-        if (!isBalanceQuery && fee > previousFee) {
-            System.err.println("Transaction ordering violation: tx " + tx.getHash()
-                    + " has fee " + fee + " but previous tx had fee " + previousFee);
             return false;
         }
 
@@ -470,6 +467,19 @@ public class Replica {
         }
 
         return true;
+    }
+
+    private boolean hasValidOrder(Transaction previousTx, Transaction currentTx) {
+        String previousSender = previousTx.getFrom().toLowerCase();
+        String currentSender = currentTx.getFrom().toLowerCase();
+
+        if (previousSender.equals(currentSender)) {
+            return previousTx.getNonce() < currentTx.getNonce();
+        }
+
+        long previousFee = previousTx.getGasPrice() * previousTx.getGasLimit();
+        long currentFee = currentTx.getGasPrice() * currentTx.getGasLimit();
+        return previousFee >= currentFee;
     }
 
     private boolean isPending(String sender, long nonce) {
