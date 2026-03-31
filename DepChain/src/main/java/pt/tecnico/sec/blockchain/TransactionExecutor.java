@@ -78,11 +78,11 @@ public class TransactionExecutor {
                 success = true;
                 transaction.setExecutionResult(Long.toString(sender.getBalance()));
             } else if (transaction.isGetIstCoinBalance()) {
-                success = getIstCoinBalance();
+                success = executeContractCall(true);
             } else if (transaction.isContractDeployment()) {
                 success = executeContractDeployment();
             } else if (transaction.isContractCall()) {
-                success = executeContractCall();
+                success = executeContractCall(false);
             } else {
                 throw new IllegalArgumentException("Unknown transaction type");
             }
@@ -217,7 +217,7 @@ public class TransactionExecutor {
     }
 
     // TODO: retornamos sempre true
-    private boolean executeContractCall() {
+    private boolean executeContractCall(boolean isGetIstBalance) {
         System.out.println("[CALL] Starting contract call from " + transaction.getFrom()
                 + " to " + transaction.getTo());
         System.out.println("[CALL] Input length: " + transaction.getInput().length + " bytes");
@@ -286,8 +286,7 @@ public class TransactionExecutor {
 
         int number = extractIntegerFromReturnData(byteArrayOutputStream);
         System.out.println(
-            "[CALL] Output of 'transfer():' " + Integer.toString(number)
-        );
+                "[CALL] Output of 'transfer():' " + Integer.toString(number));
 
         // TODO: missing evm gas used
 
@@ -304,7 +303,7 @@ public class TransactionExecutor {
                 .anyMatch(e -> !e.getValue().equals(
                         contract.getStorage().getOrDefault(e.getKey(), "")));
 
-        if (!anyStorageChanged) {
+        if (!anyStorageChanged && !isGetIstBalance) {
             System.err.println("[CALL] EVM call reverted - no storage changes detected");
             return false;
         }
@@ -321,97 +320,21 @@ public class TransactionExecutor {
         contract.updateStorage(updatedStorage);
         accounts.put(contractAddress, contract);
 
+        if (isGetIstBalance) {
+            BigInteger istBalance = number >= 0 ? BigInteger.valueOf(number) : BigInteger.ZERO;
+            System.out.println("[CALL] Parsed IST balance: " + istBalance.toString());
+            transaction.setExecutionResult(istBalance.toString());
+        }
+
         System.out.println("[CALL] Contract call completed successfully");
         return true;
     }
 
-    private boolean getIstCoinBalance() {
-        String contractAddress = transaction.getTo().toLowerCase();
-        Account account = accounts.get(contractAddress);
-        if (!(account instanceof ContractAccount))
-            throw new IllegalStateException("Target is not a contract: " + contractAddress);
-
-        ContractAccount contract = (ContractAccount) account;
-
-        // gas: same base cost as any contract call
-        long baseCost = BASE_CONTRACT_CALL_COST + GAS_PER_INPUT_BYTE * transaction.getInput().length;
-        executionContext.consumeGas(baseCost);
-
-        long gasForEVM = transaction.getGasLimit() - baseCost;
-        if (gasForEVM <= 0)
-            throw new IllegalStateException("Not enough gas for EVM execution after base costs");
-
-        SimpleWorld simpleWorld = new SimpleWorld();
-        Address senderAddress = Address.fromHexString(transaction.getFrom());
-        Address contractAddr = Address.fromHexString(contractAddress);
-
-        Account sender = accounts.get(transaction.getFrom().toLowerCase());
-        simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
-        simpleWorld.createAccount(contractAddr, 0, Wei.of(contract.getBalance()));
-
-        MutableAccount besuContract = (MutableAccount) simpleWorld.get(contractAddr);
-        for (Map.Entry<String, String> entry : contract.getStorage().entrySet()) {
-            besuContract.setStorageValue(
-                    UInt256.fromHexString(entry.getKey()),
-                    UInt256.fromHexString(entry.getValue()));
-        }
-
-        var executor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
-        executor.code(Bytes.fromHexString(
-                org.apache.tuweni.bytes.Bytes.wrap(contract.getRuntimeCode()).toHexString()));
-        executor.sender(senderAddress);
-        executor.receiver(contractAddr);
-        executor.contract(contractAddr);
-        executor.worldUpdater(simpleWorld.updater()); // fresh updater — never committed
-        executor.commitWorldState();
-        executor.callData(Bytes.wrap(transaction.getInput()));
-        executor.gas(transaction.getGasLimit());
-
-        final long[] gasUsed = { 0 };
-        executor.tracer(new OperationTracer() {
-            @Override
-            public void tracePostExecution(MessageFrame frame, Operation.OperationResult operationResult) {
-                gasUsed[0] = transaction.getGasLimit() - frame.getRemainingGas();
-            }
-        });
-        // Check if contract code is actually loaded
-        byte[] contractRuntimeCode = contract.getRuntimeCode();
-        System.out.println("[GET_IST_BALANCE] Contract runtime code length: " + contractRuntimeCode.length);
-        if (contractRuntimeCode.length == 0) {
-            System.err.println("[GET_IST_BALANCE] ERROR: Contract has no runtime code!");
-            return false;
-        }
-
-        // Log the call data
-        System.out.println("[GET_IST_BALANCE] Call data (hex): " +
-                HexFormat.of().formatHex(transaction.getInput()));
-        // execute read-only call to get returned ERC-20 balance
-        Bytes returnData = executor.execute();
-
-        // gas: EVM execution cost
-        executionContext.consumeGas(gasUsed[0]);
-
-        BigInteger istBalance = BigInteger.ZERO;
-        if (returnData != null && !returnData.isEmpty()) {
-            istBalance = new BigInteger(1, returnData.toArray());
-            System.out.println("[GET_IST_BALANCE] Raw return data: " + returnData.toHexString());
-        } else {
-            System.out.println("[GET_IST_BALANCE] No return data from contract call");
-        }
-
-        System.out.println("[GET_IST_BALANCE] Parsed IST balance: " + istBalance.toString());
-        transaction.setExecutionResult(istBalance.toString());
-
-        return true;
-    }
-
     public static int extractIntegerFromReturnData(
-        ByteArrayOutputStream byteArrayOutputStream
-    ) {
+            ByteArrayOutputStream byteArrayOutputStream) {
         String[] lines = byteArrayOutputStream.toString().split("\\r?\\n");
         JsonObject jsonObject = JsonParser.parseString(
-            lines[lines.length - 1]
-        ).getAsJsonObject();
+                lines[lines.length - 1]).getAsJsonObject();
 
         String memory = jsonObject.get("memory").getAsString();
 
@@ -420,9 +343,8 @@ public class TransactionExecutor {
         int size = Integer.decode(stack.get(stack.size() - 2).getAsString());
 
         String returnData = memory.substring(
-            2 + offset * 2,
-            2 + offset * 2 + size * 2
-        );
+                2 + offset * 2,
+                2 + offset * 2 + size * 2);
         return Integer.decode("0x" + returnData);
     }
 
