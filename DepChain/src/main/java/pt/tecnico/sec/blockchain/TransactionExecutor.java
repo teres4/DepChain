@@ -1,9 +1,18 @@
 package pt.tecnico.sec.blockchain;
 
 import java.math.BigInteger;
+
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.Map;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+
+import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonParser;
+
+import org.hyperledger.besu.evm.tracing.StandardJsonTracer;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -251,6 +260,11 @@ public class TransactionExecutor {
         }
         System.out.println("[CALL] Loaded " + contract.getStorage().size() + " storage slots into EVM world");
 
+        // setup tracer to capture return value
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        PrintStream printStream = new PrintStream(byteArrayOutputStream);
+        StandardJsonTracer tracer = new StandardJsonTracer(printStream, true, true, true, true);
+
         // setup EVM executor
         var executor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
         executor.code(Bytes.fromHexString(
@@ -263,25 +277,19 @@ public class TransactionExecutor {
         executor.commitWorldState();
         executor.callData(Bytes.wrap(transaction.getInput()));
         executor.gas(transaction.getGasLimit());
-
-        final long[] gasUsed = { 0 };
-        executor.tracer(new OperationTracer() {
-            @Override
-            public void tracePostExecution(MessageFrame frame, Operation.OperationResult operationResult) {
-                gasUsed[0] = transaction.getGasLimit() - frame.getRemainingGas();
-            }
-        });
+        executor.tracer(tracer);
 
         // execute
         System.out.println("[CALL] Executing EVM call...");
         Bytes returnData = executor.execute();
         System.out.println("[CALL] EVM execution complete");
-        System.out.println("[CALL] Return data (hex): " + returnData.toHexString());
-        System.out.println("[CALL] Return data length: " + returnData.size());
 
-        // gas: EVM execution cost
-        System.out.println("[CALL] EVM gas used: " + gasUsed[0]);
-        executionContext.consumeGas(gasUsed[0]);
+        int number = extractIntegerFromReturnData(byteArrayOutputStream);
+        System.out.println(
+            "[CALL] Output of 'transfer():' " + Integer.toString(number)
+        );
+
+        // TODO: missing evm gas used
 
         // update storage
         Map<String, String> updatedStorage = new HashMap<>(contract.getStorage());
@@ -395,6 +403,27 @@ public class TransactionExecutor {
         transaction.setExecutionResult(istBalance.toString());
 
         return true;
+    }
+
+    public static int extractIntegerFromReturnData(
+        ByteArrayOutputStream byteArrayOutputStream
+    ) {
+        String[] lines = byteArrayOutputStream.toString().split("\\r?\\n");
+        JsonObject jsonObject = JsonParser.parseString(
+            lines[lines.length - 1]
+        ).getAsJsonObject();
+
+        String memory = jsonObject.get("memory").getAsString();
+
+        JsonArray stack = jsonObject.get("stack").getAsJsonArray();
+        int offset = Integer.decode(stack.get(stack.size() - 1).getAsString());
+        int size = Integer.decode(stack.get(stack.size() - 2).getAsString());
+
+        String returnData = memory.substring(
+            2 + offset * 2,
+            2 + offset * 2 + size * 2
+        );
+        return Integer.decode("0x" + returnData);
     }
 
 }
