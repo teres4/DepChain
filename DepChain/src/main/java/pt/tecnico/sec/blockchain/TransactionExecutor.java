@@ -139,8 +139,8 @@ public class TransactionExecutor {
 
         executionContext.consumeGas(BASE_CONTRACT_DEPLOYMENT_COST);
         executionContext.consumeGas(GAS_PER_INPUT_BYTE * bytecode.length);
-        System.out.println("[DEPLOY] Gas consumed for deployment base + bytecode: " 
-            + (BASE_CONTRACT_DEPLOYMENT_COST + GAS_PER_INPUT_BYTE * bytecode.length));
+        System.out.println("[DEPLOY] Gas consumed for deployment base + bytecode: "
+                + (BASE_CONTRACT_DEPLOYMENT_COST + GAS_PER_INPUT_BYTE * bytecode.length));
 
         SimpleWorld simpleWorld = new SimpleWorld();
         Address senderAddress = Address.fromHexString(transaction.getFrom());
@@ -150,8 +150,8 @@ public class TransactionExecutor {
             System.err.println("[DEPLOY] Sender account not found: " + transaction.getFrom());
             throw new IllegalStateException("Sender account not found: " + transaction.getFrom());
         }
-        System.out.println("[DEPLOY] Sender balance: " + sender.getBalance() 
-            + ", nonce: " + sender.getNonce());
+        System.out.println("[DEPLOY] Sender balance: " + sender.getBalance()
+                + ", nonce: " + sender.getNonce());
 
         simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
         System.out.println("[DEPLOY] Using nonce for address derivation: " + sender.getNonce());
@@ -177,35 +177,6 @@ public class TransactionExecutor {
         MutableAccount besuContract = deploymentUpdater.getAccount(contractAddr);
         if (besuContract == null) {
             besuContract = (MutableAccount) simpleWorld.get(contractAddr);
-        }
-
-        if (besuContract == null) {
-            System.out.println("[DEPLOY] Contract not found after first attempt, retrying with wrapped init code...");
-            byte[] wrappedInitCode = wrapRuntimeCodeAsInitCode(bytecode);
-            if (wrappedInitCode.length != bytecode.length) {
-                System.out.println("[DEPLOY] Wrapped init code length: " + wrappedInitCode.length + " bytes");
-                simpleWorld = new SimpleWorld();
-                simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
-
-                var retryExecutor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
-                retryExecutor.messageFrameType(MessageFrame.Type.CONTRACT_CREATION);
-                retryExecutor.sender(senderAddress);
-                retryExecutor.receiver(contractAddr);
-                retryExecutor.contract(contractAddr);
-                retryExecutor.code(Bytes.wrap(wrappedInitCode));
-                retryExecutor.callData(Bytes.EMPTY);
-                retryExecutor.gas(transaction.getGasLimit());
-                WorldUpdater retryUpdater = simpleWorld.updater();
-                retryExecutor.worldUpdater(retryUpdater);
-                retryExecutor.commitWorldState();
-                constructorOutput = retryExecutor.execute();
-                System.out.println("[DEPLOY] Retry constructor output length: " + constructorOutput.size() + " bytes");
-
-                besuContract = retryUpdater.getAccount(contractAddr);
-                if (besuContract == null) {
-                    besuContract = (MutableAccount) simpleWorld.get(contractAddr);
-                }
-            }
         }
 
         if (besuContract == null) {
@@ -238,11 +209,11 @@ public class TransactionExecutor {
 
     // TODO: retornamos sempre true
     private boolean executeContractCall() {
-        System.out.println("[CALL] Starting contract call from " + transaction.getFrom() 
-            + " to " + transaction.getTo());
+        System.out.println("[CALL] Starting contract call from " + transaction.getFrom()
+                + " to " + transaction.getTo());
         System.out.println("[CALL] Input length: " + transaction.getInput().length + " bytes");
-        System.out.println("[CALL] Calldata (hex): " 
-            + HexFormat.of().formatHex(transaction.getInput()));
+        System.out.println("[CALL] Calldata (hex): "
+                + HexFormat.of().formatHex(transaction.getInput()));
 
         // validate target is a contract
         String contractAddress = transaction.getTo().toLowerCase();
@@ -293,7 +264,7 @@ public class TransactionExecutor {
         executor.callData(Bytes.wrap(transaction.getInput()));
         executor.gas(transaction.getGasLimit());
 
-        final long[] gasUsed = {0};
+        final long[] gasUsed = { 0 };
         executor.tracer(new OperationTracer() {
             @Override
             public void tracePostExecution(MessageFrame frame, Operation.OperationResult operationResult) {
@@ -322,8 +293,8 @@ public class TransactionExecutor {
 
         // detect revert by checking if any storage changed
         boolean anyStorageChanged = updatedStorage.entrySet().stream()
-            .anyMatch(e -> !e.getValue().equals(
-                contract.getStorage().getOrDefault(e.getKey(), "")));
+                .anyMatch(e -> !e.getValue().equals(
+                        contract.getStorage().getOrDefault(e.getKey(), "")));
 
         if (!anyStorageChanged) {
             System.err.println("[CALL] EVM call reverted - no storage changes detected");
@@ -359,7 +330,7 @@ public class TransactionExecutor {
         executionContext.consumeGas(baseCost);
 
         long gasForEVM = transaction.getGasLimit() - baseCost;
-        if (gasForEVM <= 0) 
+        if (gasForEVM <= 0)
             throw new IllegalStateException("Not enough gas for EVM execution after base costs");
 
         SimpleWorld simpleWorld = new SimpleWorld();
@@ -388,14 +359,24 @@ public class TransactionExecutor {
         executor.callData(Bytes.wrap(transaction.getInput()));
         executor.gas(transaction.getGasLimit());
 
-        final long[] gasUsed = {0};
+        final long[] gasUsed = { 0 };
         executor.tracer(new OperationTracer() {
             @Override
             public void tracePostExecution(MessageFrame frame, Operation.OperationResult operationResult) {
                 gasUsed[0] = transaction.getGasLimit() - frame.getRemainingGas();
             }
         });
+        // Check if contract code is actually loaded
+        byte[] contractRuntimeCode = contract.getRuntimeCode();
+        System.out.println("[GET_IST_BALANCE] Contract runtime code length: " + contractRuntimeCode.length);
+        if (contractRuntimeCode.length == 0) {
+            System.err.println("[GET_IST_BALANCE] ERROR: Contract has no runtime code!");
+            return false;
+        }
 
+        // Log the call data
+        System.out.println("[GET_IST_BALANCE] Call data (hex): " +
+                HexFormat.of().formatHex(transaction.getInput()));
         // execute read-only call to get returned ERC-20 balance
         Bytes returnData = executor.execute();
 
@@ -405,39 +386,15 @@ public class TransactionExecutor {
         BigInteger istBalance = BigInteger.ZERO;
         if (returnData != null && !returnData.isEmpty()) {
             istBalance = new BigInteger(1, returnData.toArray());
+            System.out.println("[GET_IST_BALANCE] Raw return data: " + returnData.toHexString());
+        } else {
+            System.out.println("[GET_IST_BALANCE] No return data from contract call");
         }
+
+        System.out.println("[GET_IST_BALANCE] Parsed IST balance: " + istBalance.toString());
         transaction.setExecutionResult(istBalance.toString());
 
         return true;
-    }
-
-    private byte[] wrapRuntimeCodeAsInitCode(byte[] runtimeCode) {
-        if (runtimeCode == null || runtimeCode.length == 0) {
-            return new byte[0];
-        }
-        if (runtimeCode.length > 0xFFFF) {
-            throw new IllegalArgumentException("Runtime code too large for PUSH2 init wrapper: " + runtimeCode.length);
-        }
-
-        int size = runtimeCode.length;
-        byte sizeHi = (byte) ((size >> 8) & 0xFF);
-        byte sizeLo = (byte) (size & 0xFF);
-
-        // PUSH2 size; PUSH2 0x000d; PUSH0; CODECOPY; PUSH2 size; PUSH0; RETURN
-        byte[] prefix = new byte[] {
-                0x61, sizeHi, sizeLo,
-                0x61, 0x00, 0x0d,
-                0x5f,
-                0x39,
-                0x61, sizeHi, sizeLo,
-                0x5f,
-                (byte) 0xf3
-        };
-
-        byte[] initCode = new byte[prefix.length + runtimeCode.length];
-        System.arraycopy(prefix, 0, initCode, 0, prefix.length);
-        System.arraycopy(runtimeCode, 0, initCode, prefix.length, runtimeCode.length);
-        return initCode;
     }
 
 }
