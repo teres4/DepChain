@@ -276,7 +276,7 @@ public class TransactionExecutor {
         executor.worldUpdater(callUpdater);
         executor.commitWorldState();
         executor.callData(Bytes.wrap(transaction.getInput()));
-        executor.gas(transaction.getGasLimit());
+        executor.gas(gasForEVM);
         executor.tracer(tracer);
 
         // execute
@@ -284,11 +284,31 @@ public class TransactionExecutor {
         Bytes returnData = executor.execute();
         System.out.println("[CALL] EVM execution complete");
 
-        int number = extractIntegerFromReturnData(byteArrayOutputStream);
-        System.out.println(
-                "[CALL] Output of 'transfer():' " + Integer.toString(number));
+        String traceOutput = byteArrayOutputStream.toString();
+        String[] lines = traceOutput.split("\n");
 
-        // TODO: missing evm gas used
+        long evmGasUsed = 0;
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i].trim();
+            if (!line.isEmpty()) {
+                try {
+                    JsonObject node = JsonParser.parseString(line).getAsJsonObject();
+                    if (node.has("gas")) {
+                        long gasRemaining = node.get("gas").getAsLong();
+                        evmGasUsed = gasForEVM - gasRemaining;
+                        System.out.println("[CALL] Extracted gas used from trace: " + evmGasUsed);
+                        System.out.println("[CALL] Remaining gas: " + gasRemaining);
+                        System.err.println("[CALL] Gas limit: " + transaction.getGasLimit());
+                    }
+                } catch (Exception e) {
+                    System.err.println("[CALL] Failed to parse last trace line: " + e.getMessage());
+                }
+                break;
+            }
+        }
+
+        System.out.println("[CALL] EVM gas used: " + evmGasUsed);
+        executionContext.consumeGas(evmGasUsed);
 
         // update storage
         Map<String, String> updatedStorage = new HashMap<>(contract.getStorage());
@@ -319,6 +339,11 @@ public class TransactionExecutor {
 
         contract.updateStorage(updatedStorage);
         accounts.put(contractAddress, contract);
+
+        int number = extractIntegerFromReturnData(byteArrayOutputStream);
+        System.out.println(
+            "[CALL] Output of 'transfer():' " + Integer.toString(number)
+        );
 
         if (isGetIstBalance) {
             BigInteger istBalance = number >= 0 ? BigInteger.valueOf(number) : BigInteger.ZERO;
