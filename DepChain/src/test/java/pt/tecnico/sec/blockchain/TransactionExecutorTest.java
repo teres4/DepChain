@@ -5,8 +5,10 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -153,6 +155,62 @@ class TransactionExecutorTest {
         assertEquals(1, sender.getNonce());
         assertEquals(21_000, tx.getGasUsed());
         assertEquals(Transaction.State.REVERTED, tx.getState());
+    }
+
+    @Test
+    @DisplayName("rejects transactions without gas (zero price or limit)")
+    void TrejectsTransactionsWithoutGas() {
+        assertThrows(IllegalArgumentException.class,
+            () -> new Transaction(
+                Transaction.Type.CONTRACT_CALL,
+                SENDER,
+                RECEIVER,
+                1,
+                new byte[0],
+                0,
+                0,
+                0,
+                new byte[0]));
+
+        assertThrows(IllegalArgumentException.class,
+            () -> new Transaction(
+                Transaction.Type.DEPCOIN_TRANSFER,
+                SENDER,
+                null,
+                0,
+                new byte[0],
+                1,
+                0,
+                0,
+                new byte[0]));
+        
+        assertThrows(IllegalArgumentException.class,
+            () -> new Transaction(
+                Transaction.Type.GET_ISTCOIN_BALANCE,
+                SENDER,
+                null,
+                0,
+                new byte[0],
+                1,
+                0,
+                0,
+                new byte[0]));
+        
+        Transaction zeroGasDepBalance = new Transaction(
+            Transaction.Type.GET_DEPCOIN_BALANCE,
+            SENDER,
+            RECEIVER,
+            0,
+            new byte[0],
+            0,
+            0,
+            0,
+            new byte[] { 1 });
+
+        assertDoesNotThrow(() -> new ExecutionContext(
+            zeroGasDepBalance.getType(),
+            zeroGasDepBalance.getGasLimit(),
+            zeroGasDepBalance.getGasPrice()));
     }
 
     @Test
