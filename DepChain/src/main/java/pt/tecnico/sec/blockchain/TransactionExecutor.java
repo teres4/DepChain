@@ -1,8 +1,18 @@
 package pt.tecnico.sec.blockchain;
 
+import java.math.BigInteger;
+
 import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.Map;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+
+import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonParser;
+
+import org.hyperledger.besu.evm.tracing.StandardJsonTracer;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -10,11 +20,11 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.MutableAccount;
-import org.hyperledger.besu.evm.operation.Operation;
-import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.fluent.EVMExecutor;
 import org.hyperledger.besu.evm.fluent.SimpleWorld;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import pt.tecnico.sec.account.Account;
@@ -64,10 +74,15 @@ public class TransactionExecutor {
         try {
             if (transaction.isDepCoinTransfer()) {
                 success = executeDepCoinTransfer();
+            } else if (transaction.isGetDepCoinBalance()) {
+                success = true;
+                transaction.setExecutionResult(Long.toString(sender.getBalance()));
+            } else if (transaction.isGetIstCoinBalance()) {
+                success = executeContractCall(true);
             } else if (transaction.isContractDeployment()) {
                 success = executeContractDeployment();
             } else if (transaction.isContractCall()) {
-                success = executeContractCall();
+                success = executeContractCall(false);
             } else {
                 throw new IllegalArgumentException("Unknown transaction type");
             }
@@ -133,8 +148,8 @@ public class TransactionExecutor {
 
         executionContext.consumeGas(BASE_CONTRACT_DEPLOYMENT_COST);
         executionContext.consumeGas(GAS_PER_INPUT_BYTE * bytecode.length);
-        System.out.println("[DEPLOY] Gas consumed for deployment base + bytecode: " 
-            + (BASE_CONTRACT_DEPLOYMENT_COST + GAS_PER_INPUT_BYTE * bytecode.length));
+        System.out.println("[DEPLOY] Gas consumed for deployment base + bytecode: "
+                + (BASE_CONTRACT_DEPLOYMENT_COST + GAS_PER_INPUT_BYTE * bytecode.length));
 
         SimpleWorld simpleWorld = new SimpleWorld();
         Address senderAddress = Address.fromHexString(transaction.getFrom());
@@ -144,8 +159,8 @@ public class TransactionExecutor {
             System.err.println("[DEPLOY] Sender account not found: " + transaction.getFrom());
             throw new IllegalStateException("Sender account not found: " + transaction.getFrom());
         }
-        System.out.println("[DEPLOY] Sender balance: " + sender.getBalance() 
-            + ", nonce: " + sender.getNonce());
+        System.out.println("[DEPLOY] Sender balance: " + sender.getBalance()
+                + ", nonce: " + sender.getNonce());
 
         simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
         System.out.println("[DEPLOY] Using nonce for address derivation: " + sender.getNonce());
@@ -171,35 +186,6 @@ public class TransactionExecutor {
         MutableAccount besuContract = deploymentUpdater.getAccount(contractAddr);
         if (besuContract == null) {
             besuContract = (MutableAccount) simpleWorld.get(contractAddr);
-        }
-
-        if (besuContract == null) {
-            System.out.println("[DEPLOY] Contract not found after first attempt, retrying with wrapped init code...");
-            byte[] wrappedInitCode = wrapRuntimeCodeAsInitCode(bytecode);
-            if (wrappedInitCode.length != bytecode.length) {
-                System.out.println("[DEPLOY] Wrapped init code length: " + wrappedInitCode.length + " bytes");
-                simpleWorld = new SimpleWorld();
-                simpleWorld.createAccount(senderAddress, sender.getNonce(), Wei.of(sender.getBalance()));
-
-                var retryExecutor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
-                retryExecutor.messageFrameType(MessageFrame.Type.CONTRACT_CREATION);
-                retryExecutor.sender(senderAddress);
-                retryExecutor.receiver(contractAddr);
-                retryExecutor.contract(contractAddr);
-                retryExecutor.code(Bytes.wrap(wrappedInitCode));
-                retryExecutor.callData(Bytes.EMPTY);
-                retryExecutor.gas(transaction.getGasLimit());
-                WorldUpdater retryUpdater = simpleWorld.updater();
-                retryExecutor.worldUpdater(retryUpdater);
-                retryExecutor.commitWorldState();
-                constructorOutput = retryExecutor.execute();
-                System.out.println("[DEPLOY] Retry constructor output length: " + constructorOutput.size() + " bytes");
-
-                besuContract = retryUpdater.getAccount(contractAddr);
-                if (besuContract == null) {
-                    besuContract = (MutableAccount) simpleWorld.get(contractAddr);
-                }
-            }
         }
 
         if (besuContract == null) {
@@ -231,12 +217,12 @@ public class TransactionExecutor {
     }
 
     // TODO: retornamos sempre true
-    private boolean executeContractCall() {
-        System.out.println("[CALL] Starting contract call from " + transaction.getFrom() 
-            + " to " + transaction.getTo());
+    private boolean executeContractCall(boolean isGetIstBalance) {
+        System.out.println("[CALL] Starting contract call from " + transaction.getFrom()
+                + " to " + transaction.getTo());
         System.out.println("[CALL] Input length: " + transaction.getInput().length + " bytes");
-        System.out.println("[CALL] Calldata (hex): " 
-            + HexFormat.of().formatHex(transaction.getInput()));
+        System.out.println("[CALL] Calldata (hex): "
+                + HexFormat.of().formatHex(transaction.getInput()));
 
         // validate target is a contract
         String contractAddress = transaction.getTo().toLowerCase();
@@ -274,6 +260,11 @@ public class TransactionExecutor {
         }
         System.out.println("[CALL] Loaded " + contract.getStorage().size() + " storage slots into EVM world");
 
+        // setup tracer to capture return value
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        PrintStream printStream = new PrintStream(byteArrayOutputStream);
+        StandardJsonTracer tracer = new StandardJsonTracer(printStream, true, true, true, true);
+
         // setup EVM executor
         var executor = EVMExecutor.evm(EvmSpecVersion.CANCUN);
         executor.code(Bytes.fromHexString(
@@ -285,26 +276,39 @@ public class TransactionExecutor {
         executor.worldUpdater(callUpdater);
         executor.commitWorldState();
         executor.callData(Bytes.wrap(transaction.getInput()));
-        executor.gas(transaction.getGasLimit());
-
-        final long[] gasUsed = {0};
-        executor.tracer(new OperationTracer() {
-            @Override
-            public void tracePostExecution(MessageFrame frame, Operation.OperationResult operationResult) {
-                gasUsed[0] = transaction.getGasLimit() - frame.getRemainingGas();
-            }
-        });
+        executor.gas(gasForEVM);
+        executor.tracer(tracer);
 
         // execute
         System.out.println("[CALL] Executing EVM call...");
         Bytes returnData = executor.execute();
         System.out.println("[CALL] EVM execution complete");
-        System.out.println("[CALL] Return data (hex): " + returnData.toHexString());
-        System.out.println("[CALL] Return data length: " + returnData.size());
 
-        // gas: EVM execution cost
-        System.out.println("[CALL] EVM gas used: " + gasUsed[0]);
-        executionContext.consumeGas(gasUsed[0]);
+        String traceOutput = byteArrayOutputStream.toString();
+        String[] lines = traceOutput.split("\n");
+
+        long evmGasUsed = 0;
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i].trim();
+            if (!line.isEmpty()) {
+                try {
+                    JsonObject node = JsonParser.parseString(line).getAsJsonObject();
+                    if (node.has("gas")) {
+                        long gasRemaining = node.get("gas").getAsLong();
+                        evmGasUsed = gasForEVM - gasRemaining;
+                        System.out.println("[CALL] Extracted gas used from trace: " + evmGasUsed);
+                        System.out.println("[CALL] Remaining gas: " + gasRemaining);
+                        System.err.println("[CALL] Gas limit: " + transaction.getGasLimit());
+                    }
+                } catch (Exception e) {
+                    System.err.println("[CALL] Failed to parse last trace line: " + e.getMessage());
+                }
+                break;
+            }
+        }
+
+        System.out.println("[CALL] EVM gas used: " + evmGasUsed);
+        executionContext.consumeGas(evmGasUsed);
 
         // update storage
         Map<String, String> updatedStorage = new HashMap<>(contract.getStorage());
@@ -312,6 +316,16 @@ public class TransactionExecutor {
         if (updatedContract != null) {
             updatedContract.getUpdatedStorage()
                     .forEach((k, v) -> updatedStorage.put(k.toHexString(), v.toHexString()));
+        }
+
+        // detect revert by checking if any storage changed
+        boolean anyStorageChanged = updatedStorage.entrySet().stream()
+                .anyMatch(e -> !e.getValue().equals(
+                        contract.getStorage().getOrDefault(e.getKey(), "")));
+
+        if (!anyStorageChanged && !isGetIstBalance) {
+            System.err.println("[CALL] EVM call reverted - no storage changes detected");
+            return false;
         }
 
         System.out.println("[CALL] Storage slots changed by this call:");
@@ -326,37 +340,37 @@ public class TransactionExecutor {
         contract.updateStorage(updatedStorage);
         accounts.put(contractAddress, contract);
 
+        int number = extractIntegerFromReturnData(byteArrayOutputStream);
+        System.out.println(
+            "[CALL] Output of 'transfer():' " + Integer.toString(number)
+        );
+
+        if (isGetIstBalance) {
+            BigInteger istBalance = number >= 0 ? BigInteger.valueOf(number) : BigInteger.ZERO;
+            System.out.println("[CALL] Parsed IST balance: " + istBalance.toString());
+            transaction.setExecutionResult(istBalance.toString());
+        }
+
         System.out.println("[CALL] Contract call completed successfully");
         return true;
     }
 
-    private byte[] wrapRuntimeCodeAsInitCode(byte[] runtimeCode) {
-        if (runtimeCode == null || runtimeCode.length == 0) {
-            return new byte[0];
-        }
-        if (runtimeCode.length > 0xFFFF) {
-            throw new IllegalArgumentException("Runtime code too large for PUSH2 init wrapper: " + runtimeCode.length);
-        }
+    public static int extractIntegerFromReturnData(
+            ByteArrayOutputStream byteArrayOutputStream) {
+        String[] lines = byteArrayOutputStream.toString().split("\\r?\\n");
+        JsonObject jsonObject = JsonParser.parseString(
+                lines[lines.length - 1]).getAsJsonObject();
 
-        int size = runtimeCode.length;
-        byte sizeHi = (byte) ((size >> 8) & 0xFF);
-        byte sizeLo = (byte) (size & 0xFF);
+        String memory = jsonObject.get("memory").getAsString();
 
-        // PUSH2 size; PUSH2 0x000d; PUSH0; CODECOPY; PUSH2 size; PUSH0; RETURN
-        byte[] prefix = new byte[] {
-                0x61, sizeHi, sizeLo,
-                0x61, 0x00, 0x0d,
-                0x5f,
-                0x39,
-                0x61, sizeHi, sizeLo,
-                0x5f,
-                (byte) 0xf3
-        };
+        JsonArray stack = jsonObject.get("stack").getAsJsonArray();
+        int offset = Integer.decode(stack.get(stack.size() - 1).getAsString());
+        int size = Integer.decode(stack.get(stack.size() - 2).getAsString());
 
-        byte[] initCode = new byte[prefix.length + runtimeCode.length];
-        System.arraycopy(prefix, 0, initCode, 0, prefix.length);
-        System.arraycopy(runtimeCode, 0, initCode, prefix.length, runtimeCode.length);
-        return initCode;
+        String returnData = memory.substring(
+                2 + offset * 2,
+                2 + offset * 2 + size * 2);
+        return Integer.decode("0x" + returnData);
     }
 
 }

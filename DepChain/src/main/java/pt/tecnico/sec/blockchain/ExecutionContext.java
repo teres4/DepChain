@@ -1,5 +1,7 @@
 package pt.tecnico.sec.blockchain;
 
+import pt.tecnico.sec.blockchain.Transaction.Type;
+
 /**
  * Execution context for tracking gas usage during transaction execution.
  * Maintains the accumulated gas used and available gas limit.
@@ -9,8 +11,9 @@ public class ExecutionContext {
     private final long gasPrice;
     private long gasUsed = 0;
 
-    public ExecutionContext(long gasLimit, long gasPrice) {
-        if (gasLimit <= 0 || gasPrice <= 0) {
+    public ExecutionContext(Type type, long gasLimit, long gasPrice) {
+        boolean isBalanceQuery = type == Type.GET_DEPCOIN_BALANCE;
+        if (!isBalanceQuery && (gasLimit <= 0 || gasPrice <= 0)) {
             throw new IllegalArgumentException("Gas limit and gas price must be positive");
         }
         this.gasLimit = gasLimit;

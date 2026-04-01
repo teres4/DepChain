@@ -109,6 +109,7 @@ public class ByzantineBlockchainReplica extends Replica {
         String attackedRecipient = "0x000000000000000000000000000000000000dEaD";
         long inflatedAmount = original.getAmount() + 1;
         return new Transaction(
+                Transaction.Type.DEPCOIN_TRANSFER,
                 original.getFrom(),
                 attackedRecipient,
                 inflatedAmount,
@@ -121,6 +122,7 @@ public class ByzantineBlockchainReplica extends Replica {
 
     private Transaction fabricatedTransaction() {
         return new Transaction(
+                Transaction.Type.DEPCOIN_TRANSFER,
                 "0x000000000000000000000000000000000000badd",
                 "0x000000000000000000000000000000000000c0de",
                 999_999,

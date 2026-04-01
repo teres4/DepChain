@@ -17,7 +17,8 @@ import pt.tecnico.sec.apl.AuthPerfLink;
 import pt.tecnico.sec.blockchain.Block;
 import pt.tecnico.sec.blockchain.Blockchain;
 import pt.tecnico.sec.blockchain.Transaction;
-import pt.tecnico.sec.client.message.*;
+import pt.tecnico.sec.client.message.Command;
+import pt.tecnico.sec.client.message.CommandResponse;
 import pt.tecnico.sec.utils.Crypto;
 
 public class Replica {
@@ -53,7 +54,8 @@ public class Replica {
     public void handleClientTransaction(Command request) {
         Transaction tx = request.getTransaction();
         String sender = tx.getFrom().toLowerCase();
-        if (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0) {
+        boolean isBalanceQuery = tx.getType() == Transaction.Type.GET_DEPCOIN_BALANCE;
+        if (!isBalanceQuery && (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0)) {
             System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
             sendResponseToClient(request.getSenderId(), tx.getNonce(), false,
                     "Invalid gasPrice or gasLimit");
@@ -72,7 +74,7 @@ public class Replica {
             return;
         }
 
-        if (account.getBalance() < tx.getGasLimit() * tx.getGasPrice()) {
+        if (!isBalanceQuery && account.getBalance() < tx.getGasLimit() * tx.getGasPrice()) {
             System.err.println("Rejected tx from " + sender + " due to insufficient balance.");
             sendResponseToClient(request.getSenderId(), tx.getNonce(), false,
                     "Insufficient balance to cover max transaction cost");
@@ -201,7 +203,7 @@ public class Replica {
         for (Map.Entry<String, ConcurrentHashMap<Long, Transaction>> entry : mempool.entrySet()) {
             String sender = entry.getKey();
             Account account = accounts.get(sender);
-
+            
             long expectedNonce = account.getNonce();
             nextNonce.put(sender, expectedNonce);
 
@@ -293,20 +295,25 @@ public class Replica {
     }
 
     private void notifyClient(Block block) {
-        if (block != null) {
-            for (Transaction tx : block.getTransactions()) {
-                String sender = tx.getFrom().toLowerCase();
-                try {
-                    long clientId = Crypto.getClientIdFromAddress(sender);
-                    String result = "Transaction " + tx.getNonce() + " included in block " + block.getBlockNumber() + "\nTransfer amount: "
-                            + tx.getAmount() + "\nGas used: " + tx.getGasUsed() + "\nCurrent balance: "
-                            + blockchain.getAccount(sender).getBalance();
-                    System.out.println("Notifying client " + clientId + " about transaction " + tx.getNonce());
-                    sendResponseToClient(clientId, tx.getNonce(), true, result);
-                } catch (Exception e) {
-                    System.err
-                            .println("Failed to notify client for transaction " + tx.getHash() + ": " + e.getMessage());
+        if (block == null) 
+            return;
+        
+        for (Transaction tx : block.getTransactions()) {
+            String sender = tx.getFrom().toLowerCase();
+            try {
+                long clientId = Crypto.getClientIdFromAddress(sender);
+                String result;
+                if (tx.getType() == Transaction.Type.GET_DEPCOIN_BALANCE || tx.getType() == Transaction.Type.GET_ISTCOIN_BALANCE) {
+                    String balance = tx.getExecutionResult();
+                    result = "Balance: " + balance;
+                } else {
+                    result = "Transaction " + tx.getNonce() + " included in block " + block.getBlockNumber() + "\nTransfer amount: "
+                        + tx.getAmount() + "\nGas used: " + tx.getGasUsed() + "\nCurrent balance: "
+                        + blockchain.getAccount(sender).getBalance();
                 }
+                sendResponseToClient(clientId, tx.getNonce(), true, result);
+            } catch (Exception e) {
+                System.err.println("Failed to notify client for transaction " + tx.getHash() + ": " + e.getMessage());
             }
         }
     }
@@ -396,15 +403,19 @@ public class Replica {
 
             // Transaction checks
             Map<String, Long> expectedNonces = new ConcurrentHashMap<>();
-            long previousFee = Long.MAX_VALUE;
+            Transaction previousTx = null;
             for (Transaction tx : block.getTransactions()) {
-                if (!validateTransaction(tx, block.getState(), expectedNonces, previousFee)) {
+                if (previousTx != null && !hasValidOrder(previousTx, tx)) {
+                    System.err.println("Transaction ordering violation between " + previousTx.getHash() + " and " + tx.getHash());
                     return false;
                 }
-                previousFee = tx.getGasPrice() * tx.getGasLimit();
+                if (!validateTransaction(tx, block.getState(), expectedNonces)) {
+                    return false;
+                }
                 expectedNonces.put(tx.getFrom().toLowerCase(),
                         expectedNonces.getOrDefault(tx.getFrom().toLowerCase(),
                                 block.getState().get(tx.getFrom().toLowerCase()).getNonce()) + 1);
+                previousTx = tx;
             }
 
             return true;
@@ -416,7 +427,7 @@ public class Replica {
     }
 
     private boolean validateTransaction(Transaction tx, Map<String, Account> state,
-            Map<String, Long> expectedNonces, long previousFee) {
+            Map<String, Long> expectedNonces) {
         if (tx == null) {
             System.err.println("Block contains a null transaction");
             return false;
@@ -430,15 +441,9 @@ public class Replica {
             return false;
         }
 
-        if (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0) {
+        boolean isBalanceQuery = tx.getType() == Transaction.Type.GET_DEPCOIN_BALANCE;
+        if (!isBalanceQuery && (tx.getGasPrice() <= 0 || tx.getGasLimit() <= 0)) {
             System.err.println("Transaction " + tx.getHash() + " has invalid gasPrice or gasLimit");
-            return false;
-        }
-
-        long fee = tx.getGasPrice() * tx.getGasLimit();
-        if (fee > previousFee) {
-            System.err.println("Transaction ordering violation: tx " + tx.getHash()
-                    + " has fee " + fee + " but previous tx had fee " + previousFee);
             return false;
         }
 
@@ -462,6 +467,19 @@ public class Replica {
         }
 
         return true;
+    }
+
+    private boolean hasValidOrder(Transaction previousTx, Transaction currentTx) {
+        String previousSender = previousTx.getFrom().toLowerCase();
+        String currentSender = currentTx.getFrom().toLowerCase();
+
+        if (previousSender.equals(currentSender)) {
+            return previousTx.getNonce() < currentTx.getNonce();
+        }
+
+        long previousFee = previousTx.getGasPrice() * previousTx.getGasLimit();
+        long currentFee = currentTx.getGasPrice() * currentTx.getGasLimit();
+        return previousFee >= currentFee;
     }
 
     private boolean isPending(String sender, long nonce) {

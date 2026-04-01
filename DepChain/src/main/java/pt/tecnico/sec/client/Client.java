@@ -226,7 +226,7 @@ public class Client {
 
     public void getISTCoinBalance() {
         try {
-            clientOps.getISTCoinBalance();
+            clientOps.getISTCoinBalance(this.gasPrice, this.gasLimit);
             System.out.println("IST Coin balance query sent successfully.");
         } catch (Exception e) {
             System.err.println("Error sending IST Coin balance query: " + e.getMessage());

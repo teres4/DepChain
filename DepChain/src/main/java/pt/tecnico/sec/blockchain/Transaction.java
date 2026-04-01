@@ -33,16 +33,26 @@ public class Transaction {
     private final String hash;
 
     private State state; // PENDING, EXECUTED, or REVERTED
+    private String executionResult; // execution output for user-facing responses 
+
+    private Type type; // DEPCOIN_TRANSFER, CONTRACT_DEPLOYMENT, CONTRACT_CALL or GET_BALANCE
 
     enum State {
         PENDING, EXECUTED, REVERTED
     }
 
-    public Transaction(String from, String to, long amount, byte[] input,
-            long gasPrice, long gasLimit, long nonce, byte[] signature) {
-        if (gasPrice <= 0 || gasLimit <= 0)
-            throw new IllegalArgumentException("gasPrice and gasLimit must be positive");
+    public enum Type {
+        DEPCOIN_TRANSFER, CONTRACT_DEPLOYMENT, CONTRACT_CALL, GET_DEPCOIN_BALANCE, GET_ISTCOIN_BALANCE
+    }
 
+    public Transaction(Type type, String from, String to, long amount, byte[] input,
+            long gasPrice, long gasLimit, long nonce, byte[] signature) {
+
+        // if it calls a contract, then gas price/limit cannot be negative or null
+        if ((type == Type.CONTRACT_DEPLOYMENT || type == Type.CONTRACT_CALL) && (gasPrice <= 0 || gasLimit <= 0))
+                throw new IllegalArgumentException("gasPrice and gasLimit must be positive");
+
+        this.type = type;
         this.from = from;
         this.to = to;
         this.amount = amount;
@@ -53,6 +63,12 @@ public class Transaction {
         this.signature = signature;
         this.hash = computeHash();
         this.state = State.PENDING;
+        this.executionResult = null;
+    }
+
+    public Transaction(Type type, String from, String to, long amount, 
+            long nonce, byte[] signature) {
+        this(type, from, to, amount, new byte[0], 0, 0, nonce, signature);
     }
 
     public byte[] toSignableBytes() {
@@ -97,6 +113,18 @@ public class Transaction {
 
     public boolean isContractCall() {
         return input.length > 0 && to != null;
+    }
+
+    public boolean isGetDepCoinBalance() {
+        return type == Type.GET_DEPCOIN_BALANCE;
+    }
+
+    public boolean isGetIstCoinBalance() {
+        return type == Type.GET_ISTCOIN_BALANCE;
+    }
+
+    public boolean isGetBalance() {
+        return type == Type.GET_DEPCOIN_BALANCE || type == Type.GET_ISTCOIN_BALANCE;
     }
 
     public String getFrom() {
@@ -149,6 +177,18 @@ public class Transaction {
 
     public void setState(State state) {
         this.state = state;
+    }
+
+    public String getExecutionResult() {
+        return executionResult;
+    }
+
+    public void setExecutionResult(String executionResult) {
+        this.executionResult = executionResult;
+    }
+
+    public Type getType() {
+        return type;
     }
 
     @Override
