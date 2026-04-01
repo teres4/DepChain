@@ -8,6 +8,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -24,6 +25,12 @@ class TransactionExecutorTest {
 
     private static final String SENDER = "0x1111111111111111111111111111111111111111";
     private static final String RECEIVER = "0x2222222222222222222222222222222222222222";
+
+
+    @BeforeEach
+    void setUp() {
+        harness = new BlockchainTestHarness(2);
+    }
 
     private BlockchainTestHarness harness;
 
