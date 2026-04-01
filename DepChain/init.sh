@@ -22,7 +22,9 @@ tmux new-session -d -s $SESSION -x 220 -y 50
 
 # ── Top half: 2x2 replica grid ──────────────────────────────────────────────
 
-tmux split-window -v -t $SESSION:0.0 -p 35
+echo "Setting up tmux panes for replicas..."
+
+tmux split-window -v -t $SESSION:0.0 
 
 # Split the top half (pane 0) into left and right columns
 tmux split-window -h -t $SESSION:0.0
