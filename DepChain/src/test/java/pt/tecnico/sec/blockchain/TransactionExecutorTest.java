@@ -26,13 +26,12 @@ class TransactionExecutorTest {
     private static final String SENDER = "0x1111111111111111111111111111111111111111";
     private static final String RECEIVER = "0x2222222222222222222222222222222222222222";
 
+    private BlockchainTestHarness harness;
 
     @BeforeEach
     void setUp() {
         harness = new BlockchainTestHarness(2);
     }
-
-    private BlockchainTestHarness harness;
 
     @Test
     @DisplayName("rejects transaction when sender cannot cover max gas")
