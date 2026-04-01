@@ -20,12 +20,12 @@ import pt.tecnico.sec.client.message.CommandType;
 import pt.tecnico.sec.replica.Replica;
 import pt.tecnico.sec.utils.Crypto;
 
-final class BlockchainE2ETestHarness {
+final class BlockchainTestHarness {
     private final Replica replica;
     private final Blockchain blockchain;
     private final CopyOnWriteArrayList<CapturedResponse> responses = new CopyOnWriteArrayList<>();
 
-    BlockchainE2ETestHarness(long replicaId) {
+    BlockchainTestHarness(long replicaId) {
         AuthPerfLink apl = mock(AuthPerfLink.class);
         doAnswer(invocation -> {
             long receiver = invocation.getArgument(0);
@@ -67,13 +67,8 @@ final class BlockchainE2ETestHarness {
         String from = Crypto.getClientAddress(claimedSenderId);
         String to = Crypto.getClientAddress(recipientId);
 
-        Transaction unsigned = new Transaction(from, to, amount, new byte[0], gasPrice, gasLimit, nonce, null);
-        PrivateKey signerPriv = Crypto.getClientPrivateKey(signerId);
-        String base64Signature = Crypto.signMessage(
-                Base64.getEncoder().encodeToString(unsigned.toSignableBytes()),
-                signerPriv);
-
-        Transaction signed = new Transaction(
+        Transaction unsigned = new Transaction(
+                Transaction.Type.DEPCOIN_TRANSFER,
                 from,
                 to,
                 amount,
@@ -81,7 +76,23 @@ final class BlockchainE2ETestHarness {
                 gasPrice,
                 gasLimit,
                 nonce,
-                Base64.getDecoder().decode(base64Signature));
+                null);
+
+        PrivateKey signerPriv = Crypto.getClientPrivateKey(signerId);
+        String signatureBase64 = Crypto.signMessage(
+                Base64.getEncoder().encodeToString(unsigned.toSignableBytes()),
+                signerPriv);
+
+        Transaction signed = new Transaction(
+                Transaction.Type.DEPCOIN_TRANSFER,
+                from,
+                to,
+                amount,
+                new byte[0],
+                gasPrice,
+                gasLimit,
+                nonce,
+                Base64.getDecoder().decode(signatureBase64));
 
         return new Command(CommandType.TRANSFERDEPCOIN, claimedSenderId, new Gson().toJson(signed));
     }

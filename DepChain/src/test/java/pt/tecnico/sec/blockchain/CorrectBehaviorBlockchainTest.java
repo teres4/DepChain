@@ -17,16 +17,16 @@ import pt.tecnico.sec.utils.Crypto;
 
 class CorrectBehaviorBlockchainTest {
 
-    private BlockchainE2ETestHarness harness;
+    private BlockchainTestHarness harness;
 
     @BeforeEach
     void setUp() {
-        harness = new BlockchainE2ETestHarness(1);
+        harness = new BlockchainTestHarness(1);
     }
 
     @Test
-    @DisplayName("E2E: signed transfer is accepted, included in block, and applied to state")
-    void transferLifecycleEndToEnd() throws Exception {
+    @DisplayName("signed transfer is accepted, included in block, and applied to state")
+    void transferLifecycle() throws Exception {
         String sender = Crypto.getClientAddress(100);
         String recipient = Crypto.getClientAddress(101);
         long senderNonce = harness.currentNonceFor(100);
@@ -55,8 +55,8 @@ class CorrectBehaviorBlockchainTest {
     }
 
     @Test
-    @DisplayName("E2E: multi-sender transactions are ordered by fee and both execute")
-    void multiSenderFeeOrderingEndToEnd() throws Exception {
+    @DisplayName("multi-sender transactions are ordered by fee and both execute")
+    void multiSenderFeeOrdering() throws Exception {
         String sender100 = Crypto.getClientAddress(100);
         String sender101 = Crypto.getClientAddress(101);
         long sender100Nonce = harness.currentNonceFor(100);

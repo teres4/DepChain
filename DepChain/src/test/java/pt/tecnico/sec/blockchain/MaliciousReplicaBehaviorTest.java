@@ -15,15 +15,15 @@ import pt.tecnico.sec.client.message.CommandResponse;
 
 class MaliciousReplicaBehaviorTest {
 
-    private BlockchainE2ETestHarness harness;
+    private BlockchainTestHarness harness;
 
     @BeforeEach
     void setUp() {
-        harness = new BlockchainE2ETestHarness(4);
+        harness = new BlockchainTestHarness(4);
     }
 
     @Test
-    @DisplayName("E2E: invalid signature is rejected before entering mempool")
+    @DisplayName("invalid signature is rejected before entering mempool")
     void invalidSignatureRejectedAtIngress() throws Exception {
         long nonce = harness.currentNonceFor(100);
         Command forged = harness.signedTransfer(100, 101, 102, 800, 2, 21_000, nonce);
@@ -37,7 +37,7 @@ class MaliciousReplicaBehaviorTest {
     }
 
     @Test
-    @DisplayName("E2E: malformed request fails while honest request still executes")
+    @DisplayName("malformed request fails while honest request still executes")
     void malformedAndHonestRequestsCoexist() throws Exception {
         long nonce100 = harness.currentNonceFor(100);
         long nonce101 = harness.currentNonceFor(101);

@@ -16,15 +16,15 @@ import pt.tecnico.sec.utils.Crypto;
 
 class ReplicaClientCollusionTest {
 
-    private BlockchainE2ETestHarness harness;
+    private BlockchainTestHarness harness;
 
     @BeforeEach
     void setUp() {
-        harness = new BlockchainE2ETestHarness(5);
+        harness = new BlockchainTestHarness(5);
     }
 
     @Test
-    @DisplayName("E2E collusion: attacker cannot spend victim funds with forged sender")
+    @DisplayName("attacker cannot spend victim funds with forged sender")
     void collusionCannotForgeVictimSpend() throws Exception {
         String victim = Crypto.getClientAddress(100);
         long victimBefore = harness.blockchain().getAccount(victim).getBalance();
@@ -42,7 +42,7 @@ class ReplicaClientCollusionTest {
     }
 
     @Test
-    @DisplayName("E2E collusion: low-fee malicious tx cannot front-run higher-fee honest tx")
+    @DisplayName("low-fee malicious tx cannot front-run higher-fee honest tx")
     void collusionCannotBypassFeeOrdering() throws Exception {
         long nonce100 = harness.currentNonceFor(100);
         long nonce102 = harness.currentNonceFor(102);
@@ -64,7 +64,7 @@ class ReplicaClientCollusionTest {
     }
 
     @Test
-    @DisplayName("E2E collusion: stale nonce double-spend attempt is rejected")
+    @DisplayName("stale nonce double-spend attempt is rejected")
     void collusionDoubleSpendStaleNonceRejected() throws Exception {
         String attacker = Crypto.getClientAddress(102);
         long nonce = harness.currentNonceFor(102);
@@ -74,7 +74,7 @@ class ReplicaClientCollusionTest {
         Block firstBlock = harness.replica().buildBlock();
         assertNotNull(firstBlock);
         harness.replica().onBlockDecided(firstBlock.toJson());
-        assertEquals(1, harness.blockchain().getAccount(attacker).getNonce());
+        assertEquals(nonce + 1, harness.blockchain().getAccount(attacker).getNonce());
 
         Command stale = harness.signedTransfer(102, 102, 101, 600, 2, 21_000, nonce);
         harness.replica().handleClientTransaction(stale);
@@ -83,4 +83,5 @@ class ReplicaClientCollusionTest {
         assertTrue(staleProposal == null || staleProposal.getTransactions().stream()
                 .noneMatch(tx -> tx.getFrom().equalsIgnoreCase(attacker) && tx.getNonce() == nonce));
     }
+
 }

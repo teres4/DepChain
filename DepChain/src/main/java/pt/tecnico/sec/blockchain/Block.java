@@ -26,7 +26,7 @@ public class Block {
     private final Map<String, Account> state;
 
     public Block(String previousBlockHash, long blockNumber,
-                 List<Transaction> transactions, Map<String, Account> state) {
+            List<Transaction> transactions, Map<String, Account> state) {
         this.previousBlockHash = previousBlockHash;
         this.blockNumber = blockNumber;
         this.transactions = sortTransactions(transactions);
@@ -35,12 +35,22 @@ public class Block {
     }
 
     public Block(String previousBlockHash, String blockHash, long blockNumber,
-                 List<Transaction> transactions, Map<String, Account> state) {
+            List<Transaction> transactions, Map<String, Account> state) {
         this.previousBlockHash = previousBlockHash;
         this.blockHash = blockHash;
         this.blockNumber = blockNumber;
         this.transactions = sortTransactions(transactions);
         this.state = state;
+    }
+
+    // For tests that need to construct invalid blocks
+    public Block(String previousBlockHash, long blockNumber,
+            List<Transaction> transactions, Map<String, Account> state, boolean skipHash) {
+        this.previousBlockHash = previousBlockHash;
+        this.blockNumber = blockNumber;
+        this.transactions = transactions;
+        this.state = state;
+        this.blockHash = skipHash ? "0000invalidhash" : computeHash();
     }
 
     private List<Transaction> sortTransactions(List<Transaction> txs) {
@@ -94,9 +104,9 @@ public class Block {
         try {
             Gson gson = new Gson();
             String content = gson.toJson(previousBlockHash)
-                + gson.toJson(blockNumber)
-                + gson.toJson(transactions)
-                + gson.toJson(state);
+                    + gson.toJson(blockNumber)
+                    + gson.toJson(transactions)
+                    + gson.toJson(state);
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             digest.update(content.getBytes());
             return HexFormat.of().formatHex(digest.digest());
@@ -120,34 +130,34 @@ public class Block {
             return ctx.deserialize(el, EOAccount.class);
         };
         Gson gson = new GsonBuilder()
-            .registerTypeAdapter(Account.class, accountAdapter)
-            .create();
+                .registerTypeAdapter(Account.class, accountAdapter)
+                .create();
         return gson.fromJson(json, Block.class);
     }
 
     public void persistToFile(String filePath) throws IOException {
         try (FileWriter writer = new FileWriter(filePath)) {
             writer.write(toJson());
-        }    
+        }
     }
 
-    public String getPreviousBlockHash() { 
-        return previousBlockHash; 
+    public String getPreviousBlockHash() {
+        return previousBlockHash;
     }
 
-    public long getBlockNumber() { 
-        return blockNumber; 
+    public long getBlockNumber() {
+        return blockNumber;
     }
 
-    public List<Transaction> getTransactions() { 
+    public List<Transaction> getTransactions() {
         return Collections.unmodifiableList(transactions);
     }
-    
-    public Map<String, Account> getState() { 
-        return Collections.unmodifiableMap(state); 
+
+    public Map<String, Account> getState() {
+        return Collections.unmodifiableMap(state);
     }
-    
-    public String getBlockHash() { 
-        return blockHash; 
+
+    public String getBlockHash() {
+        return blockHash;
     }
 }

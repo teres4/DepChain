@@ -1,6 +1,7 @@
 package pt.tecnico.sec.blockchain;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -13,16 +14,16 @@ import pt.tecnico.sec.utils.Crypto;
 
 class FrontRunningSecurityTest {
 
-    private BlockchainE2ETestHarness harness;
+    private BlockchainTestHarness harness;
 
     @BeforeEach
     void setUp() {
-        harness = new BlockchainE2ETestHarness(3);
+        harness = new BlockchainTestHarness(3);
     }
 
     @Test
-    @DisplayName("E2E: higher-fee transaction wins ordering regardless of arrival order")
-    void higherFeeOrderedFirstEndToEnd() throws Exception {
+    @DisplayName("higher-fee transaction wins ordering regardless of arrival order")
+    void higherFeeOrderedFirst() throws Exception {
         long nonce101 = harness.currentNonceFor(101);
         long nonce100 = harness.currentNonceFor(100);
         Command lowFeeFirst = harness.signedTransfer(101, 101, 102, 400, 1, 21_000, nonce101);
@@ -41,8 +42,8 @@ class FrontRunningSecurityTest {
     }
 
     @Test
-    @DisplayName("E2E: replayed nonce is rejected after first transaction is committed")
-    void replayNonceRejectedEndToEnd() throws Exception {
+    @DisplayName("replayed nonce is rejected after first transaction is committed")
+    void replayNonceRejected() throws Exception {
         String sender = Crypto.getClientAddress(100);
         long nonce = harness.currentNonceFor(100);
 
@@ -61,4 +62,5 @@ class FrontRunningSecurityTest {
         assertTrue(staleProposal == null || staleProposal.getTransactions().stream()
                 .noneMatch(tx -> tx.getFrom().equalsIgnoreCase(sender) && tx.getNonce() == nonce));
     }
+
 }
