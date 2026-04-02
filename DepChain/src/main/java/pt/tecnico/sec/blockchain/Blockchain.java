@@ -2,6 +2,7 @@ package pt.tecnico.sec.blockchain;
 
 import java.io.File;
 import java.io.IOException;
+import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -16,6 +17,7 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import pt.tecnico.sec.account.Account;
 import pt.tecnico.sec.account.ContractAccount;
 import pt.tecnico.sec.account.EOAccount;
+import pt.tecnico.sec.utils.Crypto;
 
 public class Blockchain {
     public static final long BLOCK_GAS_LIMIT = 50_000_000L;
@@ -93,8 +95,13 @@ public class Blockchain {
                     accounts.put(address, new ContractAccount(address, balance, code, storage, nonce));
                 } else {
                     // EO account
-                    // TODO: how to put the public key in here?
-                    accounts.put(address, new EOAccount(address, balance, null, nonce));
+                    try {
+                        Long clientId = Crypto.getClientIdFromAddress(address);
+                        PublicKey publicKey = Crypto.getClientPublicKey(clientId);
+                        accounts.put(address, new EOAccount(address, balance, publicKey, nonce));
+                    } catch (Exception e) {
+                        throw new RuntimeException("Error loading account " + address + " from genesis file", e);
+                    }
                 }
             }
 

@@ -23,8 +23,6 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.fluent.EVMExecutor;
 import org.hyperledger.besu.evm.fluent.SimpleWorld;
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.operation.Operation;
-import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import pt.tecnico.sec.account.Account;
@@ -216,7 +214,6 @@ public class TransactionExecutor {
         return true;
     }
 
-    // TODO: retornamos sempre true
     private boolean executeContractCall(boolean isGetIstBalance) {
         System.out.println("[CALL] Starting contract call from " + transaction.getFrom()
                 + " to " + transaction.getTo());

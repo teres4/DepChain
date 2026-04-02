@@ -44,7 +44,6 @@ public class Command {
 
     public static Command fromJson(String json) {
         Gson gson = new Gson();
-        // TODO: check if switch case is needed depending on command type
         return gson.fromJson(json, Command.class);
     }
 
