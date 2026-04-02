@@ -98,9 +98,6 @@ class ByzantineBlockTest {
                 List.of(valid.getTransactions().get(1), valid.getTransactions().get(0)),
                 valid.getState(), false);
 
-        System.out.println("Block with wrong order: " + wrongOrder.toJson());
-        System.out.println("Block with correct order: " + valid.toJson());
-
         assertFalse(harness.replica().validateBlock(wrongOrder.toJson(), false));
     }
 }

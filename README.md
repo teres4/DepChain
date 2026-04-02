@@ -45,6 +45,41 @@ This command will:
   5. Byzantine Behavior: Tests that forged or tampered messages are rejected, including PRE_COMMIT for unknown nodes, DECIDE with forged QC signatures, and replayed messages.
   6. Future Message Buffering: Ensures out-of-order messages are buffered and replayed in protocol order when the view advances, while messages beyond the lookahead window are dropped.
 
+
+### Blockchain Tests
+
+`CorrectBehaviorBlockchainTest` - Verifies happy-path block production and state updates:
+1. Signed transfer accepted, included in a proposed block, and applied to balances after decision.
+2. Multi-sender transactions are ordered by total fee (gas price * limit) and both execute.
+3. Fee ordering is global, but per-sender nonces still execute in order (A’s N+1 applies only after A’s N).
+
+`ByzantineBlockTest` - Ensures block validation rejects tampering and malformed ordering:
+1. Forged block hash is rejected during replica validation.
+2. Invalidly signed transfers are rejected before they can be proposed.
+3. Blocks with wrong previous hash links are rejected.
+4. Blocks with transactions in the wrong fee order are rejected.
+
+`FrontRunningSecurityTest` - Validates ordering and replay protection against front-running:
+1. Higher-fee transactions are ordered before lower-fee ones regardless of arrival order.
+2. Nonce replays are rejected after a transaction is committed.
+
+`MaliciousReplicaBehaviorTest` - Confirms malformed requests are isolated:
+1. Invalid signatures are rejected before entering the mempool.
+2. A malformed request is rejected while a concurrent honest request still executes.
+
+`ReplicaClientCollusionTest` - Checks collusion-resistant rules:
+1. Forged sender transactions cannot spend victim funds.
+2. Low-fee malicious transactions cannot bypass fee ordering.
+3. Stale nonce double-spend attempts are rejected.
+
+`TransactionExecutorTest` - Covers execution-layer transaction rules:
+1. Rejects transactions when sender cannot cover max gas.
+2. Executes valid transfers with correct balance, nonce, and gas.
+3. Rejects replay with stale nonce.
+4. Charges base gas on failed transfers after base cost.
+5. Rejects zero-gas contract calls/DepCoin transfers; allows zero-gas depcoin balance queries.
+6. Detects tampered payloads signed over original bytes.
+
 ```bash
 mvn test
 ```

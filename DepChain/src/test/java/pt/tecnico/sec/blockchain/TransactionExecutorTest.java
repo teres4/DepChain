@@ -159,7 +159,7 @@ class TransactionExecutorTest {
 
     @Test
     @DisplayName("rejects transactions without gas (zero price or limit)")
-    void TrejectsTransactionsWithoutGas() {
+    void rejectsTransactionsWithoutGas() {
         assertThrows(IllegalArgumentException.class,
             () -> new Transaction(
                 Transaction.Type.CONTRACT_CALL,

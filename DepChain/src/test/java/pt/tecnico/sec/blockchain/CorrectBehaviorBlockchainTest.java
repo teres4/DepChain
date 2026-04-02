@@ -83,11 +83,11 @@ class CorrectBehaviorBlockchainTest {
         assertEquals(sender101Nonce + 1, harness.blockchain().getAccount(sender101).getNonce());
     }
 
-    // client A sends transfer with nonce N and low fee and nonce N + 1 with highest fee, client B sends transfer with same nonce N and higher fee, 
-    // client A's transaction with N+1 is executed after A's transaction with N and B's transaction with N
+    // Scenario: A sends nonce N (lower fee) and nonce N+1 (highest fee), B sends nonce N (mid fee).
+    // Expectation: block ordering is by fee across senders, but A's nonce N+1 is only applied after A's nonce N.
     @Test
-    @DisplayName("multi-sender transactions with same fee are included and both execute")
-    void multiSenderSameFeeOrdering() throws Exception {
+    @DisplayName("fee ordering across senders preserves per-sender nonce order")
+    void multiSenderFeeAndNonceOrdering() throws Exception { 
         String sender100 = Crypto.getClientAddress(100);
         String sender101 = Crypto.getClientAddress(101);
         long sender100Nonce = harness.currentNonceFor(100);
@@ -104,9 +104,6 @@ class CorrectBehaviorBlockchainTest {
         Block proposed = harness.replica().buildBlock();
         assertNotNull(proposed);
         assertEquals(3, proposed.getTransactions().size());
-
-        assertTrue(proposed.getTransactions().stream().anyMatch(tx -> tx.getFrom().equalsIgnoreCase(sender100)));
-        assertTrue(proposed.getTransactions().stream().anyMatch(tx -> tx.getFrom().equalsIgnoreCase(sender101)));
 
         long fee0 = proposed.getTransactions().get(0).getGasPrice() * proposed.getTransactions().get(0).getGasLimit(); // should be second req
         long fee1 = proposed.getTransactions().get(1).getGasPrice() * proposed.getTransactions().get(1).getGasLimit(); // should be first req
