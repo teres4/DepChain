@@ -57,7 +57,7 @@ public class Consensus {
     protected final int quorumSize;
 
     // F
-    protected final int f = 1; // TODO: change this IMPORTANT!!!!!!!!!!!!!!!!!!!!!! sou lazy
+    protected final int f = (getTotalReplicas() - 1) / 3;
 
     // total number of replicas
     private final int totalReplicas;
