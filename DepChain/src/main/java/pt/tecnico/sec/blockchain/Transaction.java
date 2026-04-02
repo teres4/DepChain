@@ -49,7 +49,8 @@ public class Transaction {
             long gasPrice, long gasLimit, long nonce, byte[] signature) {
 
         // if it calls a contract, then gas price/limit cannot be negative or null
-        if ((type == Type.CONTRACT_DEPLOYMENT || type == Type.CONTRACT_CALL) && (gasPrice <= 0 || gasLimit <= 0))
+        boolean isGetBalance = type == Type.GET_DEPCOIN_BALANCE;
+        if (!isGetBalance && (gasPrice <= 0 || gasLimit <= 0))
                 throw new IllegalArgumentException("gasPrice and gasLimit must be positive");
 
         this.type = type;
