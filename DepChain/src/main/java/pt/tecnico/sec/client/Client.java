@@ -1,6 +1,9 @@
 package pt.tecnico.sec.client;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -16,10 +19,12 @@ public class Client {
     private static ClientOperations clientOps;
     private long gasPrice = 1; // Default gas price
     private long gasLimit = 100000; // Default gas limit
+    private final List<Integer> clientAccounts;
     private ExecutorService executorService = Executors.newFixedThreadPool(10);
 
     public Client(int clientId, int clientPort) throws IOException, Exception {
         this.clientId = clientId;
+        this.clientAccounts = loadClientAccounts(clientId);
         this.authPerfLink = new AuthPerfLink(this.clientId, Crypto.getClientPrivateKey(this.clientId), false,
                 clientPort);
         clientOps = new ClientOperations(this.clientId, this.authPerfLink);
@@ -148,8 +153,13 @@ public class Client {
     }
 
     public void transferISTCoin(Scanner scanner) {
-        System.out.print("Enter the recipient client ID (e.g., 101): ");
         try {
+            int senderAccountId = chooseSenderAccount(scanner);
+            if (senderAccountId < 0) {
+                return;
+            }
+
+            System.out.print("Enter the recipient client ID (e.g., 101): ");
             int recipientId = Integer.parseInt(scanner.nextLine());
 
             if (!Crypto.clientKeysExist(recipientId)) {
@@ -160,13 +170,50 @@ public class Client {
 
             System.out.print("Enter the amount of IST Coin to transfer: ");
             int amount = Integer.parseInt(scanner.nextLine());
-            clientOps.transferISTCoin(recipientId, amount, this.gasPrice, this.gasLimit);
+            clientOps.transferISTCoin(senderAccountId, recipientId, amount, this.gasPrice, this.gasLimit);
             System.out.println("Transfer request sent successfully.");
         } catch (NumberFormatException e) {
             System.err.println("Invalid input. Please enter numeric values for recipient ID and amount.");
         } catch (Exception e) {
             System.err.println("Error sending transfer request: " + e.getMessage());
         }
+    }
+
+    private List<Integer> loadClientAccounts(int defaultClientId) {
+        List<Integer> accounts = new ArrayList<>();
+        if (defaultClientId == 100) {
+            accounts.add(100);
+            accounts.add(101);
+        } else if (defaultClientId == 102) {
+            accounts.add(102);
+        }
+
+        Collections.sort(accounts);
+
+        return accounts;
+    }
+
+    private int chooseSenderAccount(Scanner scanner) {
+        System.out.println("Available sender accounts:");
+        for (int i = 0; i < this.clientAccounts.size(); i++) {
+            System.out.println((i + 1) + ". Account ID " + this.clientAccounts.get(i));
+        }
+
+        int defaultAccountId = this.clientAccounts.get(0);
+        System.out.print("Choose sender account (press Enter for default account ID " + defaultAccountId + "): ");
+        String selected = scanner.nextLine().trim();
+
+        if (selected.isEmpty()) {
+            return defaultAccountId;
+        }
+
+        int choice = Integer.parseInt(selected);
+        if (choice < 1 || choice > this.clientAccounts.size()) {
+            System.err.println("Invalid account choice.");
+            return -1;
+        }
+
+        return this.clientAccounts.get(choice - 1);
     }
 
     public void approveISTCoin(Scanner scanner) {

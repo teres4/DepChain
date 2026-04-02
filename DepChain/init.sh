@@ -48,10 +48,7 @@ sleep 5
 echo "Launching clients..."
 
 tmux split-window -h -t $SESSION:0.4
-tmux split-window -h -t $SESSION:0.4
-
 tmux send-keys -t $SESSION:0.4 "docker exec -it depchain_client1 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.client.Client -Dexec.args='100 9000' 2>&1" C-m
-tmux send-keys -t $SESSION:0.5 "docker exec -it depchain_client2 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.client.Client -Dexec.args='101 9001' 2>&1" C-m
-tmux send-keys -t $SESSION:0.6 "docker exec -it depchain_client3 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.client.Client -Dexec.args='102 9002' 2>&1" C-m
+tmux send-keys -t $SESSION:0.5 "docker exec -it depchain_client2 mvn -q exec:java -Dexec.mainClass=pt.tecnico.sec.client.Client -Dexec.args='102 9001' 2>&1" C-m
 
 tmux attach -t $SESSION

@@ -30,13 +30,12 @@ public class ClientOperations {
     private final AuthPerfLink authPerfLink;
     private final int clientId;
     private final int numReplicas;
-    private final int f; // Fault tolerance parameter
-    private long nonce = 0; // To prevent replay attacks
+    private final int f;
+    private final Map<Integer, Long> nonces = new ConcurrentHashMap<>();
 
     public static final String IST_COIN_ADDRESS = "0x86b7efc7c33d883a69cb5d57c7580a699f5d15e6";
 
     private final Map<Long, ConcurrentLinkedQueue<CommandResponse>> responsesByNonce = new ConcurrentHashMap<>();
-
     private final Map<Long, String> acceptedResults = new ConcurrentHashMap<>();
 
     public ClientOperations(int clientId, AuthPerfLink authPerfLink) {
@@ -47,6 +46,13 @@ public class ClientOperations {
         this.numReplicas = replicas.length;
         System.err.println("NUMBER OF REPLICAS " + numReplicas);
         this.f = (this.numReplicas - 1) / 3;
+    }
+
+    private long getAndIncrementNonce(int accountId) {
+        long current = nonces.getOrDefault(accountId, 0L);
+        long next = current + 1;
+        nonces.put(accountId, next);
+        return next;
     }
 
     private void sendToAllReplicas(String messageJson) {
@@ -149,7 +155,7 @@ public class ClientOperations {
         String senderAddress = Crypto.getClientAddress(this.clientId);
         String recipientAddress = Crypto.getClientAddress(recipientId);
 
-        this.nonce++;
+        long nonce = getAndIncrementNonce(this.clientId);
 
         // build unsigned transaction first to get signable bytes
         Transaction unsignedTx = new Transaction(
@@ -160,7 +166,7 @@ public class ClientOperations {
                 new byte[0],
                 gasPrice,
                 gasLimit,
-                this.nonce,
+                nonce,
                 null);
 
         // sign the transaction bytes
@@ -178,7 +184,7 @@ public class ClientOperations {
                 new byte[0],
                 gasPrice,
                 gasLimit,
-                this.nonce,
+                nonce,
                 signatureBytes);
 
         // serialize and send
@@ -186,28 +192,33 @@ public class ClientOperations {
 
         Command command = new Command(CommandType.TRANSFERDEPCOIN, this.clientId, txJson);
 
-        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
-        acceptedResults.remove(this.nonce);
+        responsesByNonce.put(nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(nonce);
 
         logger("Sending DepCoin transfer transaction: " + txJson);
 
         sendToAllReplicas(command.toJson());
-        waitForResponses(this.nonce);
-        waitForExecutionResponsesAsync(this.nonce);
+        waitForResponses(nonce);
+        waitForExecutionResponsesAsync(nonce);
     }
 
     public void transferISTCoin(int recipientId, long amount, long gasPrice, long gasLimit) throws Exception {
-        PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
+        transferISTCoin(this.clientId, recipientId, amount, gasPrice, gasLimit);
+    }
 
-        String senderAddress = Crypto.getClientAddress(this.clientId);
+    public void transferISTCoin(int senderAccountId, int recipientId, long amount, long gasPrice, long gasLimit) throws Exception {
+        if (!Crypto.clientKeysExist(senderAccountId)) {
+            throw new IllegalArgumentException("Unknown sender account ID: " + senderAccountId);
+        }
+
+        PrivateKey clientPrivKey = Crypto.getClientPrivateKey(senderAccountId);
+
+        String senderAddress = Crypto.getClientAddress(senderAccountId);
         String recipientAddress = Crypto.getClientAddress(recipientId);
         String istCoinContractAddress = IST_COIN_ADDRESS;
 
-        this.nonce++;
+        long nonce = getAndIncrementNonce(senderAccountId);
 
-        // ABI encode transfer(recipientAddress, amount) — this becomes the calldata
-        // the EVM uses the function selector to route to transfer() and decodes the
-        // arguments
         Function function = new Function(
                 "transfer",
                 Arrays.asList(
@@ -216,7 +227,6 @@ public class ClientOperations {
                 Collections.emptyList());
         byte[] input = Numeric.hexStringToByteArray(FunctionEncoder.encode(function));
 
-        // build unsigned transaction
         Transaction unsignedTx = new Transaction(
                 Transaction.Type.CONTRACT_CALL,
                 senderAddress,
@@ -225,16 +235,14 @@ public class ClientOperations {
                 input,
                 gasPrice,
                 gasLimit,
-                this.nonce,
+                nonce,
                 null);
 
-        // sign the transaction bytes
         String base64Signature = Crypto.signMessage(
                 Base64.getEncoder().encodeToString(unsignedTx.toSignableBytes()),
                 clientPrivKey);
         byte[] signatureBytes = Base64.getDecoder().decode(base64Signature);
 
-        // build final signed transaction
         Transaction tx = new Transaction(
                 Transaction.Type.CONTRACT_CALL,
                 senderAddress,
@@ -243,19 +251,20 @@ public class ClientOperations {
                 input,
                 gasPrice,
                 gasLimit,
-                this.nonce,
+                nonce,
                 signatureBytes);
 
         String txJson = new Gson().toJson(tx);
-
         Command command = new Command(CommandType.TRANSFERISTCOIN, this.clientId, txJson);
 
-        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
-        acceptedResults.remove(this.nonce);
+        responsesByNonce.put(nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(nonce);
+
+        logger("Sending IST Coin transfer from account " + senderAccountId + " to " + recipientId + " amount=" + amount);
 
         sendToAllReplicas(command.toJson());
-        waitForResponses(this.nonce);
-        waitForExecutionResponsesAsync(this.nonce);
+        waitForResponses(nonce);
+        waitForExecutionResponsesAsync(nonce);
     }
 
     public void approveISTCoin(int spenderId, long expectedCurrentAllowance, long newAllowance, long gasPrice, long gasLimit) throws Exception {
@@ -264,7 +273,7 @@ public class ClientOperations {
         String spenderAddress = Crypto.getClientAddress(spenderId);
         String istCoinContractAddress = IST_COIN_ADDRESS;
 
-        this.nonce++;
+        long nonce = getAndIncrementNonce(this.clientId);
 
         Function function = new Function(
                 "safeApprove",
@@ -278,7 +287,7 @@ public class ClientOperations {
         Transaction unsignedTx = new Transaction(
                 Transaction.Type.CONTRACT_CALL,
                 senderAddress, istCoinContractAddress, 0, input,
-                gasPrice, gasLimit, this.nonce, null);
+                gasPrice, gasLimit, nonce, null);
 
         String base64Signature = Crypto.signMessage(
                 Base64.getEncoder().encodeToString(unsignedTx.toSignableBytes()),
@@ -288,25 +297,25 @@ public class ClientOperations {
         Transaction tx = new Transaction(
                 Transaction.Type.CONTRACT_CALL,
                 senderAddress, istCoinContractAddress, 0, input,
-                gasPrice, gasLimit, this.nonce, signatureBytes);
+                gasPrice, gasLimit, nonce, signatureBytes);
 
         String txJson = new Gson().toJson(tx);
         Command command = new Command(CommandType.APPROVEISTCOIN, this.clientId, txJson);
 
-        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
-        acceptedResults.remove(this.nonce);
+        responsesByNonce.put(nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(nonce);
         sendToAllReplicas(command.toJson());
-        waitForResponses(this.nonce);
+        waitForResponses(nonce);
     }
 
     public void transferFromISTCoin(int ownerId, int recipientId, long amount, long gasPrice, long gasLimit) throws Exception {
         PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
-        String senderAddress = Crypto.getClientAddress(this.clientId);  // the spender (msg.sender)
+        String senderAddress = Crypto.getClientAddress(this.clientId);
         String ownerAddress = Crypto.getClientAddress(ownerId);
         String recipientAddress = Crypto.getClientAddress(recipientId);
         String istCoinContractAddress = IST_COIN_ADDRESS;
 
-        this.nonce++;
+        long nonce = getAndIncrementNonce(this.clientId);
 
         Function function = new Function(
                 "transferFrom",
@@ -320,7 +329,7 @@ public class ClientOperations {
         Transaction unsignedTx = new Transaction(
                 Transaction.Type.CONTRACT_CALL,
                 senderAddress, istCoinContractAddress, 0, input,
-                gasPrice, gasLimit, this.nonce, null);
+                gasPrice, gasLimit, nonce, null);
 
         String base64Signature = Crypto.signMessage(
                 Base64.getEncoder().encodeToString(unsignedTx.toSignableBytes()),
@@ -330,19 +339,18 @@ public class ClientOperations {
         Transaction tx = new Transaction(
                 Transaction.Type.CONTRACT_CALL,
                 senderAddress, istCoinContractAddress, 0, input,
-                gasPrice, gasLimit, this.nonce, signatureBytes);
+                gasPrice, gasLimit, nonce, signatureBytes);
 
         String txJson = new Gson().toJson(tx);
         Command command = new Command(CommandType.TRANSFERFROMISTCOIN, this.clientId, txJson);
 
-        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
-        acceptedResults.remove(this.nonce);
+        responsesByNonce.put(nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(nonce);
         sendToAllReplicas(command.toJson());
-        waitForResponses(this.nonce);
+        waitForResponses(nonce);
     }
 
     private void logger(String message) {
-        // print in cyan color
         System.out.println("\u001B[36m" + message + "\u001B[0m");
     }
 
@@ -350,16 +358,15 @@ public class ClientOperations {
         PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
         String senderAddress = Crypto.getClientAddress(this.clientId);
 
-        this.nonce++;
+        long nonce = getAndIncrementNonce(this.clientId);
 
-        // A GET_DEPCOIN_BALANCE tx: no recipient, no amount, no input — just signed identity + nonce
         Transaction unsignedTx = new Transaction(
                 Transaction.Type.GET_DEPCOIN_BALANCE,
                 senderAddress,
-                null,      // no recipient
-                0,         // no amount
-                this.nonce,
-                null);     // unsigned for now
+                null,
+                0,
+                nonce,
+                null);
 
         String base64Signature = Crypto.signMessage(
                 Base64.getEncoder().encodeToString(unsignedTx.toSignableBytes()),
@@ -371,28 +378,27 @@ public class ClientOperations {
                 senderAddress,
                 null,
                 0,
-                this.nonce,
+                nonce,
                 signatureBytes);
 
         String txJson = new Gson().toJson(tx);
         Command command = new Command(CommandType.GETDEPCOINBALANCE, this.clientId, txJson);
 
-        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
-        acceptedResults.remove(this.nonce);
+        responsesByNonce.put(nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(nonce);
 
         logger("Sending DepCoin balance query");
         sendToAllReplicas(command.toJson());
-        waitForResponses(this.nonce);
-        waitForExecutionResponsesAsync(this.nonce);
+        waitForResponses(nonce);
+        waitForExecutionResponsesAsync(nonce);
     }
 
     public void getISTCoinBalance(long gasPrice, long gasLimit) throws Exception {
         PrivateKey clientPrivKey = Crypto.getClientPrivateKey(this.clientId);
         String senderAddress = Crypto.getClientAddress(this.clientId);
 
-        this.nonce++;
+        long nonce = getAndIncrementNonce(this.clientId);
 
-        // ABI-encode balanceOf(senderAddress) — the ERC-20 view function
         Function function = new Function(
                 "balanceOf",
                 Arrays.asList(new Address(senderAddress)),
@@ -405,9 +411,9 @@ public class ClientOperations {
                 IST_COIN_ADDRESS,
                 0,
                 input,
-                gasPrice, 
-                gasLimit, 
-                this.nonce,
+                gasPrice,
+                gasLimit,
+                nonce,
                 null);
 
         String base64Signature = Crypto.signMessage(
@@ -423,19 +429,19 @@ public class ClientOperations {
                 input,
                 gasPrice,
                 gasLimit,
-                this.nonce,
+                nonce,
                 signatureBytes);
 
         String txJson = new Gson().toJson(tx);
         Command command = new Command(CommandType.GETISTCOINBALANCE, this.clientId, txJson);
 
-        responsesByNonce.put(this.nonce, new ConcurrentLinkedQueue<>());
-        acceptedResults.remove(this.nonce);
+        responsesByNonce.put(nonce, new ConcurrentLinkedQueue<>());
+        acceptedResults.remove(nonce);
 
         logger("Sending IST Coin balance query");
 
         sendToAllReplicas(command.toJson());
-        waitForResponses(this.nonce);
-        waitForExecutionResponsesAsync(this.nonce);
+        waitForResponses(nonce);
+        waitForExecutionResponsesAsync(nonce);
     }
 }
