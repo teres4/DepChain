@@ -63,6 +63,11 @@ This command will:
 1. Higher-fee transactions are ordered before lower-fee ones regardless of arrival order.
 2. Nonce replays are rejected after a transaction is committed.
 
+`ApprovalFrontRunningTest` - Exercises safe approval logic against front-running:
+1. Stale safeApprove (expected allowance) reverts when a spender front-runs with transferFrom.
+2. safeApprove succeeds when the expected allowance matches after spending.
+3. safeApprove blocks front-running that would otherwise allow an extra spend.
+
 `MaliciousReplicaBehaviorTest` - Confirms malformed requests are isolated:
 1. Invalid signatures are rejected before entering the mempool.
 2. A malformed request is rejected while a concurrent honest request still executes.

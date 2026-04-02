@@ -25,4 +25,5 @@ replay_pid*
 
 /DepChain/target/
 /DepChain/config/persisted
+DepChain/blocks/
 .vscode
