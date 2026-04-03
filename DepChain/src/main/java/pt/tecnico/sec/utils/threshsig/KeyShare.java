@@ -33,8 +33,7 @@ public class KeyShare implements Serializable{
   /** The secret key value used to sign messages. Should not be exposed */
   private BigInteger signVal;
   private int id;
-
-  // TODO-Rand: This is klunky.
+  
   // Maybe use a utility class with a RNG for everyone
   private static SecureRandom random;
   private MessageDigest md;

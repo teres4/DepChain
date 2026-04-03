@@ -892,7 +892,7 @@ public class Consensus {
         } else {
             return false;
         }
-        // TODO: tamos a verificar 2 vezes o mm QC, aqui e no prepare mm
+
         // justifies the proposal
         System.out.println("Checking if the QC justifying the proposal is valid...");
         QuorumCertificate highQC = prepareMessage.getHighQC();
