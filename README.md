@@ -66,7 +66,8 @@ This command will:
 `ApprovalFrontRunningTest` - Exercises safe approval logic against front-running:
 1. Stale safeApprove (expected allowance) reverts when a spender front-runs with transferFrom.
 2. safeApprove succeeds when the expected allowance matches after spending.
-3. safeApprove blocks front-running that would otherwise allow an extra spend.
+3. same-block race: spender spends 100, then owner safeApprove to 50, blocking a second spend.
+4. safeApprove blocks front-running that would otherwise allow an extra spend.
 
 `MaliciousReplicaBehaviorTest` - Confirms malformed requests are isolated:
 1. Invalid signatures are rejected before entering the mempool.

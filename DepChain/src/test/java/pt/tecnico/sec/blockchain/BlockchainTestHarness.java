@@ -1,15 +1,15 @@
 package pt.tecnico.sec.blockchain;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
-
 import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 import com.google.gson.Gson;
 
@@ -126,24 +126,20 @@ final class BlockchainTestHarness {
                 .toList();
     }
 
-    List<CommandResponse> awaitNewResponsesFor(long clientId,
-            long nonce,
-            int previousCount,
-            int atLeastNew,
-            long timeoutMs) throws InterruptedException {
+    CommandResponse sendAndWaitSingleResponse(Command command, long clientId, long nonce, long timeoutMs)
+            throws InterruptedException {
+        int previousCount = allResponsesFor(clientId, nonce).size();
+        replica.handleClientTransaction(command);
+
         long deadline = System.currentTimeMillis() + timeoutMs;
         while (System.currentTimeMillis() < deadline) {
-            List<CommandResponse> matched = allResponsesFor(clientId, nonce);
-            if (matched.size() - previousCount >= atLeastNew) {
-                return matched.subList(previousCount, matched.size());
+            List<CommandResponse> all = allResponsesFor(clientId, nonce);
+            if (all.size() > previousCount) {
+                return all.get(previousCount);
             }
             Thread.sleep(20);
         }
-        List<CommandResponse> matched = allResponsesFor(clientId, nonce);
-        if (matched.size() <= previousCount) {
-            return List.of();
-        }
-        return matched.subList(previousCount, matched.size());
+        throw new AssertionError("Timed out waiting for response for client=" + clientId + " nonce=" + nonce);
     }
 
     private record CapturedResponse(long receiverId, CommandResponse response) {

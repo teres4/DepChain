@@ -1,12 +1,11 @@
 package pt.tecnico.sec.blockchain;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Collections;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -105,6 +104,86 @@ class ApprovalFrontRunningTest {
         // but the stale safeApprove should revert due to front-running
         assertEquals(Transaction.State.EXECUTED, first.getState());
         assertEquals(Transaction.State.REVERTED, second.getState());
+    }
+
+    @Test
+    @DisplayName("same-block race: spend 100 then safeApprove to 50")
+    void sameBlockSpendThenSafeApprove() throws Exception {
+        String contract = findContractAddress();
+        String owner = Crypto.getClientAddress(100);
+        String spender = Crypto.getClientAddress(101);
+        String recipient = Crypto.getClientAddress(102);
+
+        long ownerNonce = harness.currentNonceFor(100);
+        Command approve100 = signedContractCall(
+                100,
+                100,
+                contract,
+                safeApproveInput(spender, 0, 100),
+                20,
+                GAS_LIMIT,
+                ownerNonce,
+                CommandType.APPROVEISTCOIN);
+
+        long spenderNonce = harness.currentNonceFor(101);
+
+        Command spend100 = signedContractCall(
+                101,
+                101,
+                contract,
+                transferFromInput(owner, recipient, 100),
+                15,
+                GAS_LIMIT,
+                spenderNonce,
+                CommandType.TRANSFERFROMISTCOIN);
+
+        long ownerNonce2 = ownerNonce + 1;
+        Command approve50 = signedContractCall(
+                100,
+                100,
+                contract,
+                safeApproveInput(spender, 100, 50),
+                10,
+                GAS_LIMIT,
+                ownerNonce2,
+                CommandType.APPROVEISTCOIN);
+
+        harness.replica().handleClientTransaction(approve100);
+        harness.replica().handleClientTransaction(spend100);
+        harness.replica().handleClientTransaction(approve50);
+
+        Block block2 = harness.replica().buildBlock();
+        assertNotNull(block2);
+        assertEquals(3, block2.getTransactions().size());
+        assertEquals(owner.toLowerCase(), block2.getTransactions().get(0).getFrom().toLowerCase());
+        assertEquals(spender.toLowerCase(), block2.getTransactions().get(1).getFrom().toLowerCase());
+        assertEquals(owner.toLowerCase(), block2.getTransactions().get(2).getFrom().toLowerCase());
+
+        harness.replica().onBlockDecided(block2.toJson());
+        Block decided2 = harness.blockchain().getBlock(harness.blockchain().getChainHeight() - 1);
+
+        assertEquals(Transaction.State.EXECUTED, decided2.getTransactions().get(0).getState());
+        assertEquals(Transaction.State.EXECUTED, decided2.getTransactions().get(1).getState());
+        assertEquals(Transaction.State.REVERTED, decided2.getTransactions().get(2).getState());
+
+        Command spend50 = signedContractCall(
+                101,
+                101,
+                contract,
+                transferFromInput(owner, recipient, 50),
+                5,
+                GAS_LIMIT,
+                spenderNonce + 1,
+                CommandType.TRANSFERFROMISTCOIN);
+
+        harness.replica().handleClientTransaction(spend50);
+        Block block3 = harness.replica().buildBlock();
+        assertNotNull(block3);
+        assertEquals(1, block3.getTransactions().size());
+
+        harness.replica().onBlockDecided(block3.toJson());
+        Block decided3 = harness.blockchain().getBlock(harness.blockchain().getChainHeight() - 1);
+        assertEquals(Transaction.State.REVERTED, decided3.getTransactions().get(0).getState());
     }
 
     @Test
