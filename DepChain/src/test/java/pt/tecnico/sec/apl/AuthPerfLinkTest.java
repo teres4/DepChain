@@ -8,7 +8,6 @@ import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -31,7 +30,6 @@ import static org.mockito.Mockito.when;
 
 import pt.tecnico.sec.apl.message.DataMessage;
 import pt.tecnico.sec.utils.Crypto;
-import pt.tecnico.sec.utils.DHKeyAgreement;
 import pt.tecnico.sec.utils.MemberInfo;
 import pt.tecnico.sec.utils.MemberManager;
 
@@ -47,13 +45,11 @@ public class AuthPerfLinkTest {
     private SessionManager receiverSessionManager;
     private MemberManager senderMemberManager;
     private MemberManager receiverMemberManager;
-    private DHKeyAgreement senderDH;
-    private DHKeyAgreement receiverDH;
     private KeyPair senderKeyPair;
     private KeyPair receiverKeyPair;
 
-    private static final long SENDER_ID = 1L;
-    private static final long RECEIVER_ID = 2L;
+    private static final long SENDER_ID = 100;
+    private static final long RECEIVER_ID = 102;
     private static final int SENDER_PORT = 9001;
     private static final int RECEIVER_PORT = 9002;
 
