@@ -180,6 +180,10 @@ public class Transaction {
         this.state = state;
     }
 
+    public boolean wasSuccessful() {
+        return state == State.EXECUTED;
+    }
+
     public String getExecutionResult() {
         return executionResult;
     }

@@ -140,6 +140,10 @@ public class AuthPerfLink {
 
     public void sendData(long receiverID, byte[] content) {
         try {
+            if(receiverID == 101) {
+                receiverID = 100;
+            }
+            
             Session session = sessionManager.getSession(receiverID);
             if (session == null) {
                 session = startConnection(receiverID);

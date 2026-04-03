@@ -302,16 +302,18 @@ public class Replica {
             String sender = tx.getFrom().toLowerCase();
             try {
                 long clientId = Crypto.getClientIdFromAddress(sender);
+                boolean success = tx.wasSuccessful();
                 String result;
                 if (tx.getType() == Transaction.Type.GET_DEPCOIN_BALANCE || tx.getType() == Transaction.Type.GET_ISTCOIN_BALANCE) {
                     String balance = tx.getExecutionResult();
                     result = "Balance: " + balance;
                 } else {
-                    result = "Transaction " + tx.getNonce() + " included in block " + block.getBlockNumber() + "\nTransfer amount: "
+                    String status = success ? "successful" : "failed";
+                    result = "Transaction " + tx.getNonce() + " " + status + " in block " + block.getBlockNumber() + "\nTransfer amount: "
                         + tx.getAmount() + "\nGas used: " + tx.getGasUsed() + "\nCurrent balance: "
                         + blockchain.getAccount(sender).getBalance();
                 }
-                sendResponseToClient(clientId, tx.getNonce(), true, result);
+                sendResponseToClient(clientId, tx.getNonce(), success, result);
             } catch (Exception e) {
                 System.err.println("Failed to notify client for transaction " + tx.getHash() + ": " + e.getMessage());
             }

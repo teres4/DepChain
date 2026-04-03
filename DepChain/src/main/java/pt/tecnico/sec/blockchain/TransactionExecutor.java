@@ -278,9 +278,10 @@ public class TransactionExecutor {
 
         // execute
         System.out.println("[CALL] Executing EVM call...");
-        Bytes returnData = executor.execute();
+        executor.execute();
         System.out.println("[CALL] EVM execution complete");
 
+        // extract gas used from last trace line
         String traceOutput = byteArrayOutputStream.toString();
         String[] lines = traceOutput.split("\n");
 
@@ -293,9 +294,8 @@ public class TransactionExecutor {
                     if (node.has("gas")) {
                         long gasRemaining = node.get("gas").getAsLong();
                         evmGasUsed = gasForEVM - gasRemaining;
-                        System.out.println("[CALL] Extracted gas used from trace: " + evmGasUsed);
+                        System.out.println("[CALL] EVM gas used: " + evmGasUsed);
                         System.out.println("[CALL] Remaining gas: " + gasRemaining);
-                        System.err.println("[CALL] Gas limit: " + transaction.getGasLimit());
                     }
                 } catch (Exception e) {
                     System.err.println("[CALL] Failed to parse last trace line: " + e.getMessage());
@@ -303,9 +303,30 @@ public class TransactionExecutor {
                 break;
             }
         }
-
-        System.out.println("[CALL] EVM gas used: " + evmGasUsed);
         executionContext.consumeGas(evmGasUsed);
+
+        // extract return value and check success
+        boolean callSucceeded = false;
+        try {
+            if (isGetIstBalance) {
+                BigInteger balance = extractBigIntegerFromReturnData(byteArrayOutputStream);
+                System.out.println("[CALL] IST balance: " + balance);
+                transaction.setExecutionResult(balance.toString());
+                callSucceeded = true;
+            } else {
+                int returnValue = extractIntegerFromReturnData(byteArrayOutputStream);
+                System.out.println("[CALL] Return value: " + returnValue);
+                callSucceeded = (returnValue == 1);
+            }
+        } catch (Exception e) {
+            System.out.println("[CALL] EVM call reverted: " + e.getMessage());
+            callSucceeded = false;
+        }
+
+        if (!callSucceeded) {
+            System.err.println("[CALL] EVM call failed");
+            return false;
+        }
 
         // update storage
         Map<String, String> updatedStorage = new HashMap<>(contract.getStorage());
@@ -313,16 +334,6 @@ public class TransactionExecutor {
         if (updatedContract != null) {
             updatedContract.getUpdatedStorage()
                     .forEach((k, v) -> updatedStorage.put(k.toHexString(), v.toHexString()));
-        }
-
-        // detect revert by checking if any storage changed
-        boolean anyStorageChanged = updatedStorage.entrySet().stream()
-                .anyMatch(e -> !e.getValue().equals(
-                        contract.getStorage().getOrDefault(e.getKey(), "")));
-
-        if (!anyStorageChanged && !isGetIstBalance) {
-            System.err.println("[CALL] EVM call reverted - no storage changes detected");
-            return false;
         }
 
         System.out.println("[CALL] Storage slots changed by this call:");
@@ -336,17 +347,6 @@ public class TransactionExecutor {
 
         contract.updateStorage(updatedStorage);
         accounts.put(contractAddress, contract);
-
-        int number = extractIntegerFromReturnData(byteArrayOutputStream);
-        System.out.println(
-            "[CALL] Output of 'transfer():' " + Integer.toString(number)
-        );
-
-        if (isGetIstBalance) {
-            BigInteger istBalance = number >= 0 ? BigInteger.valueOf(number) : BigInteger.ZERO;
-            System.out.println("[CALL] Parsed IST balance: " + istBalance.toString());
-            transaction.setExecutionResult(istBalance.toString());
-        }
 
         System.out.println("[CALL] Contract call completed successfully");
         return true;
@@ -368,6 +368,24 @@ public class TransactionExecutor {
                 2 + offset * 2,
                 2 + offset * 2 + size * 2);
         return Integer.decode("0x" + returnData);
+    }
+
+    public static BigInteger extractBigIntegerFromReturnData(
+        ByteArrayOutputStream byteArrayOutputStream) {
+        String[] lines = byteArrayOutputStream.toString().split("\\r?\\n");
+        JsonObject jsonObject = JsonParser.parseString(
+                lines[lines.length - 1]).getAsJsonObject();
+
+        String memory = jsonObject.get("memory").getAsString();
+
+        JsonArray stack = jsonObject.get("stack").getAsJsonArray();
+        int offset = Integer.decode(stack.get(stack.size() - 1).getAsString());
+        int size = Integer.decode(stack.get(stack.size() - 2).getAsString());
+
+        String returnData = memory.substring(
+                2 + offset * 2,
+                2 + offset * 2 + size * 2);
+        return new BigInteger(returnData, 16);
     }
 
 }
