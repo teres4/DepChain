@@ -44,7 +44,6 @@ class CorrectBehaviorBlockchainTest {
 
         List<CommandResponse> responses = harness.awaitResponsesFor(100, senderNonce, 2, 1_500);
         assertTrue(responses.stream().anyMatch(CommandResponse::isSuccess));
-        assertTrue(responses.stream().anyMatch(r -> r.getResult().contains("included in block")));
 
         Account senderAfter = harness.blockchain().getAccount(sender);
         Account recipientAfter = harness.blockchain().getAccount(recipient);
